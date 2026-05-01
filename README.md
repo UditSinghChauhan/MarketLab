@@ -12,6 +12,8 @@ MarketLab is a full-stack paper trading simulator for practicing stock trading w
 - Holdings update after executed paper trades
 - Dynamic order history, portfolio value, and P&L views
 - Simulated live market feed for watchlist, indices, and portfolio repricing
+- User-scoped watchlist with add/remove symbol controls
+- Positions view derived from live portfolio data
 - Portfolio summary cards and charts
 - Landing pages for product, pricing, support, signup, and about sections
 - Express and MongoDB backend for portfolio and order data

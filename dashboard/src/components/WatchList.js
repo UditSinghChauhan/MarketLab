@@ -1,4 +1,9 @@
-import React, { useContext, useDeferredValue, useState } from "react";
+import React, {
+  startTransition,
+  useContext,
+  useDeferredValue,
+  useState,
+} from "react";
 
 import GeneralContext from "./GeneralContext";
 
@@ -6,21 +11,48 @@ import { Tooltip, Grow } from "@mui/material";
 
 import {
   BarChartOutlined,
+  DeleteOutline,
   KeyboardArrowDown,
   KeyboardArrowUp,
-  MoreHoriz,
 } from "@mui/icons-material";
 
 import { DoughnutChart } from "./DoughnoutChart";
 import useMarketFeed from "../hooks/useMarketFeed";
+import useWatchlist from "../hooks/useWatchlist";
 
 const WatchList = () => {
+  useMarketFeed();
   const [searchTerm, setSearchTerm] = useState("");
-  const marketFeed = useMarketFeed();
+  const [symbolToAdd, setSymbolToAdd] = useState("");
+  const [error, setError] = useState("");
   const deferredSearch = useDeferredValue(searchTerm);
-  const filteredWatchlist = marketFeed.filter((stock) =>
+  const { addSymbol, availableSymbols, removeSymbol, watchlist } = useWatchlist();
+  const filteredWatchlist = watchlist.filter((stock) =>
     stock.name.toLowerCase().includes(deferredSearch.trim().toLowerCase())
   );
+
+  const handleAddSymbol = async () => {
+    const nextSymbol = symbolToAdd.trim().toUpperCase();
+
+    if (!nextSymbol) {
+      return;
+    }
+
+    if (!availableSymbols.includes(nextSymbol)) {
+      setError("Symbol is not available in the simulator");
+      return;
+    }
+
+    try {
+      await addSymbol(nextSymbol);
+      startTransition(() => {
+        setSymbolToAdd("");
+        setError("");
+      });
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || "Unable to add symbol");
+    }
+  };
 
   const data = {
     labels: filteredWatchlist.map((stock) => stock.name),
@@ -56,19 +88,56 @@ const WatchList = () => {
           type="text"
           name="search"
           id="search"
-          placeholder="Search eg: infy, reliance, tcs"
+          placeholder="Search current watchlist"
           className="search"
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value)}
         />
         <span className="counts">
-          {filteredWatchlist.length} / {marketFeed.length}
+          {filteredWatchlist.length} / {watchlist.length}
         </span>
+      </div>
+
+      <div style={{ padding: "12px 14px", borderBottom: "1px solid rgb(235, 234, 234)" }}>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <input
+            type="text"
+            placeholder="Add symbol"
+            value={symbolToAdd}
+            list="marketlab-symbols"
+            onChange={(event) => setSymbolToAdd(event.target.value)}
+            style={{
+              flex: 1,
+              minHeight: "34px",
+              border: "1px solid rgb(221, 221, 221)",
+              padding: "0 10px",
+            }}
+          />
+          <button className="btn btn-blue" onClick={handleAddSymbol}>
+            Add
+          </button>
+        </div>
+        <datalist id="marketlab-symbols">
+          {availableSymbols.map((symbol) => (
+            <option value={symbol} key={symbol} />
+          ))}
+        </datalist>
+        {error && (
+          <p style={{ color: "rgb(223, 73, 73)", fontSize: "0.75rem", marginTop: "8px" }}>
+            {error}
+          </p>
+        )}
       </div>
 
       <ul className="list">
         {filteredWatchlist.map((stock) => {
-          return <WatchListItem stock={stock} key={stock.name} />;
+          return (
+            <WatchListItem
+              stock={stock}
+              key={stock.name}
+              removeSymbol={removeSymbol}
+            />
+          );
         })}
       </ul>
 
@@ -79,7 +148,7 @@ const WatchList = () => {
 
 export default WatchList;
 
-const WatchListItem = ({ stock }) => {
+const WatchListItem = ({ stock, removeSymbol }) => {
   const [showWatchlistActions, setShowWatchlistActions] = useState(false);
 
   return (
@@ -100,13 +169,17 @@ const WatchListItem = ({ stock }) => {
         </div>
       </div>
       {showWatchlistActions && (
-        <WatchListActions uid={stock.name} price={stock.price} />
+        <WatchListActions
+          uid={stock.name}
+          price={stock.price}
+          removeSymbol={removeSymbol}
+        />
       )}
     </li>
   );
 };
 
-const WatchListActions = ({ uid, price }) => {
+const WatchListActions = ({ uid, price, removeSymbol }) => {
   const generalContext = useContext(GeneralContext);
 
   const handleBuyClick = () => {
@@ -115,6 +188,10 @@ const WatchListActions = ({ uid, price }) => {
 
   const handleSellClick = () => {
     generalContext.openSellWindow(uid, price);
+  };
+
+  const handleRemoveClick = async () => {
+    await removeSymbol(uid);
   };
 
   return (
@@ -148,9 +225,15 @@ const WatchListActions = ({ uid, price }) => {
             <BarChartOutlined className="icon" />
           </button>
         </Tooltip>
-        <Tooltip title="More" placement="top" arrow TransitionComponent={Grow}>
+        <Tooltip
+          title="Remove from watchlist"
+          placement="top"
+          arrow
+          TransitionComponent={Grow}
+          onClick={handleRemoveClick}
+        >
           <button className="action">
-            <MoreHoriz className="icon" />
+            <DeleteOutline className="icon" />
           </button>
         </Tooltip>
       </span>

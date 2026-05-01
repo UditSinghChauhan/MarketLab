@@ -8,9 +8,10 @@ const cors = require("cors");
 const { AccountModel } = require("./model/AccountModel");
 const { HoldingsModel } = require("./model/HoldingsModel");
 const { OrdersModel } = require("./model/OrdersModel");
-const { PositionsModel } = require("./model/PositionsModel");
 const { UserModel } = require("./model/UserModel");
+const { WatchlistModel } = require("./model/WatchlistModel");
 const {
+  getAvailableSymbols,
   getIndexFeed,
   getMarketFeed,
   getQuote,
@@ -45,7 +46,9 @@ let memoryAccounts = {
 };
 let memoryHoldings = [];
 let memoryOrders = [];
-let memoryPositions = [];
+let memoryWatchlists = {
+  demo: getAvailableSymbols().slice(0, 9),
+};
 
 const asyncHandler = (handler) => async (req, res) => {
   try {
@@ -314,14 +317,6 @@ const getOrders = async (userId) => {
   return OrdersModel.find({ userId }).sort({ createdAt: -1 });
 };
 
-const getPositions = async () => {
-  if (useMemoryStore) {
-    return memoryPositions;
-  }
-
-  return PositionsModel.find({});
-};
-
 const getSellOrders = async (userId) => {
   if (useMemoryStore) {
     return memoryOrders.filter(
@@ -345,6 +340,66 @@ const createOrder = async (order) => {
   }
 
   return OrdersModel.create(order);
+};
+
+const getWatchlistSymbols = async (userId) => {
+  if (useMemoryStore) {
+    if (!memoryWatchlists[userId]) {
+      memoryWatchlists[userId] = getAvailableSymbols().slice(0, 9);
+    }
+
+    return [...memoryWatchlists[userId]];
+  }
+
+  let items = await WatchlistModel.find({ userId }).sort({ createdAt: 1 });
+
+  if (!items.length) {
+    const defaultSymbols = getAvailableSymbols().slice(0, 9).map((symbol) => ({
+      userId,
+      symbol,
+    }));
+    await WatchlistModel.insertMany(defaultSymbols, { ordered: false });
+    items = await WatchlistModel.find({ userId }).sort({ createdAt: 1 });
+  }
+
+  return items.map((item) => item.symbol);
+};
+
+const getWatchlistFeed = async (userId) => {
+  const symbols = await getWatchlistSymbols(userId);
+  const marketFeed = getMarketFeed();
+
+  return symbols
+    .map((symbol) => marketFeed.find((item) => item.name === symbol))
+    .filter(Boolean);
+};
+
+const addWatchlistSymbol = async (userId, symbol) => {
+  if (useMemoryStore) {
+    const currentSymbols = await getWatchlistSymbols(userId);
+
+    if (!currentSymbols.includes(symbol)) {
+      memoryWatchlists[userId] = [...currentSymbols, symbol];
+    }
+
+    return;
+  }
+
+  await WatchlistModel.updateOne(
+    { userId, symbol },
+    { $setOnInsert: { userId, symbol } },
+    { upsert: true }
+  );
+};
+
+const removeWatchlistSymbol = async (userId, symbol) => {
+  if (useMemoryStore) {
+    const currentSymbols = await getWatchlistSymbols(userId);
+    memoryWatchlists[userId] = currentSymbols.filter((item) => item !== symbol);
+    return;
+  }
+
+  await WatchlistModel.deleteOne({ userId, symbol });
 };
 
 const getAccountSnapshot = async (user) => {
@@ -387,6 +442,26 @@ const getAccountSnapshot = async (user) => {
         : 0,
     holdingsCount: enrichedHoldings.length,
   };
+};
+
+const getDerivedPositions = async (userId) => {
+  const holdings = await getHoldings(userId);
+
+  return holdings.map((holding) => {
+    const enrichedHolding = enrichHolding(holding);
+
+    return {
+      _id: enrichedHolding._id,
+      product: "CNC",
+      name: enrichedHolding.name,
+      qty: enrichedHolding.qty,
+      avg: enrichedHolding.avg,
+      price: enrichedHolding.price,
+      pnl: enrichedHolding.pnl,
+      day: enrichedHolding.day,
+      isLoss: enrichedHolding.isLoss,
+    };
+  });
 };
 
 const validateOrder = ({ name, qty, price, mode }) => {
@@ -440,6 +515,43 @@ app.get(
       updatedAt: new Date().toISOString(),
       items: getMarketFeed(),
     });
+  })
+);
+
+app.get(
+  "/watchlist",
+  asyncHandler(async (req, res) => {
+    res.json({
+      items: await getWatchlistFeed(req.user.id),
+      availableSymbols: getAvailableSymbols(),
+    });
+  })
+);
+
+app.post(
+  "/watchlist",
+  asyncHandler(async (req, res) => {
+    const symbol = String(req.body.symbol || "").trim().toUpperCase();
+
+    if (!symbol) {
+      return res.status(400).json({ message: "Symbol is required" });
+    }
+
+    if (!getAvailableSymbols().includes(symbol)) {
+      return res.status(404).json({ message: "Symbol is not available" });
+    }
+
+    await addWatchlistSymbol(req.user.id, symbol);
+    res.status(201).json({ items: await getWatchlistFeed(req.user.id) });
+  })
+);
+
+app.delete(
+  "/watchlist/:symbol",
+  asyncHandler(async (req, res) => {
+    const symbol = String(req.params.symbol || "").trim().toUpperCase();
+    await removeWatchlistSymbol(req.user.id, symbol);
+    res.json({ items: await getWatchlistFeed(req.user.id) });
   })
 );
 
@@ -521,7 +633,7 @@ app.get(
 app.get(
   "/allPositions",
   asyncHandler(async (req, res) => {
-    res.json(await getPositions());
+    res.json(await getDerivedPositions(req.user.id));
   })
 );
 

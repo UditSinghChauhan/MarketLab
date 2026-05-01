@@ -125,6 +125,8 @@ const getIndexFeed = () => {
 
 const getQuote = (symbolName) => getMarketMap()[symbolName] || null;
 
+const getAvailableSymbols = () => marketState.map((symbol) => symbol.name);
+
 const upsertSymbol = (symbolName, fallbackPrice) => {
   const existingSymbol = marketState.find((symbol) => symbol.name === symbolName);
 
@@ -148,6 +150,7 @@ const upsertSymbol = (symbolName, fallbackPrice) => {
 };
 
 module.exports = {
+  getAvailableSymbols,
   getIndexFeed,
   getMarketFeed,
   getMarketMap,
