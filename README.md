@@ -5,8 +5,10 @@ MarketLab is a full-stack paper trading simulator for practicing stock trading w
 ## Features
 
 - Stock watchlist with price movement indicators
-- Buy order flow from the trading dashboard
-- Holdings and positions views
+- Buy and sell order flow from the trading dashboard
+- Demo account with virtual cash
+- Holdings update after executed paper trades
+- Dynamic order history, portfolio value, and P&L views
 - Portfolio summary cards and charts
 - Landing pages for product, pricing, support, signup, and about sections
 - Express and MongoDB backend for portfolio and order data
@@ -50,6 +52,9 @@ cp backend/.env.example backend/.env
 cp dashboard/.env.example dashboard/.env
 ```
 
+If `MONGO_URL` is not configured, the backend starts in memory mode so the
+paper trading demo can still run locally.
+
 Start the backend:
 
 ```bash
@@ -84,10 +89,8 @@ npm run start:frontend
 ## Roadmap
 
 - User authentication
-- Virtual wallet and cash balance
-- Complete buy and sell execution engine
-- Dynamic order history
-- Realized and unrealized P&L tracking
+- Per-user persistent wallets
+- Order validation test suite
 - Simulated live market data
 - Portfolio analytics and trade journal
 - Production deployment

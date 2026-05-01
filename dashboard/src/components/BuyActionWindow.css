@@ -87,6 +87,18 @@
     font-size: 0.8rem;
     cursor: pointer;
   }
+
+  .regular-order h4 {
+    font-size: 1rem;
+    font-weight: 500;
+    margin: 0;
+  }
+
+  .regular-order .error {
+    color: #df514c;
+    font-size: 0.8rem;
+    margin: 0;
+  }
   
   .order-validity {
     width: 70%;

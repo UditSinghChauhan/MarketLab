@@ -1,10 +1,35 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import axios from "axios";
+import API_BASE_URL from "../config/api";
+
+const formatCompact = (value) =>
+  Number(value || 0).toLocaleString("en-IN", {
+    maximumFractionDigits: 2,
+  });
 
 const Summary = () => {
+  const [account, setAccount] = useState(null);
+
+  const loadAccount = async () => {
+    const res = await axios.get(`${API_BASE_URL}/account`);
+    setAccount(res.data);
+  };
+
+  useEffect(() => {
+    loadAccount();
+    window.addEventListener("marketlab:order-filled", loadAccount);
+
+    return () => {
+      window.removeEventListener("marketlab:order-filled", loadAccount);
+    };
+  }, []);
+
+  const pnlClass = (account?.totalPnl || 0) >= 0 ? "profit" : "loss";
+
   return (
     <>
       <div className="username">
-        <h6>Hi, Demo Trader!</h6>
+        <h6>Hi, {account?.name || "Demo Trader"}!</h6>
         <hr className="divider" />
       </div>
 
@@ -15,17 +40,18 @@ const Summary = () => {
 
         <div className="data">
           <div className="first">
-            <h3>3.74k</h3>
-            <p>Margin available</p>
+            <h3>{formatCompact(account?.cash)}</h3>
+            <p>Virtual cash available</p>
           </div>
           <hr />
 
           <div className="second">
             <p>
-              Margins used <span>0</span>{" "}
+              Invested <span>{formatCompact(account?.investedValue)}</span>{" "}
             </p>
             <p>
-              Opening balance <span>3.74k</span>{" "}
+              Opening balance{" "}
+              <span>{formatCompact(account?.openingBalance)}</span>{" "}
             </p>
           </div>
         </div>
@@ -34,24 +60,25 @@ const Summary = () => {
 
       <div className="section">
         <span>
-          <p>Holdings (13)</p>
+          <p>Holdings ({account?.holdingsCount || 0})</p>
         </span>
 
         <div className="data">
           <div className="first">
-            <h3 className="profit">
-              1.55k <small>+5.20%</small>{" "}
+            <h3 className={pnlClass}>
+              {formatCompact(account?.totalPnl)}{" "}
+              <small>{formatCompact(account?.totalPnlPercent)}%</small>{" "}
             </h3>
-            <p>P&L</p>
+            <p>Total P&L</p>
           </div>
           <hr />
 
           <div className="second">
             <p>
-              Current Value <span>31.43k</span>{" "}
+              Current Value <span>{formatCompact(account?.currentValue)}</span>{" "}
             </p>
             <p>
-              Investment <span>29.88k</span>{" "}
+              Realized P&L <span>{formatCompact(account?.realizedPnl)}</span>{" "}
             </p>
           </div>
         </div>

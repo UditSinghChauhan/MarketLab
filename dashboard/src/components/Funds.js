@@ -1,13 +1,36 @@
-import React from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import axios from "axios";
+import API_BASE_URL from "../config/api";
+
+const formatCurrency = (value) =>
+  Number(value || 0).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
 const Funds = () => {
+  const [account, setAccount] = useState(null);
+
+  const loadAccount = async () => {
+    const res = await axios.get(`${API_BASE_URL}/account`);
+    setAccount(res.data);
+  };
+
+  useEffect(() => {
+    loadAccount();
+    window.addEventListener("marketlab:order-filled", loadAccount);
+
+    return () => {
+      window.removeEventListener("marketlab:order-filled", loadAccount);
+    };
+  }, []);
+
   return (
     <>
       <div className="funds">
-        <p>Instant, zero-cost fund transfers with UPI </p>
-        <Link className="btn btn-green">Add funds</Link>
-        <Link className="btn btn-blue">Withdraw</Link>
+        <p>Demo account uses virtual funds for paper trading practice.</p>
+        <button className="btn btn-green">Add funds</button>
+        <button className="btn btn-blue">Withdraw</button>
       </div>
 
       <div className="row">
@@ -18,66 +41,41 @@ const Funds = () => {
 
           <div className="table">
             <div className="data">
-              <p>Available margin</p>
-              <p className="imp colored">4,043.10</p>
-            </div>
-            <div className="data">
-              <p>Used margin</p>
-              <p className="imp">3,757.30</p>
-            </div>
-            <div className="data">
               <p>Available cash</p>
-              <p className="imp">4,043.10</p>
+              <p className="imp colored">{formatCurrency(account?.cash)}</p>
+            </div>
+            <div className="data">
+              <p>Invested value</p>
+              <p className="imp">{formatCurrency(account?.investedValue)}</p>
+            </div>
+            <div className="data">
+              <p>Current holdings value</p>
+              <p className="imp">{formatCurrency(account?.currentValue)}</p>
             </div>
             <hr />
             <div className="data">
               <p>Opening Balance</p>
-              <p>4,043.10</p>
+              <p>{formatCurrency(account?.openingBalance)}</p>
             </div>
             <div className="data">
-              <p>Opening Balance</p>
-              <p>3736.40</p>
+              <p>Total account value</p>
+              <p>{formatCurrency(account?.totalValue)}</p>
             </div>
             <div className="data">
-              <p>Payin</p>
-              <p>4064.00</p>
+              <p>Unrealized P&L</p>
+              <p>{formatCurrency(account?.unrealizedPnl)}</p>
             </div>
             <div className="data">
-              <p>SPAN</p>
-              <p>0.00</p>
-            </div>
-            <div className="data">
-              <p>Delivery margin</p>
-              <p>0.00</p>
-            </div>
-            <div className="data">
-              <p>Exposure</p>
-              <p>0.00</p>
-            </div>
-            <div className="data">
-              <p>Options premium</p>
-              <p>0.00</p>
-            </div>
-            <hr />
-            <div className="data">
-              <p>Collateral (Liquid funds)</p>
-              <p>0.00</p>
-            </div>
-            <div className="data">
-              <p>Collateral (Equity)</p>
-              <p>0.00</p>
-            </div>
-            <div className="data">
-              <p>Total Collateral</p>
-              <p>0.00</p>
+              <p>Realized P&L</p>
+              <p>{formatCurrency(account?.realizedPnl)}</p>
             </div>
           </div>
         </div>
 
         <div className="col">
           <div className="commodity">
-            <p>You don't have a commodity account</p>
-            <Link className="btn btn-blue">Open Account</Link>
+            <p>Commodity simulation is on the roadmap.</p>
+            <button className="btn btn-blue">Coming Soon</button>
           </div>
         </div>
       </div>
