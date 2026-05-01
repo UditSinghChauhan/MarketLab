@@ -11,6 +11,7 @@ MarketLab is a full-stack paper trading simulator for practicing stock trading w
 - User-scoped wallet, holdings, and order history
 - Holdings update after executed paper trades
 - Dynamic order history, portfolio value, and P&L views
+- Simulated live market feed for watchlist, indices, and portfolio repricing
 - Portfolio summary cards and charts
 - Landing pages for product, pricing, support, signup, and about sections
 - Express and MongoDB backend for portfolio and order data
@@ -52,6 +53,7 @@ Create a backend environment file:
 ```bash
 cp backend/.env.example backend/.env
 cp dashboard/.env.example dashboard/.env
+cp frontend/.env.example frontend/.env
 ```
 
 If `MONGO_URL` is not configured, the backend starts in memory mode so the
@@ -78,11 +80,21 @@ cd frontend
 npm start
 ```
 
+## Recruiter Demo Flow
+
+1. Start the backend, dashboard, and landing site in separate terminals.
+2. Open the landing site and use the signup CTA to launch the dashboard.
+3. Create a demo account or use the prefilled login form (`demo@marketlab.app` / `password123`).
+4. Search the watchlist, place a BUY order, then confirm cash, holdings, and orders refresh.
+5. Sell part of a holding and open Insights to explain realized P&L, exposure, and the trade journal.
+
 You can also run common commands from the repository root:
 
 ```bash
 npm run install:all
 npm run build
+npm run serve:dashboard
+npm run serve:frontend
 npm run start:backend
 npm run start:dashboard
 npm run start:frontend
@@ -94,6 +106,6 @@ npm run start:frontend
 - Password reset and profile management
 - Production-grade JWT/session hardening
 - Order validation test suite
-- Simulated live market data
+- Streamed or websocket-style market updates
 - Portfolio analytics and trade journal
 - Production deployment

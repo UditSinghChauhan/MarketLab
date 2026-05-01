@@ -28,10 +28,12 @@ const Holdings = () => {
     loadPortfolio();
     window.addEventListener("marketlab:order-filled", loadPortfolio);
     window.addEventListener("marketlab:auth-changed", loadPortfolio);
+    window.addEventListener("marketlab:market-tick", loadPortfolio);
 
     return () => {
       window.removeEventListener("marketlab:order-filled", loadPortfolio);
       window.removeEventListener("marketlab:auth-changed", loadPortfolio);
+      window.removeEventListener("marketlab:market-tick", loadPortfolio);
     };
   }, []);
 

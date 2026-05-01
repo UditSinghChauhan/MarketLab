@@ -10,6 +10,12 @@ const { HoldingsModel } = require("./model/HoldingsModel");
 const { OrdersModel } = require("./model/OrdersModel");
 const { PositionsModel } = require("./model/PositionsModel");
 const { UserModel } = require("./model/UserModel");
+const {
+  getIndexFeed,
+  getMarketFeed,
+  getQuote,
+  upsertSymbol,
+} = require("./marketData");
 
 const PORT = process.env.PORT || 3002;
 const uri = process.env.MONGO_URL;
@@ -19,7 +25,7 @@ const useMemoryStore = !uri || uri.includes("<<");
 const DEMO_USER = {
   id: "demo",
   name: "Demo Trader",
-  email: "demo@marketlab.local",
+  email: "demo@marketlab.app",
 };
 
 const app = express();
@@ -27,14 +33,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-let memoryUsers = [
-  {
-    ...DEMO_USER,
-    salt: "demo",
-    passwordHash: "demo",
-    createdAt: new Date(),
-  },
-];
+let memoryUsers = [];
 let memoryAccounts = {
   demo: {
     userId: "demo",
@@ -107,6 +106,12 @@ const hashPassword = (password, salt = crypto.randomBytes(16).toString("hex")) =
 
   return { salt, passwordHash };
 };
+
+memoryUsers.push({
+  ...DEMO_USER,
+  ...hashPassword("password123", "marketlab-demo-salt"),
+  createdAt: new Date(),
+});
 
 const safeUser = (user) => ({
   id: String(user._id || user.id),
@@ -231,17 +236,21 @@ const getDemoAccount = async (user = DEMO_USER) => {
 const enrichHolding = (holding) => {
   const rawHolding =
     typeof holding.toObject === "function" ? holding.toObject() : holding;
-  const currentValue = holding.price * holding.qty;
+  const liveQuote = getQuote(rawHolding.name);
+  const marketPrice = liveQuote?.price ?? holding.price;
+  const currentValue = marketPrice * holding.qty;
   const investedValue = holding.avg * holding.qty;
   const pnl = currentValue - investedValue;
   const pnlPercent = investedValue > 0 ? (pnl / investedValue) * 100 : 0;
 
   return {
     ...rawHolding,
+    price: marketPrice,
     currentValue,
     investedValue,
     pnl,
     net: formatPercent(pnlPercent),
+    day: liveQuote?.day || rawHolding.day || "+0.00%",
     isLoss: pnl < 0,
   };
 };
@@ -424,6 +433,23 @@ app.get(
   })
 );
 
+app.get(
+  "/market-feed",
+  asyncHandler(async (req, res) => {
+    res.json({
+      updatedAt: new Date().toISOString(),
+      items: getMarketFeed(),
+    });
+  })
+);
+
+app.get(
+  "/indices",
+  asyncHandler(async (req, res) => {
+    res.json(getIndexFeed());
+  })
+);
+
 app.post(
   "/auth/signup",
   asyncHandler(async (req, res) => {
@@ -529,6 +555,7 @@ app.post(
       }
 
       account.cash -= orderInput.value;
+      upsertSymbol(orderInput.name, orderInput.price);
 
       if (holding) {
         const totalQty = holding.qty + orderInput.qty;
@@ -557,6 +584,7 @@ app.post(
       }
 
       account.cash += orderInput.value;
+      upsertSymbol(orderInput.name, orderInput.price);
       realizedPnl = (orderInput.price - holding.avg) * orderInput.qty;
       holding.qty -= orderInput.qty;
       holding.price = orderInput.price;

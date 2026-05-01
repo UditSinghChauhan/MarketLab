@@ -20,10 +20,12 @@ const Summary = () => {
     loadAccount();
     window.addEventListener("marketlab:order-filled", loadAccount);
     window.addEventListener("marketlab:auth-changed", loadAccount);
+    window.addEventListener("marketlab:market-tick", loadAccount);
 
     return () => {
       window.removeEventListener("marketlab:order-filled", loadAccount);
       window.removeEventListener("marketlab:auth-changed", loadAccount);
+      window.removeEventListener("marketlab:market-tick", loadAccount);
     };
   }, []);
 
