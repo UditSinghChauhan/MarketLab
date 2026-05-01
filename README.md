@@ -47,6 +47,7 @@ Create a backend environment file:
 
 ```bash
 cp backend/.env.example backend/.env
+cp dashboard/.env.example dashboard/.env
 ```
 
 Start the backend:
@@ -68,6 +69,16 @@ Start the landing site:
 ```bash
 cd frontend
 npm start
+```
+
+You can also run common commands from the repository root:
+
+```bash
+npm run install:all
+npm run build
+npm run start:backend
+npm run start:dashboard
+npm run start:frontend
 ```
 
 ## Roadmap

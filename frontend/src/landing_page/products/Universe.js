@@ -1,45 +1,38 @@
 import React from "react";
+import { Link } from "react-router-dom";
+
+const modules = [
+  "Watchlist",
+  "Paper Orders",
+  "Holdings",
+  "Positions",
+  "Funds",
+  "Analytics",
+];
 
 function Universe() {
   return (
     <div className="container mt-5">
       <div className="row text-center">
-        <h1>The Zerodha Universe</h1>
+        <h1>The MarketLab Toolkit</h1>
         <p>
-          Extend your trading and investment experience even further with our
-          partner platforms
+          A modular trading simulator that can grow from a dashboard into a
+          complete fintech product.
         </p>
 
-        <div className="col-4 p-3 mt-5">
-          <img src="media/images/smallcaseLogo.png" />
-          <p className="text-small text-muted">Thematic investment platform</p>
-        </div>
-        <div className="col-4 p-3 mt-5">
-          <img src="media/images/smallcaseLogo.png" />
-          <p className="text-small text-muted">Thematic investment platform</p>
-        </div>
-        <div className="col-4 p-3 mt-5">
-          <img src="media/images/smallcaseLogo.png" />
-          <p className="text-small text-muted">Thematic investment platform</p>
-        </div>
-        <div className="col-4 p-3 mt-5">
-          <img src="media/images/smallcaseLogo.png" />
-          <p className="text-small text-muted">Thematic investment platform</p>
-        </div>
-        <div className="col-4 p-3 mt-5">
-          <img src="media/images/smallcaseLogo.png" />
-          <p className="text-small text-muted">Thematic investment platform</p>
-        </div>
-        <div className="col-4 p-3 mt-5">
-          <img src="media/images/smallcaseLogo.png" />
-          <p className="text-small text-muted">Thematic investment platform</p>
-        </div>
-        <button
+        {modules.map((module) => (
+          <div className="col-4 p-3 mt-5" key={module}>
+            <img src="media/images/smallcaseLogo.png" alt={`${module} module`} />
+            <p className="text-small text-muted">{module}</p>
+          </div>
+        ))}
+        <Link
           className="p-2 btn btn-primary fs-5 mb-5"
           style={{ width: "20%", margin: "0 auto" }}
+          to="/signup"
         >
           Signup Now
-        </button>
+        </Link>
       </div>
     </div>
   );

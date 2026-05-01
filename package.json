@@ -1,0 +1,13 @@
+{
+  "name": "marketlab",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Full-stack paper trading simulator and portfolio analytics platform.",
+  "scripts": {
+    "install:all": "npm install --prefix backend && npm install --prefix dashboard && npm install --prefix frontend",
+    "start:backend": "npm start --prefix backend",
+    "start:dashboard": "npm start --prefix dashboard",
+    "start:frontend": "npm start --prefix frontend",
+    "build": "npm run build --prefix dashboard && npm run build --prefix frontend"
+  }
+}

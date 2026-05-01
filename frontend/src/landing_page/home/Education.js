@@ -1,28 +1,35 @@
 import React from "react";
+import { Link } from "react-router-dom";
 
 function Education() {
   return (
     <div className="container mt-5">
       <div className="row">
         <div className="col-6">
-          <img src="media/images/education.svg" style={{ width: "70%" }} />
+          <img
+            src="media/images/education.svg"
+            style={{ width: "70%" }}
+            alt="Market education"
+          />
         </div>
         <div className="col-6">
-          <h1 className="mb-3 fs-2">Free and open market education</h1>
+          <h1 className="mb-3 fs-2">Free and open market practice</h1>
           <p>
-            Varsity, the largest online stock market education book in the world
-            covering everything from the basics to advanced trading.
+            MarketLab is designed for hands-on learning: place paper trades,
+            inspect portfolio changes, and understand risk before real trading.
           </p>
-          <a href="" style={{ textDecoration: "none" }}>
-            Versity <i class="fa fa-long-arrow-right" aria-hidden="true"></i>
-          </a>
+          <Link to="/product" style={{ textDecoration: "none" }}>
+            Explore simulator{" "}
+            <i className="fa fa-long-arrow-right" aria-hidden="true"></i>
+          </Link>
           <p className="mt-5">
-            TradingQ&A, the most active trading and investment community in
-            India for all your market related queries.
+            The roadmap includes trade journaling, simulated live prices, and
+            portfolio analytics so learners can review performance over time.
           </p>
-          <a href="" style={{ textDecoration: "none" }}>
-            TradingQ&A <i class="fa fa-long-arrow-right" aria-hidden="true"></i>
-          </a>
+          <Link to="/about" style={{ textDecoration: "none" }}>
+            Learn about MarketLab{" "}
+            <i className="fa fa-long-arrow-right" aria-hidden="true"></i>
+          </Link>
         </div>
       </div>
     </div>

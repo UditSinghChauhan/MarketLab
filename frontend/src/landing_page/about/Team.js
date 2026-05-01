@@ -4,7 +4,7 @@ function Team() {
   return (
     <div className="container">
       <div className="row p-3 mt-5 border-top">
-        <h1 className="text-center ">People</h1>
+        <h1 className="text-center">Builder</h1>
       </div>
 
       <div
@@ -15,24 +15,25 @@ function Team() {
           <img
             src="media/images/nithinKamath.jpg"
             style={{ borderRadius: "100%", width: "50%" }}
+            alt="MarketLab project creator"
           />
-          <h4 className="mt-5">Nithin Kamath</h4>
-          <h6>Founder, CEO</h6>
+          <h4 className="mt-5">Udit Singh Chauhan</h4>
+          <h6>Full-stack developer</h6>
         </div>
         <div className="col-6 p-3">
           <p>
-            Nithin bootstrapped and founded Zerodha in 2010 to overcome the
-            hurdles he faced during his decade long stint as a trader. Today,
-            Zerodha has changed the landscape of the Indian broking industry.
+            MarketLab is built as a recruiter-facing fintech project to
+            demonstrate product thinking, backend modeling, frontend workflows,
+            and clean iteration.
           </p>
           <p>
-            He is a member of the SEBI Secondary Market Advisory Committee
-            (SMAC) and the Market Data Advisory Committee (MDAC).
+            The project is moving from a static brokerage-style interface into a
+            complete paper trading simulator with real portfolio behavior.
           </p>
-          <p>Playing basketball is his zen.</p>
           <p>
-            Connect on <a href="">Homepage</a> / <a href="">TradingQnA</a> /{" "}
-            <a href="">Twitter</a>
+            Core focus areas include virtual order execution, portfolio
+            analytics, authentication, deployment readiness, and maintainable
+            commit history.
           </p>
         </div>
       </div>

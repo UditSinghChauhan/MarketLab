@@ -5,55 +5,52 @@ import LeftSection from "./LeftSection";
 import RightSection from "./RightSection";
 import Universe from "./Universe";
 
-import Navbar from "../Navbar";
-import Footer from "../Footer";
-
 function PricingPage() {
   return (
     <>
       <Hero />
       <LeftSection
         imageURL="media/images/kite.png"
-        productName="Kite"
-        productDesription="Our ultra-fast flagship trading platform with streaming market data, advanced charts, an elegant UI, and more. Enjoy the Kite experience seamlessly on your Android and iOS devices."
-        tryDemo=""
-        learnMore=""
-        googlePlay=""
-        appStore=""
+        productName="Trading Dashboard"
+        productDesription="A focused workspace for watchlists, holdings, positions, funds, charts, and paper order placement."
+        tryDemo="/signup"
+        learnMore="/about"
+        googlePlay="/product"
+        appStore="/product"
       />
       <RightSection
         imageURL="media/images/console.png"
-        productName="Console"
-        productDesription="The central dashboard for your Zerodha account. Gain insights into your trades and investments with in-depth reports and visualisations."
-        learnMore=""
+        productName="Portfolio Console"
+        productDesription="A portfolio view for tracking virtual capital, investment value, P&L, and trading activity as the simulator evolves."
+        learnMore="/about"
       />
       <LeftSection
         imageURL="media/images/coin.png"
-        productName="Coin"
-        productDesription="Buy direct mutual funds online, commission-free, delivered directly to your Demat account. Enjoy the investment experience on your Android and iOS devices."
-        tryDemo=""
-        learnMore=""
-        googlePlay=""
-        appStore=""
+        productName="Virtual Holdings"
+        productDesription="Track simulated stock holdings and understand how quantity, average price, current value, and returns interact."
+        tryDemo="/signup"
+        learnMore="/pricing"
+        googlePlay="/product"
+        appStore="/product"
       />
       <RightSection
         imageURL="media/images/kiteconnect.png"
-        productName="Kite Connect API"
-        productDesription="Build powerful trading platforms and experiences with our super simple HTTP/JSON APIs. If you are a startup, build your investment app and showcase it to our clientbase."
-        learnMore=""
+        productName="Trading API"
+        productDesription="Express and MongoDB APIs power orders, holdings, and positions, with a roadmap toward user wallets and complete execution flows."
+        learnMore="/about"
       />
       <LeftSection
         imageURL="media/images/varsity.png"
-        productName="Varsity mobile"
-        productDesription="An easy to grasp, collection of stock market lessons with in-depth coverage and illustrations. Content is broken down into bite-size cards to help you learn on the go."
-        tryDemo=""
-        learnMore=""
-        googlePlay=""
-        appStore=""
+        productName="Learning Roadmap"
+        productDesription="MarketLab is designed to grow into a practical learning product with trade journaling, simulated prices, and analytics."
+        tryDemo="/signup"
+        learnMore="/support"
+        googlePlay="/product"
+        appStore="/product"
       />
       <p className="text-center mt-5 mb-5">
-        Want to know more about our technology stack? Check out the Zerodha.tech
-        blog.
+        MarketLab is built as a full-stack fintech portfolio project with a
+        clear roadmap from interface clone to real paper trading product.
       </p>
       <Universe />
     </>

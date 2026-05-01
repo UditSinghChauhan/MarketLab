@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import axios from "axios";
 
 import GeneralContext from "./GeneralContext";
+import API_BASE_URL from "../config/api";
 
 import "./BuyActionWindow.css";
 
@@ -12,7 +13,7 @@ const BuyActionWindow = ({ uid }) => {
   const [stockPrice, setStockPrice] = useState(0.0);
 
   const handleBuyClick = () => {
-    axios.post("http://localhost:3002/newOrder", {
+    axios.post(`${API_BASE_URL}/newOrder`, {
       name: uid,
       qty: stockQuantity,
       price: stockPrice,
@@ -55,7 +56,7 @@ const BuyActionWindow = ({ uid }) => {
       </div>
 
       <div className="buttons">
-        <span>Margin required ₹140.65</span>
+        <span>Estimated margin: Rs. 140.65</span>
         <div>
           <Link className="btn btn-blue" onClick={handleBuyClick}>
             Buy

@@ -6,32 +6,32 @@ function Hero() {
       <div className="row p-5 mt-5 border-bottom text-center">
         <h1>Pricing</h1>
         <h3 className="text-muted mt-3 fs-5">
-          Free equity investments and flat ₹20 traday and F&O trades
+          Virtual capital, paper brokerage assumptions, and zero real-money risk
         </h3>
       </div>
       <div className="row p-5 mt-5 text-center">
         <div className="col-4 p-4">
-          <img src="media/images/pricingEquity.svg" />
-          <h1 className="fs-3">Free equity delivery</h1>
+          <img src="media/images/pricingEquity.svg" alt="Virtual delivery" />
+          <h1 className="fs-3">Free paper delivery</h1>
           <p className="text-muted">
-            All equity delivery investments (NSE, BSE), are absolutely free — ₹
-            0 brokerage.
+            Practice equity delivery flows with simulated holdings and no real
+            brokerage.
           </p>
         </div>
         <div className="col-4 p-4">
-          <img src="media/images/intradayTrades.svg" />
-          <h1 className="fs-3">Intraday and F&O trades</h1>
+          <img src="media/images/intradayTrades.svg" alt="Intraday practice" />
+          <h1 className="fs-3">Intraday assumptions</h1>
           <p className="text-muted">
-            Flat Rs. 20 or 0.03% (whichever is lower) per executed order on
-            intraday trades across equity, currency, and commodity trades.
+            Model intraday trades with configurable sample brokerage and margin
+            assumptions.
           </p>
         </div>
         <div className="col-4 p-4">
-          <img src="media/images/pricingEquity.svg" />
-          <h1 className="fs-3">Free direct MF</h1>
+          <img src="media/images/pricingEquity.svg" alt="Portfolio analytics" />
+          <h1 className="fs-3">Analytics included</h1>
           <p className="text-muted">
-            All direct mutual fund investments are absolutely free — ₹ 0
-            commissions & DP charges.
+            Track P&L, portfolio value, allocation, and performance as the
+            simulator evolves.
           </p>
         </div>
       </div>

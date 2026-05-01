@@ -5,43 +5,50 @@ function Awards() {
     <div className="container mt-5">
       <div className="row">
         <div className="col-6 p-5">
-          <img src="media/images/largestBroker.svg" />
+          <img
+            src="media/images/largestBroker.svg"
+            alt="MarketLab paper trading workflow"
+          />
         </div>
         <div className="col-6 p-5 mt-5">
-          <h1>Largest stock broker in India</h1>
+          <h1>Built for practical market learning</h1>
           <p className="mb-5">
-            2+ million Zerodha clients contribute to over 15% of all retail
-            order volumes in India daily by trading and investing in:
+            MarketLab gives beginners and student developers a realistic place
+            to understand how orders, holdings, and portfolio performance work.
           </p>
           <div className="row">
             <div className="col-6">
               <ul>
                 <li>
-                  <p>Futures and Options</p>
+                  <p>Paper equity orders</p>
                 </li>
                 <li>
-                  <p>Commodity derivatives</p>
+                  <p>Virtual portfolio tracking</p>
                 </li>
                 <li>
-                  <p>Currency derivatives</p>
+                  <p>Watchlist monitoring</p>
                 </li>
               </ul>
             </div>
             <div className="col-6">
               <ul>
                 <li>
-                  <p>Stocks & IPOs</p>
+                  <p>Holdings and positions</p>
                 </li>
                 <li>
-                  <p>Direct mutual funds</p>
+                  <p>Dashboard charts</p>
                 </li>
                 <li>
-                  <p>Bonds and Govt. Securities</p>
+                  <p>Order history roadmap</p>
                 </li>
               </ul>
             </div>
           </div>
-          <img src="media/images/pressLogos.png" style={{ width: "90%" }} />
+          <img
+            src="media/images/pressLogos.png"
+            style={{ width: "90%" }}
+            alt="MarketLab platform integrations"
+          />
         </div>
       </div>
     </div>

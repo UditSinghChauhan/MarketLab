@@ -6,13 +6,13 @@ function Hero() {
       <div className="row text-center">
         <img
           src="media/images/homeHero.png"
-          alt="Hero Image"
+          alt="MarketLab trading dashboard preview"
           className="mb-5"
         />
-        <h1 className="mt-5">Invest in everything</h1>
+        <h1 className="mt-5">Practice trading before it matters</h1>
         <p>
-          Online platform to invest in stocks, derivatives, mutual funds, and
-          more
+          MarketLab helps you place virtual trades, track holdings, and analyze
+          portfolio performance in a realistic dashboard.
         </p>
         <button
           className="p-2 btn btn-primary fs-5 mb-5"
