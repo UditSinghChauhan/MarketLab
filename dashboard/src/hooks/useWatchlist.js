@@ -2,15 +2,25 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
 import { getAuthConfig } from "../config/auth";
+import { getApiErrorMessage } from "../utils/format";
 
 const useWatchlist = () => {
   const [watchlist, setWatchlist] = useState([]);
   const [availableSymbols, setAvailableSymbols] = useState([]);
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
   const loadWatchlist = async () => {
-    const res = await axios.get(`${API_BASE_URL}/watchlist`, getAuthConfig());
-    setWatchlist(res.data.items || []);
-    setAvailableSymbols(res.data.availableSymbols || []);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/watchlist`, getAuthConfig());
+      setWatchlist(res.data.items || []);
+      setAvailableSymbols(res.data.availableSymbols || []);
+      setError("");
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, "Unable to load watchlist"));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const addSymbol = async (symbol) => {
@@ -44,6 +54,9 @@ const useWatchlist = () => {
   return {
     addSymbol,
     availableSymbols,
+    error,
+    isLoading,
+    reloadWatchlist: loadWatchlist,
     removeSymbol,
     watchlist,
   };

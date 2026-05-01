@@ -3,25 +3,29 @@ import axios from "axios";
 import { VerticalGraph } from "./VerticalGraph";
 import API_BASE_URL from "../config/api";
 import { getAuthConfig } from "../config/auth";
-
-const formatCurrency = (value) =>
-  Number(value || 0).toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+import { formatCurrency, getApiErrorMessage } from "../utils/format";
 
 const Holdings = () => {
   const [allHoldings, setAllHoldings] = useState([]);
   const [account, setAccount] = useState(null);
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
   const loadPortfolio = async () => {
-    const [holdingsRes, accountRes] = await Promise.all([
-      axios.get(`${API_BASE_URL}/allHoldings`, getAuthConfig()),
-      axios.get(`${API_BASE_URL}/account`, getAuthConfig()),
-    ]);
+    try {
+      const [holdingsRes, accountRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/allHoldings`, getAuthConfig()),
+        axios.get(`${API_BASE_URL}/account`, getAuthConfig()),
+      ]);
 
-    setAllHoldings(holdingsRes.data);
-    setAccount(accountRes.data);
+      setAllHoldings(holdingsRes.data);
+      setAccount(accountRes.data);
+      setError("");
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, "Unable to load holdings"));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -50,46 +54,67 @@ const Holdings = () => {
     ],
   };
 
+  if (isLoading) {
+    return <div className="dashboard-status">Loading holdings...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="dashboard-status error-state">
+        <strong>{error}</strong>
+        <button className="btn btn-blue" onClick={loadPortfolio}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <>
       <h3 className="title">Holdings ({allHoldings.length})</h3>
 
-      <div className="order-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Instrument</th>
-              <th>Qty.</th>
-              <th>Avg. cost</th>
-              <th>LTP</th>
-              <th>Cur. val</th>
-              <th>P&L</th>
-              <th>Net chg.</th>
-              <th>Day chg.</th>
-            </tr>
-          </thead>
+      {allHoldings.length === 0 ? (
+        <div className="empty-state">
+          Buy from the watchlist to create your first live holding.
+        </div>
+      ) : (
+        <div className="order-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Instrument</th>
+                <th>Qty.</th>
+                <th>Avg. cost</th>
+                <th>LTP</th>
+                <th>Cur. val</th>
+                <th>P&L</th>
+                <th>Net chg.</th>
+                <th>Day chg.</th>
+              </tr>
+            </thead>
 
-          <tbody>
-            {allHoldings.map((stock) => {
-              const profClass = stock.pnl >= 0 ? "profit" : "loss";
-              const dayClass = stock.isLoss ? "loss" : "profit";
+            <tbody>
+              {allHoldings.map((stock) => {
+                const profClass = stock.pnl >= 0 ? "profit" : "loss";
+                const dayClass = stock.isLoss ? "loss" : "profit";
 
-              return (
-                <tr key={stock._id || stock.name}>
-                  <td>{stock.name}</td>
-                  <td>{stock.qty}</td>
-                  <td>{stock.avg.toFixed(2)}</td>
-                  <td>{stock.price.toFixed(2)}</td>
-                  <td>{formatCurrency(stock.currentValue)}</td>
-                  <td className={profClass}>{formatCurrency(stock.pnl)}</td>
-                  <td className={profClass}>{stock.net}</td>
-                  <td className={dayClass}>{stock.day}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                return (
+                  <tr key={stock._id || stock.name}>
+                    <td>{stock.name}</td>
+                    <td>{stock.qty}</td>
+                    <td>{stock.avg.toFixed(2)}</td>
+                    <td>{stock.price.toFixed(2)}</td>
+                    <td>{formatCurrency(stock.currentValue)}</td>
+                    <td className={profClass}>{formatCurrency(stock.pnl)}</td>
+                    <td className={profClass}>{stock.net}</td>
+                    <td className={dayClass}>{stock.day}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="row">
         <div className="col">
@@ -105,7 +130,7 @@ const Holdings = () => {
           <p>Unrealized P&L</p>
         </div>
       </div>
-      <VerticalGraph data={data} />
+      {allHoldings.length > 0 && <VerticalGraph data={data} />}
     </>
   );
 };

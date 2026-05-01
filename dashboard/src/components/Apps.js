@@ -2,31 +2,32 @@ import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
 import { getAuthConfig } from "../config/auth";
-
-const formatCurrency = (value) =>
-  Number(value || 0).toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-
-const formatPercent = (value) =>
-  `${Number(value || 0) >= 0 ? "+" : ""}${Number(value || 0).toFixed(2)}%`;
+import { formatCurrency, formatPercent, getApiErrorMessage } from "../utils/format";
 
 const Apps = () => {
   const [account, setAccount] = useState(null);
   const [holdings, setHoldings] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
   const loadInsights = async () => {
-    const [accountRes, holdingsRes, ordersRes] = await Promise.all([
-      axios.get(`${API_BASE_URL}/account`, getAuthConfig()),
-      axios.get(`${API_BASE_URL}/allHoldings`, getAuthConfig()),
-      axios.get(`${API_BASE_URL}/allOrders`, getAuthConfig()),
-    ]);
+    try {
+      const [accountRes, holdingsRes, ordersRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/account`, getAuthConfig()),
+        axios.get(`${API_BASE_URL}/allHoldings`, getAuthConfig()),
+        axios.get(`${API_BASE_URL}/allOrders`, getAuthConfig()),
+      ]);
 
-    setAccount(accountRes.data);
-    setHoldings(holdingsRes.data);
-    setOrders(ordersRes.data);
+      setAccount(accountRes.data);
+      setHoldings(holdingsRes.data);
+      setOrders(ordersRes.data);
+      setError("");
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, "Unable to load insights"));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -67,6 +68,21 @@ const Apps = () => {
       sellOrdersCount: sellOrders.length,
     };
   }, [account, holdings, orders]);
+
+  if (isLoading) {
+    return <div className="dashboard-status">Loading portfolio insights...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="dashboard-status error-state">
+        <strong>{error}</strong>
+        <button className="btn btn-blue" onClick={loadInsights}>
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="insights-page">

@@ -51,6 +51,10 @@ const cases = [
       assert.equal(response.status, 200);
       assert.equal(payload.user.email, session.user.email);
       assert.equal(payload.user.name, session.user.name);
+
+      const expired = await api("/auth/me", { token: "invalid-token" });
+      assert.equal(expired.response.status, 401);
+      assert.match(expired.payload.message, /Session expired/i);
     },
   },
   {

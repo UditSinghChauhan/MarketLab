@@ -665,7 +665,21 @@ app.post(
 app.get(
   "/auth/me",
   asyncHandler(async (req, res) => {
-    res.json({ user: req.user });
+    const header = req.headers.authorization || "";
+    const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+    const payload = verifyToken(token);
+
+    if (!payload?.sub) {
+      return res.status(401).json({ message: "Session expired" });
+    }
+
+    const user = await findUserById(payload.sub);
+
+    if (!user) {
+      return res.status(401).json({ message: "Session expired" });
+    }
+
+    res.json({ user: safeUser(user) });
   })
 );
 

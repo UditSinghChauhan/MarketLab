@@ -182,6 +182,8 @@
     color: #fff;
     margin-right: 2px;
     margin-left: 2px;
+    border: none;
+    cursor: pointer;
   }
   
   .btn-grey {
@@ -229,5 +231,13 @@
   .btn-grey:hover {
     background: #9b9b9b;
     color: #fff;
+  }
+
+  .btn:disabled,
+  .btn:disabled:hover {
+    cursor: not-allowed;
+    opacity: 0.58;
+    background: #d4d4d4;
+    color: #666666;
   }
   

@@ -2,18 +2,23 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
 import { getAuthConfig } from "../config/auth";
-
-const formatCompact = (value) =>
-  Number(value || 0).toLocaleString("en-IN", {
-    maximumFractionDigits: 2,
-  });
+import { formatCompact, getApiErrorMessage } from "../utils/format";
 
 const Summary = () => {
   const [account, setAccount] = useState(null);
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
   const loadAccount = async () => {
-    const res = await axios.get(`${API_BASE_URL}/account`, getAuthConfig());
-    setAccount(res.data);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/account`, getAuthConfig());
+      setAccount(res.data);
+      setError("");
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, "Unable to load account summary"));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -30,6 +35,21 @@ const Summary = () => {
   }, []);
 
   const pnlClass = (account?.totalPnl || 0) >= 0 ? "profit" : "loss";
+
+  if (isLoading) {
+    return <div className="dashboard-status">Loading portfolio summary...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="dashboard-status error-state">
+        <strong>{error}</strong>
+        <button className="btn btn-blue" onClick={loadAccount}>
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>

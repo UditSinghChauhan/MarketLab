@@ -15,6 +15,10 @@ MarketLab is a full-stack paper trading simulator for practicing stock trading w
 - User-scoped watchlist with add/remove symbol controls
 - Positions view derived from live portfolio data
 - Portfolio summary cards and charts
+- Recruiter demo reset for portfolio, orders, and watchlist
+- Integration tests for auth, orders, watchlist, and reset flow
+- Portfolio insights with exposure, concentration, P&L, and trade journal
+- Loading, empty, and error states across the dashboard
 - Landing pages for product, pricing, support, signup, and about sections
 - Express and MongoDB backend for portfolio and order data
 
@@ -82,6 +86,12 @@ cd frontend
 npm start
 ```
 
+Run the backend integration suite:
+
+```bash
+npm test --prefix backend
+```
+
 ## Recruiter Demo Flow
 
 1. Start the backend, dashboard, and landing site in separate terminals.
@@ -106,12 +116,17 @@ npm run start:frontend
 The served build flow is useful for interviews because the landing site can point
 straight to the built dashboard using `REACT_APP_DASHBOARD_URL`.
 
+## Demo Quality Checklist
+
+- `npm test --prefix backend` passes the recruiter-critical API flows.
+- `npm run build` compiles the dashboard and landing app.
+- `GET /health` returns `MarketLab API`.
+- The dashboard can run without MongoDB because the backend falls back to memory mode.
+- The public landing CTA uses `REACT_APP_DASHBOARD_URL`, so it can point to a local or deployed dashboard.
+
 ## Roadmap
 
-- User authentication
 - Password reset and profile management
 - Production-grade JWT/session hardening
-- Order validation test suite
 - Streamed or websocket-style market updates
-- Portfolio analytics and trade journal
 - Production deployment

@@ -16,6 +16,7 @@ const AuthPanel = () => {
   const [email, setEmail] = useState("demo@marketlab.app");
   const [password, setPassword] = useState("password123");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(Boolean(getToken()));
@@ -51,6 +52,7 @@ const AuthPanel = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError("");
+    setNotice("");
     setIsSubmitting(true);
 
     try {
@@ -60,6 +62,7 @@ const AuthPanel = () => {
       const res = await axios.post(`${API_BASE_URL}${endpoint}`, payload);
       setSession(res.data);
       setUser(res.data.user);
+      setNotice("Demo session ready");
       syncPortfolio();
     } catch (err) {
       setError(err.response?.data?.message || "Authentication failed");
@@ -71,15 +74,18 @@ const AuthPanel = () => {
   const handleLogout = () => {
     clearSession();
     setUser(null);
+    setNotice("");
     syncPortfolio();
   };
 
   const handleReset = async () => {
     setError("");
+    setNotice("");
     setIsResetting(true);
 
     try {
       await axios.post(`${API_BASE_URL}/demo/reset`, {}, getAuthConfig());
+      setNotice("Demo reset. Portfolio, orders, and watchlist are clean.");
       syncPortfolio();
     } catch (err) {
       setError(err.response?.data?.message || "Unable to reset portfolio");
@@ -100,6 +106,7 @@ const AuthPanel = () => {
         <button className="btn btn-grey" onClick={handleLogout}>
           Logout
         </button>
+        {notice && <span className="auth-notice">{notice}</span>}
         {error && <span className="auth-error">{error}</span>}
       </div>
     );
@@ -142,6 +149,7 @@ const AuthPanel = () => {
       >
         {mode === "login" ? "New account" : "Have account"}
       </button>
+      {notice && <span className="auth-notice">{notice}</span>}
       {error && <span className="auth-error">{error}</span>}
     </form>
   );

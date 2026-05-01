@@ -3,19 +3,23 @@ import { Link } from "react-router-dom";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
 import { getAuthConfig } from "../config/auth";
-
-const formatCurrency = (value) =>
-  Number(value || 0).toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+import { formatCurrency, getApiErrorMessage } from "../utils/format";
 
 const Orders = () => {
   const [orders, setOrders] = useState([]);
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
   const loadOrders = async () => {
-    const res = await axios.get(`${API_BASE_URL}/allOrders`, getAuthConfig());
-    setOrders(res.data);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/allOrders`, getAuthConfig());
+      setOrders(res.data);
+      setError("");
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, "Unable to load orders"));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -28,6 +32,21 @@ const Orders = () => {
       window.removeEventListener("marketlab:auth-changed", loadOrders);
     };
   }, []);
+
+  if (isLoading) {
+    return <div className="dashboard-status">Loading orders...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="dashboard-status error-state">
+        <strong>{error}</strong>
+        <button className="btn btn-blue" onClick={loadOrders}>
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   if (orders.length === 0) {
     return (

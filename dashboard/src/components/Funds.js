@@ -2,19 +2,23 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
 import { getAuthConfig } from "../config/auth";
-
-const formatCurrency = (value) =>
-  Number(value || 0).toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+import { formatCurrency, getApiErrorMessage } from "../utils/format";
 
 const Funds = () => {
   const [account, setAccount] = useState(null);
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
   const loadAccount = async () => {
-    const res = await axios.get(`${API_BASE_URL}/account`, getAuthConfig());
-    setAccount(res.data);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/account`, getAuthConfig());
+      setAccount(res.data);
+      setError("");
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, "Unable to load funds"));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -30,12 +34,31 @@ const Funds = () => {
     };
   }, []);
 
+  if (isLoading) {
+    return <div className="dashboard-status">Loading funds...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="dashboard-status error-state">
+        <strong>{error}</strong>
+        <button className="btn btn-blue" onClick={loadAccount}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="funds">
         <p>Demo account uses virtual funds for paper trading practice.</p>
-        <button className="btn btn-green">Add funds</button>
-        <button className="btn btn-blue">Withdraw</button>
+        <button className="btn btn-green" disabled title="Fixed demo balance">
+          Add funds
+        </button>
+        <button className="btn btn-blue" disabled title="Withdrawals are disabled in demo mode">
+          Withdraw
+        </button>
       </div>
 
       <div className="row">

@@ -1,11 +1,11 @@
 import React, { useContext, useState } from "react";
-import { Link } from "react-router-dom";
 
 import axios from "axios";
 
 import GeneralContext from "./GeneralContext";
 import API_BASE_URL from "../config/api";
 import { getAuthConfig } from "../config/auth";
+import { formatCurrency, getApiErrorMessage } from "../utils/format";
 
 import "./BuyActionWindow.css";
 
@@ -17,8 +17,20 @@ const BuyActionWindow = ({ uid, mode = "BUY", defaultPrice = 0 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const orderValue = Number(stockQuantity || 0) * Number(stockPrice || 0);
   const isBuyOrder = mode === "BUY";
+  const parsedQuantity = Number(stockQuantity);
+  const parsedPrice = Number(stockPrice);
+  const isInvalidOrder =
+    !Number.isInteger(parsedQuantity) ||
+    parsedQuantity <= 0 ||
+    !Number.isFinite(parsedPrice) ||
+    parsedPrice <= 0;
 
   const handleTradeClick = async () => {
+    if (isInvalidOrder || isSubmitting) {
+      setError("Enter a whole quantity and a price above zero");
+      return;
+    }
+
     setIsSubmitting(true);
     setError("");
 
@@ -37,7 +49,7 @@ const BuyActionWindow = ({ uid, mode = "BUY", defaultPrice = 0 }) => {
       window.dispatchEvent(new Event("marketlab:order-filled"));
       generalContext.closeBuyWindow();
     } catch (err) {
-      setError(err.response?.data?.message || "Unable to place order");
+      setError(getApiErrorMessage(err, "Unable to place order"));
     } finally {
       setIsSubmitting(false);
     }
@@ -80,17 +92,19 @@ const BuyActionWindow = ({ uid, mode = "BUY", defaultPrice = 0 }) => {
       </div>
 
       <div className="buttons">
-        <span>Order value: Rs. {orderValue.toFixed(2)}</span>
+        <span>Order value: Rs. {formatCurrency(orderValue)}</span>
         <div>
-          <Link
+          <button
+            type="button"
             className={`btn ${isBuyOrder ? "btn-blue" : "btn-grey"}`}
             onClick={handleTradeClick}
+            disabled={isInvalidOrder || isSubmitting}
           >
             {isSubmitting ? "Placing..." : mode}
-          </Link>
-          <Link to="" className="btn btn-grey" onClick={handleCancelClick}>
+          </button>
+          <button type="button" className="btn btn-grey" onClick={handleCancelClick}>
             Cancel
-          </Link>
+          </button>
         </div>
       </div>
     </div>
