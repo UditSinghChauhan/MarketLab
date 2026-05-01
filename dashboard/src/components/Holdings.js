@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { VerticalGraph } from "./VerticalGraph";
 import API_BASE_URL from "../config/api";
+import { getAuthConfig } from "../config/auth";
 
 const formatCurrency = (value) =>
   Number(value || 0).toLocaleString("en-IN", {
@@ -15,8 +16,8 @@ const Holdings = () => {
 
   const loadPortfolio = async () => {
     const [holdingsRes, accountRes] = await Promise.all([
-      axios.get(`${API_BASE_URL}/allHoldings`),
-      axios.get(`${API_BASE_URL}/account`),
+      axios.get(`${API_BASE_URL}/allHoldings`, getAuthConfig()),
+      axios.get(`${API_BASE_URL}/account`, getAuthConfig()),
     ]);
 
     setAllHoldings(holdingsRes.data);
@@ -26,9 +27,11 @@ const Holdings = () => {
   useEffect(() => {
     loadPortfolio();
     window.addEventListener("marketlab:order-filled", loadPortfolio);
+    window.addEventListener("marketlab:auth-changed", loadPortfolio);
 
     return () => {
       window.removeEventListener("marketlab:order-filled", loadPortfolio);
+      window.removeEventListener("marketlab:auth-changed", loadPortfolio);
     };
   }, []);
 

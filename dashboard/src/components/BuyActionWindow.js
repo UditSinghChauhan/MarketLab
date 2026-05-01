@@ -5,6 +5,7 @@ import axios from "axios";
 
 import GeneralContext from "./GeneralContext";
 import API_BASE_URL from "../config/api";
+import { getAuthConfig } from "../config/auth";
 
 import "./BuyActionWindow.css";
 
@@ -22,12 +23,16 @@ const BuyActionWindow = ({ uid, mode = "BUY", defaultPrice = 0 }) => {
     setError("");
 
     try {
-      await axios.post(`${API_BASE_URL}/newOrder`, {
-        name: uid,
-        qty: Number(stockQuantity),
-        price: Number(stockPrice),
-        mode,
-      });
+      await axios.post(
+        `${API_BASE_URL}/newOrder`,
+        {
+          name: uid,
+          qty: Number(stockQuantity),
+          price: Number(stockPrice),
+          mode,
+        },
+        getAuthConfig()
+      );
 
       window.dispatchEvent(new Event("marketlab:order-filled"));
       generalContext.closeBuyWindow();

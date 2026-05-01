@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
+import { getAuthConfig } from "../config/auth";
 
 const formatCurrency = (value) =>
   Number(value || 0).toLocaleString("en-IN", {
@@ -13,16 +14,18 @@ const Orders = () => {
   const [orders, setOrders] = useState([]);
 
   const loadOrders = async () => {
-    const res = await axios.get(`${API_BASE_URL}/allOrders`);
+    const res = await axios.get(`${API_BASE_URL}/allOrders`, getAuthConfig());
     setOrders(res.data);
   };
 
   useEffect(() => {
     loadOrders();
     window.addEventListener("marketlab:order-filled", loadOrders);
+    window.addEventListener("marketlab:auth-changed", loadOrders);
 
     return () => {
       window.removeEventListener("marketlab:order-filled", loadOrders);
+      window.removeEventListener("marketlab:auth-changed", loadOrders);
     };
   }, []);
 

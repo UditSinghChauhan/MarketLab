@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
+import { getAuthConfig } from "../config/auth";
 
 const formatCompact = (value) =>
   Number(value || 0).toLocaleString("en-IN", {
@@ -11,16 +12,18 @@ const Summary = () => {
   const [account, setAccount] = useState(null);
 
   const loadAccount = async () => {
-    const res = await axios.get(`${API_BASE_URL}/account`);
+    const res = await axios.get(`${API_BASE_URL}/account`, getAuthConfig());
     setAccount(res.data);
   };
 
   useEffect(() => {
     loadAccount();
     window.addEventListener("marketlab:order-filled", loadAccount);
+    window.addEventListener("marketlab:auth-changed", loadAccount);
 
     return () => {
       window.removeEventListener("marketlab:order-filled", loadAccount);
+      window.removeEventListener("marketlab:auth-changed", loadAccount);
     };
   }, []);
 

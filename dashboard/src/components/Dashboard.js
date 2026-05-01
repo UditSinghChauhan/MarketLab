@@ -10,6 +10,7 @@ import Positions from "./Positions";
 import Summary from "./Summary";
 import WatchList from "./WatchList";
 import { GeneralContextProvider } from "./GeneralContext";
+import AuthPanel from "./AuthPanel";
 
 const Dashboard = () => {
   return (
@@ -18,6 +19,7 @@ const Dashboard = () => {
         <WatchList />
       </GeneralContextProvider>
       <div className="content">
+        <AuthPanel />
         <Routes>
           <Route exact path="/" element={<Summary />} />
           <Route path="/orders" element={<Orders />} />

@@ -842,5 +842,32 @@ hr {
   background-color: rgb(212, 212, 212);
 }
 
+.auth-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgb(235, 235, 235);
+  background: #fff;
+}
+
+.auth-panel input {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgb(221, 221, 221);
+  border-radius: 2px;
+}
+
+.auth-panel .btn {
+  border: none;
+  cursor: pointer;
+}
+
+.auth-error {
+  color: rgb(223, 73, 73);
+  font-size: 0.8rem;
+}
+
 
 

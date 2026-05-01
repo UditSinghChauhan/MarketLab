@@ -1,5 +1,6 @@
 require("dotenv").config();
 
+const crypto = require("crypto");
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -8,21 +9,40 @@ const { AccountModel } = require("./model/AccountModel");
 const { HoldingsModel } = require("./model/HoldingsModel");
 const { OrdersModel } = require("./model/OrdersModel");
 const { PositionsModel } = require("./model/PositionsModel");
+const { UserModel } = require("./model/UserModel");
 
 const PORT = process.env.PORT || 3002;
 const uri = process.env.MONGO_URL;
+const authSecret = process.env.AUTH_SECRET || "marketlab-local-secret";
 const useMemoryStore = !uri || uri.includes("<<");
+
+const DEMO_USER = {
+  id: "demo",
+  name: "Demo Trader",
+  email: "demo@marketlab.local",
+};
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-let memoryAccount = {
-  name: "Demo Trader",
-  openingBalance: 100000,
-  cash: 100000,
-  save: async () => memoryAccount,
+let memoryUsers = [
+  {
+    ...DEMO_USER,
+    salt: "demo",
+    passwordHash: "demo",
+    createdAt: new Date(),
+  },
+];
+let memoryAccounts = {
+  demo: {
+    userId: "demo",
+    name: DEMO_USER.name,
+    openingBalance: 100000,
+    cash: 100000,
+    save: async () => memoryAccounts.demo,
+  },
 };
 let memoryHoldings = [];
 let memoryOrders = [];
@@ -37,18 +57,169 @@ const asyncHandler = (handler) => async (req, res) => {
   }
 };
 
-const formatPercent = (value) => `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+const base64Url = (input) =>
+  Buffer.from(JSON.stringify(input)).toString("base64url");
 
-const getDemoAccount = async () => {
-  if (useMemoryStore) {
-    return memoryAccount;
+const signToken = (payload) => {
+  const encodedPayload = base64Url(payload);
+  const signature = crypto
+    .createHmac("sha256", authSecret)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  return `${encodedPayload}.${signature}`;
+};
+
+const verifyToken = (token) => {
+  if (!token || !token.includes(".")) {
+    return null;
   }
 
-  let account = await AccountModel.findOne({});
+  const [encodedPayload, signature] = token.split(".");
+  const expectedSignature = crypto
+    .createHmac("sha256", authSecret)
+    .update(encodedPayload)
+    .digest("base64url");
+
+  if (signature !== expectedSignature) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8")
+    );
+
+    if (payload.exp && payload.exp < Date.now()) {
+      return null;
+    }
+
+    return payload;
+  } catch (error) {
+    return null;
+  }
+};
+
+const hashPassword = (password, salt = crypto.randomBytes(16).toString("hex")) => {
+  const passwordHash = crypto
+    .pbkdf2Sync(password, salt, 120000, 64, "sha512")
+    .toString("hex");
+
+  return { salt, passwordHash };
+};
+
+const safeUser = (user) => ({
+  id: String(user._id || user.id),
+  name: user.name,
+  email: user.email,
+});
+
+const createSession = (user) => {
+  const currentUser = safeUser(user);
+  const token = signToken({
+    sub: currentUser.id,
+    name: currentUser.name,
+    email: currentUser.email,
+    exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
+  });
+
+  return { token, user: currentUser };
+};
+
+const findUserByEmail = async (email) => {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+
+  if (useMemoryStore) {
+    return memoryUsers.find((user) => user.email === normalizedEmail) || null;
+  }
+
+  return UserModel.findOne({ email: normalizedEmail });
+};
+
+const findUserById = async (id) => {
+  if (!id || id === "demo") {
+    return DEMO_USER;
+  }
+
+  if (useMemoryStore) {
+    return memoryUsers.find((user) => user.id === id) || null;
+  }
+
+  return UserModel.findById(id);
+};
+
+const createUser = async ({ name, email, password }) => {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const { salt, passwordHash } = hashPassword(password);
+
+  if (useMemoryStore) {
+    const newUser = {
+      id: `user-${Date.now()}`,
+      name,
+      email: normalizedEmail,
+      salt,
+      passwordHash,
+      createdAt: new Date(),
+    };
+    memoryUsers.push(newUser);
+    return newUser;
+  }
+
+  return UserModel.create({
+    name,
+    email: normalizedEmail,
+    salt,
+    passwordHash,
+  });
+};
+
+const getRequestUser = async (req) => {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  const payload = verifyToken(token);
+
+  if (!payload?.sub) {
+    return DEMO_USER;
+  }
+
+  const user = await findUserById(payload.sub);
+  return user ? safeUser(user) : DEMO_USER;
+};
+
+app.use(async (req, res, next) => {
+  try {
+    req.user = await getRequestUser(req);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+const formatPercent = (value) => `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+
+const getDemoAccount = async (user = DEMO_USER) => {
+  const userId = user.id || "demo";
+
+  if (useMemoryStore) {
+    if (!memoryAccounts[userId]) {
+      memoryAccounts[userId] = {
+        userId,
+        name: user.name || "Demo Trader",
+        openingBalance: 100000,
+        cash: 100000,
+        save: async () => memoryAccounts[userId],
+      };
+    }
+
+    return memoryAccounts[userId];
+  }
+
+  let account = await AccountModel.findOne({ userId });
 
   if (!account) {
     account = await AccountModel.create({
-      name: "Demo Trader",
+      userId,
+      name: user.name || "Demo Trader",
       openingBalance: 100000,
       cash: 100000,
     });
@@ -75,20 +246,26 @@ const enrichHolding = (holding) => {
   };
 };
 
-const getHoldings = async () => {
+const getHoldings = async (userId) => {
   if (useMemoryStore) {
-    return [...memoryHoldings].sort((a, b) => a.name.localeCompare(b.name));
+    return memoryHoldings
+      .filter((holding) => holding.userId === userId)
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  return HoldingsModel.find({}).sort({ name: 1 });
+  return HoldingsModel.find({ userId }).sort({ name: 1 });
 };
 
-const findHolding = async (name) => {
+const findHolding = async (userId, name) => {
   if (useMemoryStore) {
-    return memoryHoldings.find((holding) => holding.name === name) || null;
+    return (
+      memoryHoldings.find(
+        (holding) => holding.userId === userId && holding.name === name
+      ) || null
+    );
   }
 
-  return HoldingsModel.findOne({ name });
+  return HoldingsModel.findOne({ userId, name });
 };
 
 const createHolding = async (holding) => {
@@ -111,21 +288,21 @@ const saveHolding = async (holding) => {
 
 const deleteHolding = async (holding) => {
   if (useMemoryStore) {
-    memoryHoldings = memoryHoldings.filter((item) => item.name !== holding.name);
+    memoryHoldings = memoryHoldings.filter((item) => item._id !== holding._id);
     return;
   }
 
   return holding.deleteOne();
 };
 
-const getOrders = async () => {
+const getOrders = async (userId) => {
   if (useMemoryStore) {
-    return [...memoryOrders].sort(
-      (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-    );
+    return memoryOrders
+      .filter((order) => order.userId === userId)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }
 
-  return OrdersModel.find({}).sort({ createdAt: -1 });
+  return OrdersModel.find({ userId }).sort({ createdAt: -1 });
 };
 
 const getPositions = async () => {
@@ -136,12 +313,14 @@ const getPositions = async () => {
   return PositionsModel.find({});
 };
 
-const getSellOrders = async () => {
+const getSellOrders = async (userId) => {
   if (useMemoryStore) {
-    return memoryOrders.filter((order) => order.mode === "SELL");
+    return memoryOrders.filter(
+      (order) => order.userId === userId && order.mode === "SELL"
+    );
   }
 
-  return OrdersModel.find({ mode: "SELL" });
+  return OrdersModel.find({ userId, mode: "SELL" });
 };
 
 const createOrder = async (order) => {
@@ -159,9 +338,10 @@ const createOrder = async (order) => {
   return OrdersModel.create(order);
 };
 
-const getAccountSnapshot = async () => {
-  const account = await getDemoAccount();
-  const holdings = await getHoldings();
+const getAccountSnapshot = async (user) => {
+  const userId = user.id || "demo";
+  const account = await getDemoAccount(user);
+  const holdings = await getHoldings(userId);
   const enrichedHoldings = holdings.map(enrichHolding);
 
   const investedValue = enrichedHoldings.reduce(
@@ -173,7 +353,7 @@ const getAccountSnapshot = async () => {
     0
   );
   const unrealizedPnl = currentValue - investedValue;
-  const realizedOrders = await getSellOrders();
+  const realizedOrders = await getSellOrders(userId);
   const realizedPnl = realizedOrders.reduce(
     (total, order) => total + (order.realizedPnl || 0),
     0
@@ -182,6 +362,7 @@ const getAccountSnapshot = async () => {
   const totalPnl = totalValue - account.openingBalance;
 
   return {
+    user,
     name: account.name,
     openingBalance: account.openingBalance,
     cash: account.cash,
@@ -243,17 +424,70 @@ app.get(
   })
 );
 
+app.post(
+  "/auth/signup",
+  asyncHandler(async (req, res) => {
+    const name = String(req.body.name || "").trim();
+    const email = String(req.body.email || "").trim().toLowerCase();
+    const password = String(req.body.password || "");
+
+    if (!name || !email || password.length < 6) {
+      return res.status(400).json({
+        message: "Name, valid email, and 6+ character password are required",
+      });
+    }
+
+    const existingUser = await findUserByEmail(email);
+
+    if (existingUser) {
+      return res.status(409).json({ message: "Email is already registered" });
+    }
+
+    const user = await createUser({ name, email, password });
+    await getDemoAccount(safeUser(user));
+    res.status(201).json(createSession(user));
+  })
+);
+
+app.post(
+  "/auth/login",
+  asyncHandler(async (req, res) => {
+    const email = String(req.body.email || "").trim().toLowerCase();
+    const password = String(req.body.password || "");
+    const user = await findUserByEmail(email);
+
+    if (!user) {
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+
+    const { passwordHash } = hashPassword(password, user.salt);
+
+    if (passwordHash !== user.passwordHash) {
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+
+    res.json(createSession(user));
+  })
+);
+
+app.get(
+  "/auth/me",
+  asyncHandler(async (req, res) => {
+    res.json({ user: req.user });
+  })
+);
+
 app.get(
   "/account",
   asyncHandler(async (req, res) => {
-    res.json(await getAccountSnapshot());
+    res.json(await getAccountSnapshot(req.user));
   })
 );
 
 app.get(
   "/allHoldings",
   asyncHandler(async (req, res) => {
-    const holdings = await getHoldings();
+    const holdings = await getHoldings(req.user.id);
     res.json(holdings.map(enrichHolding));
   })
 );
@@ -268,7 +502,7 @@ app.get(
 app.get(
   "/allOrders",
   asyncHandler(async (req, res) => {
-    const orders = await getOrders();
+    const orders = await getOrders(req.user.id);
     res.json(orders);
   })
 );
@@ -282,9 +516,10 @@ app.post(
       return res.status(400).json({ message: validation.error });
     }
 
+    const userId = req.user.id || "demo";
     const orderInput = validation.order;
-    const account = await getDemoAccount();
-    const holding = await findHolding(orderInput.name);
+    const account = await getDemoAccount(req.user);
+    const holding = await findHolding(userId, orderInput.name);
     let realizedPnl = 0;
     let message = "Order executed";
 
@@ -305,6 +540,7 @@ app.post(
         await saveHolding(holding);
       } else {
         await createHolding({
+          userId,
           name: orderInput.name,
           qty: orderInput.qty,
           avg: orderInput.price,
@@ -337,6 +573,7 @@ app.post(
     await account.save();
 
     const savedOrder = await createOrder({
+      userId,
       ...orderInput,
       realizedPnl,
       message,
@@ -345,7 +582,7 @@ app.post(
     res.status(201).json({
       message,
       order: savedOrder,
-      account: await getAccountSnapshot(),
+      account: await getAccountSnapshot(req.user),
     });
   })
 );
