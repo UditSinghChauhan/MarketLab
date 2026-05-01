@@ -62,7 +62,11 @@ const tickMarket = () => {
   lastUpdatedAt = new Date();
 };
 
-setInterval(tickMarket, 4000);
+const marketTicker = setInterval(tickMarket, 4000);
+
+if (typeof marketTicker.unref === "function") {
+  marketTicker.unref();
+}
 
 const getMarketFeed = () =>
   marketState.map((symbol) => ({

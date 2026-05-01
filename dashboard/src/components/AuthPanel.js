@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
 import {
   clearSession,
   getAuthConfig,
+  getToken,
   getStoredUser,
   setSession,
 } from "../config/auth";
@@ -17,11 +18,35 @@ const AuthPanel = () => {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [isCheckingSession, setIsCheckingSession] = useState(Boolean(getToken()));
 
   const syncPortfolio = () => {
     window.dispatchEvent(new Event("marketlab:auth-changed"));
     window.dispatchEvent(new Event("marketlab:order-filled"));
   };
+
+  useEffect(() => {
+    const token = getToken();
+
+    if (!token) {
+      setIsCheckingSession(false);
+      return;
+    }
+
+    const validateSession = async () => {
+      try {
+        const response = await axios.get(`${API_BASE_URL}/auth/me`, getAuthConfig());
+        setUser(response.data.user);
+      } catch (err) {
+        clearSession();
+        setUser(null);
+      } finally {
+        setIsCheckingSession(false);
+      }
+    };
+
+    validateSession();
+  }, []);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -78,6 +103,10 @@ const AuthPanel = () => {
         {error && <span className="auth-error">{error}</span>}
       </div>
     );
+  }
+
+  if (isCheckingSession) {
+    return <div className="auth-panel">Restoring your demo session...</div>;
   }
 
   return (

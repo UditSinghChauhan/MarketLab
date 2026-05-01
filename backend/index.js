@@ -781,20 +781,29 @@ app.post(
   })
 );
 
-if (useMemoryStore) {
-  app.listen(PORT, () => {
-    console.log(`MarketLab API started on port ${PORT} in memory mode`);
-  });
-} else {
-  mongoose
-    .connect(uri)
-    .then(() => {
-      app.listen(PORT, () => {
-        console.log(`MarketLab API started on port ${PORT}`);
-      });
-    })
-    .catch((error) => {
-      console.error("Database connection failed", error);
-      process.exit(1);
+const startServer = async () => {
+  if (useMemoryStore) {
+    return app.listen(PORT, () => {
+      console.log(`MarketLab API started on port ${PORT} in memory mode`);
     });
+  }
+
+  try {
+    await mongoose.connect(uri);
+    return app.listen(PORT, () => {
+      console.log(`MarketLab API started on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error("Database connection failed", error);
+    process.exit(1);
+  }
+};
+
+if (require.main === module) {
+  startServer();
 }
+
+module.exports = {
+  app,
+  startServer,
+};
