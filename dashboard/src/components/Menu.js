@@ -1,98 +1,64 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { getStoredUser } from "../config/auth";
 
 const Menu = () => {
-  const [selectedMenu, setSelectedMenu] = useState(0);
-  const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
+  const location = useLocation();
+  const [currentUser, setCurrentUser] = useState(getStoredUser());
 
-  const handleMenuClick = (index) => {
-    setSelectedMenu(index);
-  };
+  useEffect(() => {
+    const syncUser = () => setCurrentUser(getStoredUser());
 
-  const handleProfileClick = (index) => {
-    setIsProfileDropdownOpen(!isProfileDropdownOpen);
-  };
+    window.addEventListener("marketlab:auth-changed", syncUser);
+
+    return () => {
+      window.removeEventListener("marketlab:auth-changed", syncUser);
+    };
+  }, []);
 
   const menuClass = "menu";
   const activeMenuClass = "menu selected";
+  const menuItems = [
+    { label: "Dashboard", to: "/" },
+    { label: "Orders", to: "/orders" },
+    { label: "Holdings", to: "/holdings" },
+    { label: "Positions", to: "/positions" },
+    { label: "Funds", to: "/funds" },
+    { label: "Insights", to: "/apps" },
+  ];
+  const avatarLabel = currentUser?.name
+    ? currentUser.name
+        .split(" ")
+        .slice(0, 2)
+        .map((part) => part[0])
+        .join("")
+        .toUpperCase()
+    : "ML";
 
   return (
     <div className="menu-container">
       <img src="logo.png" style={{ width: "50px" }} alt="MarketLab" />
       <div className="menus">
         <ul>
-          <li>
-            <Link
-              style={{ textDecoration: "none" }}
-              to="/"
-              onClick={() => handleMenuClick(0)}
-            >
-              <p className={selectedMenu === 0 ? activeMenuClass : menuClass}>
-                Dashboard
-              </p>
-            </Link>
-          </li>
-          <li>
-            <Link
-              style={{ textDecoration: "none" }}
-              to="/orders"
-              onClick={() => handleMenuClick(1)}
-            >
-              <p className={selectedMenu === 1 ? activeMenuClass : menuClass}>
-                Orders
-              </p>
-            </Link>
-          </li>
-          <li>
-            <Link
-              style={{ textDecoration: "none" }}
-              to="/holdings"
-              onClick={() => handleMenuClick(2)}
-            >
-              <p className={selectedMenu === 2 ? activeMenuClass : menuClass}>
-                Holdings
-              </p>
-            </Link>
-          </li>
-          <li>
-            <Link
-              style={{ textDecoration: "none" }}
-              to="/positions"
-              onClick={() => handleMenuClick(3)}
-            >
-              <p className={selectedMenu === 3 ? activeMenuClass : menuClass}>
-                Positions
-              </p>
-            </Link>
-          </li>
-          <li>
-            <Link
-              style={{ textDecoration: "none" }}
-              to="funds"
-              onClick={() => handleMenuClick(4)}
-            >
-              <p className={selectedMenu === 4 ? activeMenuClass : menuClass}>
-                Funds
-              </p>
-            </Link>
-          </li>
-          <li>
-            <Link
-              style={{ textDecoration: "none" }}
-              to="/apps"
-              onClick={() => handleMenuClick(6)}
-            >
-              <p className={selectedMenu === 6 ? activeMenuClass : menuClass}>
-                Apps
-              </p>
-            </Link>
-          </li>
+          {menuItems.map((item) => {
+            const isSelected = location.pathname === item.to;
+
+            return (
+              <li key={item.to}>
+                <Link style={{ textDecoration: "none" }} to={item.to}>
+                  <p className={isSelected ? activeMenuClass : menuClass}>
+                    {item.label}
+                  </p>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
         <hr />
-        <div className="profile" onClick={handleProfileClick}>
-          <div className="avatar">ML</div>
-          <p className="username">DEMO</p>
+        <div className="profile">
+          <div className="avatar">{avatarLabel}</div>
+          <p className="username">{currentUser?.name || "DEMO"}</p>
         </div>
       </div>
     </div>

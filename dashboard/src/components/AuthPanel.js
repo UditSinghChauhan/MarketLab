@@ -1,7 +1,12 @@
 import React, { useState } from "react";
 import axios from "axios";
 import API_BASE_URL from "../config/api";
-import { clearSession, getStoredUser, setSession } from "../config/auth";
+import {
+  clearSession,
+  getAuthConfig,
+  getStoredUser,
+  setSession,
+} from "../config/auth";
 
 const AuthPanel = () => {
   const [user, setUser] = useState(getStoredUser());
@@ -11,6 +16,7 @@ const AuthPanel = () => {
   const [password, setPassword] = useState("password123");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
   const syncPortfolio = () => {
     window.dispatchEvent(new Event("marketlab:auth-changed"));
@@ -43,15 +49,33 @@ const AuthPanel = () => {
     syncPortfolio();
   };
 
+  const handleReset = async () => {
+    setError("");
+    setIsResetting(true);
+
+    try {
+      await axios.post(`${API_BASE_URL}/demo/reset`, {}, getAuthConfig());
+      syncPortfolio();
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to reset portfolio");
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   if (user) {
     return (
       <div className="auth-panel">
         <span>
           Signed in as <strong>{user.name}</strong>
         </span>
+        <button className="btn btn-blue" onClick={handleReset} disabled={isResetting}>
+          {isResetting ? "Resetting..." : "Reset Demo"}
+        </button>
         <button className="btn btn-grey" onClick={handleLogout}>
           Logout
         </button>
+        {error && <span className="auth-error">{error}</span>}
       </div>
     );
   }

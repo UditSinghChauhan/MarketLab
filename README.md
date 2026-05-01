@@ -89,6 +89,7 @@ npm start
 3. Create a demo account or use the prefilled login form (`demo@marketlab.app` / `password123`).
 4. Search the watchlist, place a BUY order, then confirm cash, holdings, and orders refresh.
 5. Sell part of a holding and open Insights to explain realized P&L, exposure, and the trade journal.
+6. Use `Reset Demo` in the dashboard header to restore the portfolio and watchlist instantly.
 
 You can also run common commands from the repository root:
 
@@ -101,6 +102,9 @@ npm run start:backend
 npm run start:dashboard
 npm run start:frontend
 ```
+
+The served build flow is useful for interviews because the landing site can point
+straight to the built dashboard using `REACT_APP_DASHBOARD_URL`.
 
 ## Roadmap
 

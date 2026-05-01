@@ -28,6 +28,7 @@ const DEMO_USER = {
   name: "Demo Trader",
   email: "demo@marketlab.app",
 };
+const getDefaultWatchlistSymbols = () => getAvailableSymbols().slice(0, 9);
 
 const app = express();
 
@@ -47,7 +48,7 @@ let memoryAccounts = {
 let memoryHoldings = [];
 let memoryOrders = [];
 let memoryWatchlists = {
-  demo: getAvailableSymbols().slice(0, 9),
+  demo: getDefaultWatchlistSymbols(),
 };
 
 const asyncHandler = (handler) => async (req, res) => {
@@ -345,7 +346,7 @@ const createOrder = async (order) => {
 const getWatchlistSymbols = async (userId) => {
   if (useMemoryStore) {
     if (!memoryWatchlists[userId]) {
-      memoryWatchlists[userId] = getAvailableSymbols().slice(0, 9);
+      memoryWatchlists[userId] = getDefaultWatchlistSymbols();
     }
 
     return [...memoryWatchlists[userId]];
@@ -354,7 +355,7 @@ const getWatchlistSymbols = async (userId) => {
   let items = await WatchlistModel.find({ userId }).sort({ createdAt: 1 });
 
   if (!items.length) {
-    const defaultSymbols = getAvailableSymbols().slice(0, 9).map((symbol) => ({
+    const defaultSymbols = getDefaultWatchlistSymbols().map((symbol) => ({
       userId,
       symbol,
     }));
@@ -442,6 +443,47 @@ const getAccountSnapshot = async (user) => {
         : 0,
     holdingsCount: enrichedHoldings.length,
   };
+};
+
+const resetPortfolio = async (user) => {
+  const userId = user.id || "demo";
+  const defaultWatchlist = getDefaultWatchlistSymbols();
+
+  if (useMemoryStore) {
+    memoryAccounts[userId] = {
+      userId,
+      name: user.name || "Demo Trader",
+      openingBalance: 100000,
+      cash: 100000,
+      save: async () => memoryAccounts[userId],
+    };
+    memoryHoldings = memoryHoldings.filter((holding) => holding.userId !== userId);
+    memoryOrders = memoryOrders.filter((order) => order.userId !== userId);
+    memoryWatchlists[userId] = defaultWatchlist;
+    return getAccountSnapshot(user);
+  }
+
+  await AccountModel.updateOne(
+    { userId },
+    {
+      $set: {
+        userId,
+        name: user.name || "Demo Trader",
+        openingBalance: 100000,
+        cash: 100000,
+      },
+    },
+    { upsert: true }
+  );
+  await HoldingsModel.deleteMany({ userId });
+  await OrdersModel.deleteMany({ userId });
+  await WatchlistModel.deleteMany({ userId });
+  await WatchlistModel.insertMany(
+    defaultWatchlist.map((symbol) => ({ userId, symbol })),
+    { ordered: false }
+  );
+
+  return getAccountSnapshot(user);
 };
 
 const getDerivedPositions = async (userId) => {
@@ -559,6 +601,18 @@ app.get(
   "/indices",
   asyncHandler(async (req, res) => {
     res.json(getIndexFeed());
+  })
+);
+
+app.post(
+  "/demo/reset",
+  asyncHandler(async (req, res) => {
+    const account = await resetPortfolio(req.user);
+    res.json({
+      message: "Demo portfolio reset successfully",
+      account,
+      watchlist: await getWatchlistFeed(req.user.id),
+    });
   })
 );
 

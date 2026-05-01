@@ -1,5 +1,7 @@
 import React from "react";
 
+const dashboardUrl = process.env.REACT_APP_DASHBOARD_URL || "http://localhost:3001";
+
 function OpenAccount() {
   return (
     <div className="container p-5 mb-5">
@@ -9,12 +11,13 @@ function OpenAccount() {
           Practice paper trades, track virtual holdings, and learn portfolio
           behavior without risking real capital.
         </p>
-        <button
+        <a
           className="p-2 btn btn-primary fs-5 mb-5"
-          style={{ width: "20%", margin: "0 auto" }}
+          href={dashboardUrl}
+          style={{ width: "240px", margin: "0 auto" }}
         >
-          Sign up Now
-        </button>
+          Open dashboard
+        </a>
       </div>
     </div>
   );

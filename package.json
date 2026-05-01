@@ -8,6 +8,8 @@
     "start:backend": "npm start --prefix backend",
     "start:dashboard": "npm start --prefix dashboard",
     "start:frontend": "npm start --prefix frontend",
-    "build": "npm run build --prefix dashboard && npm run build --prefix frontend"
+    "build": "npm run build --prefix dashboard && npm run build --prefix frontend",
+    "serve:dashboard": "node scripts/serve-build.js dashboard/build 3001",
+    "serve:frontend": "node scripts/serve-build.js frontend/build 3000"
   }
 }
