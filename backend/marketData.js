@@ -1,3 +1,5 @@
+const HISTORY_LENGTH = 40;
+
 const seedSymbols = [
   { name: "INFY", price: 1555.45 },
   { name: "ONGC", price: 116.8 },
@@ -32,6 +34,12 @@ const createInitialSnapshot = () =>
 let marketState = createInitialSnapshot();
 let lastUpdatedAt = new Date();
 
+// Rolling price history — last HISTORY_LENGTH ticks per symbol (OHLC candles)
+const priceHistory = {};
+seedSymbols.forEach((s) => {
+  priceHistory[s.name] = [];
+});
+
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
 const roundPrice = (value) => Number(value.toFixed(2));
@@ -40,15 +48,39 @@ const roundPercent = (value) => Number(value.toFixed(2));
 const formatPercent = (value) => `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 
 const tickMarket = () => {
+  const tickTime = Date.now();
+
   marketState = marketState.map((symbol, index) => {
-    const drift = Math.sin(Date.now() / 12000 + index) * 0.0025;
+    const drift = Math.sin(tickTime / 12000 + index) * 0.0025;
     const noise = (Math.random() - 0.5) * 0.012;
     const nextFactor = 1 + drift + noise;
     const minPrice = symbol.open * 0.9;
     const maxPrice = symbol.open * 1.1;
     const nextPrice = clamp(symbol.price * nextFactor, minPrice, maxPrice);
-    const changePercent = ((nextPrice - symbol.previousClose) / symbol.previousClose) * 100;
+    const changePercent =
+      ((nextPrice - symbol.previousClose) / symbol.previousClose) * 100;
     const dayPercent = ((nextPrice - symbol.open) / symbol.open) * 100;
+
+    // Build OHLC candle for this tick
+    const candle = {
+      time: tickTime,
+      open: symbol.price,
+      close: roundPrice(nextPrice),
+      high: roundPrice(
+        Math.max(symbol.price, nextPrice) * (1 + Math.random() * 0.002)
+      ),
+      low: roundPrice(
+        Math.min(symbol.price, nextPrice) * (1 - Math.random() * 0.002)
+      ),
+    };
+
+    if (!priceHistory[symbol.name]) {
+      priceHistory[symbol.name] = [];
+    }
+    priceHistory[symbol.name].push(candle);
+    if (priceHistory[symbol.name].length > HISTORY_LENGTH) {
+      priceHistory[symbol.name].shift();
+    }
 
     return {
       ...symbol,
@@ -103,9 +135,10 @@ const getIndexFeed = () => {
     { price: 0, change: 0 }
   );
 
-  const niftyPoints = (aggregate.price / watchlist.length) * 10;
+  // Calibrated multipliers so NIFTY stays ~22,000–26,000 and SENSEX ~72,000–80,000
+  const niftyPoints = (aggregate.price / watchlist.length) * 14;
   const niftyMove = aggregate.change / watchlist.length;
-  const sensexPoints = niftyPoints * 3.7;
+  const sensexPoints = niftyPoints * 3.35;
   const sensexMove = niftyMove * 0.82;
 
   return {
@@ -131,8 +164,30 @@ const getQuote = (symbolName) => getMarketMap()[symbolName] || null;
 
 const getAvailableSymbols = () => marketState.map((symbol) => symbol.name);
 
+const getPriceHistory = (symbolName) => {
+  const history = priceHistory[symbolName] || [];
+  // Ensure at least one data point (the current price) is always available
+  if (history.length === 0) {
+    const current = marketState.find((s) => s.name === symbolName);
+    if (current) {
+      return [
+        {
+          time: Date.now(),
+          open: current.price,
+          close: current.price,
+          high: current.price,
+          low: current.price,
+        },
+      ];
+    }
+  }
+  return history;
+};
+
 const upsertSymbol = (symbolName, fallbackPrice) => {
-  const existingSymbol = marketState.find((symbol) => symbol.name === symbolName);
+  const existingSymbol = marketState.find(
+    (symbol) => symbol.name === symbolName
+  );
 
   if (existingSymbol) {
     return existingSymbol;
@@ -150,6 +205,7 @@ const upsertSymbol = (symbolName, fallbackPrice) => {
   };
 
   marketState.push(newSymbol);
+  priceHistory[symbolName] = [];
   return newSymbol;
 };
 
@@ -158,6 +214,7 @@ module.exports = {
   getIndexFeed,
   getMarketFeed,
   getMarketMap,
+  getPriceHistory,
   getQuote,
   upsertSymbol,
 };
