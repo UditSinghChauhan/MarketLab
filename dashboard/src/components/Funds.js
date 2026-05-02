@@ -49,62 +49,101 @@ const Funds = () => {
     );
   }
 
+  const cashPct =
+    account?.totalValue > 0
+      ? ((account.cash / account.totalValue) * 100).toFixed(1)
+      : "100.0";
+  const investedPct =
+    account?.totalValue > 0
+      ? ((account.currentValue / account.totalValue) * 100).toFixed(1)
+      : "0.0";
+
   return (
     <>
-      <div className="funds">
-        <p>Demo account uses virtual funds for paper trading practice.</p>
-        <button className="btn btn-green" disabled title="Fixed demo balance">
-          Add funds
-        </button>
-        <button className="btn btn-blue" disabled title="Withdrawals are disabled in demo mode">
-          Withdraw
-        </button>
+      <h3 className="title">Funds</h3>
+
+      <div className="funds-notice">
+        <p>
+          This is a <strong>paper trading</strong> account. All figures are
+          virtual and simulate real market behaviour.
+        </p>
       </div>
 
-      <div className="row">
-        <div className="col">
-          <span>
-            <p>Equity</p>
-          </span>
-
-          <div className="table">
-            <div className="data">
-              <p>Available cash</p>
-              <p className="imp colored">{formatCurrency(account?.cash)}</p>
-            </div>
-            <div className="data">
-              <p>Invested value</p>
-              <p className="imp">{formatCurrency(account?.investedValue)}</p>
-            </div>
-            <div className="data">
-              <p>Current holdings value</p>
-              <p className="imp">{formatCurrency(account?.currentValue)}</p>
-            </div>
-            <hr />
-            <div className="data">
-              <p>Opening Balance</p>
-              <p>{formatCurrency(account?.openingBalance)}</p>
-            </div>
-            <div className="data">
-              <p>Total account value</p>
-              <p>{formatCurrency(account?.totalValue)}</p>
-            </div>
-            <div className="data">
-              <p>Unrealized P&L</p>
-              <p>{formatCurrency(account?.unrealizedPnl)}</p>
-            </div>
-            <div className="data">
-              <p>Realized P&L</p>
-              <p>{formatCurrency(account?.realizedPnl)}</p>
-            </div>
-          </div>
+      <div className="funds-grid">
+        {/* Cash */}
+        <div className="funds-card">
+          <span className="funds-label">Available cash</span>
+          <strong className="funds-value colored">
+            ₹{formatCurrency(account?.cash)}
+          </strong>
+          <span className="funds-pct">{cashPct}% of portfolio</span>
         </div>
 
-        <div className="col">
-          <div className="commodity">
-            <p>Commodity simulation is on the roadmap.</p>
-            <button className="btn btn-blue">Coming Soon</button>
-          </div>
+        {/* Invested */}
+        <div className="funds-card">
+          <span className="funds-label">Invested value</span>
+          <strong className="funds-value">
+            ₹{formatCurrency(account?.investedValue)}
+          </strong>
+          <span className="funds-pct">{investedPct}% of portfolio</span>
+        </div>
+
+        {/* Current holdings */}
+        <div className="funds-card">
+          <span className="funds-label">Current holdings value</span>
+          <strong className="funds-value">
+            ₹{formatCurrency(account?.currentValue)}
+          </strong>
+          <span
+            className={`funds-pct ${(account?.unrealizedPnl || 0) >= 0 ? "profit" : "loss"}`}
+          >
+            Unrealized P&L ₹{formatCurrency(account?.unrealizedPnl)}
+          </span>
+        </div>
+
+        {/* Total portfolio */}
+        <div className="funds-card">
+          <span className="funds-label">Total portfolio value</span>
+          <strong className="funds-value">
+            ₹{formatCurrency(account?.totalValue)}
+          </strong>
+          <span
+            className={`funds-pct ${(account?.totalPnl || 0) >= 0 ? "profit" : "loss"}`}
+          >
+            Opening ₹{formatCurrency(account?.openingBalance)}
+          </span>
+        </div>
+      </div>
+
+      <div className="funds-breakdown">
+        <h4 className="allocation-title">Account Breakdown</h4>
+        <div className="funds-row">
+          <span>Opening balance</span>
+          <strong>₹{formatCurrency(account?.openingBalance)}</strong>
+        </div>
+        <div className="funds-row">
+          <span>Available cash</span>
+          <strong className="colored">₹{formatCurrency(account?.cash)}</strong>
+        </div>
+        <div className="funds-row">
+          <span>Invested value (cost basis)</span>
+          <strong>₹{formatCurrency(account?.investedValue)}</strong>
+        </div>
+        <div className="funds-row">
+          <span>Unrealized P&L</span>
+          <strong className={(account?.unrealizedPnl || 0) >= 0 ? "profit" : "loss"}>
+            ₹{formatCurrency(account?.unrealizedPnl)}
+          </strong>
+        </div>
+        <div className="funds-row">
+          <span>Realized P&L</span>
+          <strong className={(account?.realizedPnl || 0) >= 0 ? "profit" : "loss"}>
+            ₹{formatCurrency(account?.realizedPnl)}
+          </strong>
+        </div>
+        <div className="funds-row funds-row-total">
+          <span>Total account value</span>
+          <strong>₹{formatCurrency(account?.totalValue)}</strong>
         </div>
       </div>
     </>
