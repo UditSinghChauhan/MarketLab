@@ -15,7 +15,7 @@ import {
   KeyboardArrowUp,
 } from "@mui/icons-material";
 
-import { DoughnutChart } from "./DoughnoutChart";
+import { DoughnutChart } from "./DoughnutChart";
 import useMarketFeed from "../hooks/useMarketFeed";
 import useWatchlist from "../hooks/useWatchlist";
 import PriceHistoryModal from "./PriceHistoryModal";
