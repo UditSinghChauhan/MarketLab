@@ -42,12 +42,11 @@ const useWatchlist = () => {
 
   useEffect(() => {
     loadWatchlist();
+    // Only reload on auth changes — prices are merged from the SSE stream in WatchList.js
     window.addEventListener("marketlab:auth-changed", loadWatchlist);
-    window.addEventListener("marketlab:market-tick", loadWatchlist);
 
     return () => {
       window.removeEventListener("marketlab:auth-changed", loadWatchlist);
-      window.removeEventListener("marketlab:market-tick", loadWatchlist);
     };
   }, []);
 
