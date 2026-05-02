@@ -2,13 +2,12 @@ import React, {
   startTransition,
   useContext,
   useDeferredValue,
+  useMemo,
   useState,
 } from "react";
 
 import GeneralContext from "./GeneralContext";
-
 import { Tooltip, Grow } from "@mui/material";
-
 import {
   BarChartOutlined,
   DeleteOutline,
@@ -19,14 +18,17 @@ import {
 import { DoughnutChart } from "./DoughnoutChart";
 import useMarketFeed from "../hooks/useMarketFeed";
 import useWatchlist from "../hooks/useWatchlist";
+import PriceHistoryModal from "./PriceHistoryModal";
 import { getApiErrorMessage } from "../utils/format";
 
 const WatchList = () => {
-  useMarketFeed();
+  const marketFeed = useMarketFeed(); // live prices from SSE — no polling
   const [searchTerm, setSearchTerm] = useState("");
   const [symbolToAdd, setSymbolToAdd] = useState("");
   const [error, setError] = useState("");
+  const [historySymbol, setHistorySymbol] = useState(null); // { name, price }
   const deferredSearch = useDeferredValue(searchTerm);
+
   const {
     addSymbol,
     availableSymbols,
@@ -36,7 +38,27 @@ const WatchList = () => {
     removeSymbol,
     watchlist,
   } = useWatchlist();
-  const filteredWatchlist = watchlist.filter((stock) =>
+
+  // Build a quick-lookup map from the SSE feed
+  const marketMap = useMemo(() => {
+    const map = {};
+    marketFeed.forEach((item) => {
+      map[item.name] = item;
+    });
+    return map;
+  }, [marketFeed]);
+
+  // Merge live SSE prices into the watchlist items (no extra API call)
+  const enrichedWatchlist = useMemo(
+    () =>
+      watchlist.map((item) => ({
+        ...item,
+        ...(marketMap[item.name] || {}),
+      })),
+    [watchlist, marketMap]
+  );
+
+  const filteredWatchlist = enrichedWatchlist.filter((stock) =>
     stock.name.toLowerCase().includes(deferredSearch.trim().toLowerCase())
   );
 
@@ -107,20 +129,15 @@ const WatchList = () => {
         </span>
       </div>
 
-      <div style={{ padding: "12px 14px", borderBottom: "1px solid rgb(235, 234, 234)" }}>
-        <div style={{ display: "flex", gap: "8px" }}>
+      <div className="wl-add-row">
+        <div className="wl-add-inputs">
           <input
             type="text"
             placeholder="Add symbol"
             value={symbolToAdd}
             list="marketlab-symbols"
             onChange={(event) => setSymbolToAdd(event.target.value)}
-            style={{
-              flex: 1,
-              minHeight: "34px",
-              border: "1px solid rgb(221, 221, 221)",
-              padding: "0 10px",
-            }}
+            className="wl-add-input"
           />
           <button className="btn btn-blue" onClick={handleAddSymbol}>
             Add
@@ -132,9 +149,7 @@ const WatchList = () => {
           ))}
         </datalist>
         {(error || watchlistError) && (
-          <p style={{ color: "rgb(223, 73, 73)", fontSize: "0.75rem", marginTop: "8px" }}>
-            {error || watchlistError}
-          </p>
+          <p className="wl-add-error">{error || watchlistError}</p>
         )}
         {watchlistError && (
           <button className="link-button" onClick={reloadWatchlist}>
@@ -147,15 +162,16 @@ const WatchList = () => {
         <div className="panel-status">Loading market watchlist...</div>
       ) : (
         <ul className="list">
-          {filteredWatchlist.map((stock) => {
-            return (
-              <WatchListItem
-                stock={stock}
-                key={stock.name}
-                removeSymbol={removeSymbol}
-              />
-            );
-          })}
+          {filteredWatchlist.map((stock) => (
+            <WatchListItem
+              stock={stock}
+              key={stock.name}
+              removeSymbol={removeSymbol}
+              onAnalytics={() =>
+                setHistorySymbol({ name: stock.name, price: stock.price })
+              }
+            />
+          ))}
           {filteredWatchlist.length === 0 && (
             <li className="panel-status">No symbols match this search.</li>
           )}
@@ -163,13 +179,21 @@ const WatchList = () => {
       )}
 
       <DoughnutChart data={data} />
+
+      {historySymbol && (
+        <PriceHistoryModal
+          symbol={historySymbol.name}
+          currentPrice={historySymbol.price}
+          onClose={() => setHistorySymbol(null)}
+        />
+      )}
     </div>
   );
 };
 
 export default WatchList;
 
-const WatchListItem = ({ stock, removeSymbol }) => {
+const WatchListItem = ({ stock, removeSymbol, onAnalytics }) => {
   const [showWatchlistActions, setShowWatchlistActions] = useState(false);
 
   return (
@@ -194,13 +218,14 @@ const WatchListItem = ({ stock, removeSymbol }) => {
           uid={stock.name}
           price={stock.price}
           removeSymbol={removeSymbol}
+          onAnalytics={onAnalytics}
         />
       )}
     </li>
   );
 };
 
-const WatchListActions = ({ uid, price, removeSymbol }) => {
+const WatchListActions = ({ uid, price, removeSymbol, onAnalytics }) => {
   const generalContext = useContext(GeneralContext);
 
   const handleBuyClick = () => {
@@ -218,41 +243,18 @@ const WatchListActions = ({ uid, price, removeSymbol }) => {
   return (
     <span className="actions">
       <span>
-        <Tooltip
-          title="Buy (B)"
-          placement="top"
-          arrow
-          TransitionComponent={Grow}
-          onClick={handleBuyClick}
-        >
+        <Tooltip title="Buy (B)" placement="top" arrow TransitionComponent={Grow} onClick={handleBuyClick}>
           <button className="buy">Buy</button>
         </Tooltip>
-        <Tooltip
-          title="Sell (S)"
-          placement="top"
-          arrow
-          TransitionComponent={Grow}
-          onClick={handleSellClick}
-        >
+        <Tooltip title="Sell (S)" placement="top" arrow TransitionComponent={Grow} onClick={handleSellClick}>
           <button className="sell">Sell</button>
         </Tooltip>
-        <Tooltip
-          title="Analytics (A)"
-          placement="top"
-          arrow
-          TransitionComponent={Grow}
-        >
+        <Tooltip title="Price chart" placement="top" arrow TransitionComponent={Grow} onClick={onAnalytics}>
           <button className="action">
             <BarChartOutlined className="icon" />
           </button>
         </Tooltip>
-        <Tooltip
-          title="Remove from watchlist"
-          placement="top"
-          arrow
-          TransitionComponent={Grow}
-          onClick={handleRemoveClick}
-        >
+        <Tooltip title="Remove from watchlist" placement="top" arrow TransitionComponent={Grow} onClick={handleRemoveClick}>
           <button className="action">
             <DeleteOutline className="icon" />
           </button>
