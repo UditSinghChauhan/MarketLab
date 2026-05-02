@@ -4,23 +4,24 @@ MarketLab is a full-stack paper trading simulator for practicing stock trading w
 
 ## Features
 
-- Stock watchlist with price movement indicators
-- Buy and sell order flow from the trading dashboard
-- Demo account with virtual cash
+- Stock watchlist with price movement indicators and live price history charts
+- Market orders for instant execution
+- **Limit orders** that queue server-side and execute automatically when the market price crosses the trigger
+- Demo account with ₹1,00,000 virtual cash, pre-seeded with a 5-stock diversified portfolio
 - Signup and login with token-based sessions
 - User-scoped wallet, holdings, and order history
-- Holdings update after executed paper trades
-- Dynamic order history, portfolio value, and P&L views
-- Simulated live market feed for watchlist, indices, and portfolio repricing
+- Holdings update after executed paper trades with weighted average cost
+- Dynamic order history, portfolio value, unrealized and realized P&L
+- Simulated live market feed over SSE for watchlist, indices, and portfolio repricing
 - User-scoped watchlist with add/remove symbol controls
 - Positions view derived from live portfolio data
-- Portfolio summary cards and charts
-- Recruiter demo reset for portfolio, orders, and watchlist
-- Integration tests for auth, orders, watchlist, and reset flow
-- Portfolio insights with exposure, concentration, P&L, and trade journal
+- Portfolio allocation Doughnut chart and funds breakdown
+- Recruiter demo reset — wipes and re-seeds portfolio instantly
+- Integration tests for auth, orders, watchlist, limit orders, and reset flow
+- Portfolio insights with the System Architecture panel
 - Loading, empty, and error states across the dashboard
 - Landing pages for product, pricing, support, signup, and about sections
-- Express and MongoDB backend for portfolio and order data
+- Rate limiting on auth and order endpoints
 
 ## Tech Stack
 
@@ -37,11 +38,13 @@ MarketLab is a full-stack paper trading simulator for practicing stock trading w
 |---|---|
 | **Hand-rolled auth** | PBKDF2-SHA512 password hashing (120,000 iterations, per-user salt) and HMAC-SHA256 signed session tokens — no auth library |
 | **Server-Sent Events** | Single persistent `/market-stream` connection replaces three independent polling loops, delivering live market prices and index data every 4 seconds |
+| **Limit order engine** | Queued limit orders evaluated every 4 s against the live market feed; auto-executes at trigger price, auto-cancels if resources are insufficient |
 | **Dual storage** | Memory-mode for zero-config local demos; MongoDB-mode for persistence — toggled via `MONGO_URL` env var |
 | **Derived positions** | Positions computed on-the-fly from holdings + live market quote — no redundant data store |
-| **Price history** | Rolling 40-tick OHLC buffer per symbol in the tick engine; exposed via `/history/:symbol` and rendered as a live chart |
+| **Price history** | Rolling 40-tick OHLC buffer per symbol in the tick engine; exposed via `/history/:symbol` and rendered as a live Chart.js modal |
+| **Rate limiting** | `express-rate-limit` on `/auth/*` (30 req/15 min) and `/newOrder` (30 req/min) — skipped in memory/test mode |
 | **Integration tests** | 4 tests covering auth lifecycle, BUY/SELL execution, validation guards, and demo reset — run against in-process server, no database |
-| **Demo reset** | Single endpoint wipes portfolio, orders, and watchlist and re-seeds to default state |
+| **Seeded demo** | Every new account gets 5 holdings + 7 orders pre-seeded at signup so the dashboard is never blank |
 
 ## Project Structure
 
@@ -109,9 +112,11 @@ npm test --prefix backend
 1. Start the backend, dashboard, and landing site in separate terminals.
 2. Open the landing site and use the signup CTA to launch the dashboard.
 3. Create a demo account or use the prefilled login form (`demo@marketlab.app` / `password123`).
-4. Search the watchlist, place a BUY order, then confirm cash, holdings, and orders refresh.
-5. Sell part of a holding and open Insights to explain realized P&L, exposure, and the trade journal.
-6. Use `Reset Demo` in the dashboard header to restore the portfolio and watchlist instantly.
+4. Browse the watchlist, click a symbol to open the trade form, and place a **MARKET** order — watch cash, holdings, and positions update live.
+5. Switch to **LIMIT** order type, set a trigger below the current price, and demonstrate how the order queues in the Orders tab and auto-executes on the next tick.
+6. Open the Analytics chart from the watchlist to show the rolling OHLC price history.
+7. Sell part of a holding and open Insights to explain realized P&L, the architecture panel, and the SSE connection.
+8. Use `Reset Demo` in the dashboard header to restore the seeded portfolio instantly.
 
 You can also run common commands from the repository root:
 
@@ -139,6 +144,5 @@ straight to the built dashboard using `REACT_APP_DASHBOARD_URL`.
 ## Roadmap
 
 - Password reset and profile management
-- Production-grade JWT/session hardening
-- Streamed or websocket-style market updates
-- Production deployment
+- Production-grade JWT refresh tokens
+- Cloud deployment (Render / Railway)
