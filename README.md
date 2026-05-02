@@ -31,6 +31,18 @@ MarketLab is a full-stack paper trading simulator for practicing stock trading w
 - Express.js
 - MongoDB and Mongoose
 
+## Technical Highlights
+
+| Capability | Detail |
+|---|---|
+| **Hand-rolled auth** | PBKDF2-SHA512 password hashing (120,000 iterations, per-user salt) and HMAC-SHA256 signed session tokens — no auth library |
+| **Server-Sent Events** | Single persistent `/market-stream` connection replaces three independent polling loops, delivering live market prices and index data every 4 seconds |
+| **Dual storage** | Memory-mode for zero-config local demos; MongoDB-mode for persistence — toggled via `MONGO_URL` env var |
+| **Derived positions** | Positions computed on-the-fly from holdings + live market quote — no redundant data store |
+| **Price history** | Rolling 40-tick OHLC buffer per symbol in the tick engine; exposed via `/history/:symbol` and rendered as a live chart |
+| **Integration tests** | 4 tests covering auth lifecycle, BUY/SELL execution, validation guards, and demo reset — run against in-process server, no database |
+| **Demo reset** | Single endpoint wipes portfolio, orders, and watchlist and re-seeds to default state |
+
 ## Project Structure
 
 ```text
