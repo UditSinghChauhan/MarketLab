@@ -11,14 +11,19 @@ import "./BuyActionWindow.css";
 
 const BuyActionWindow = ({ uid, mode = "BUY", defaultPrice = 0 }) => {
   const generalContext = useContext(GeneralContext);
+  const [orderType, setOrderType] = useState("MARKET"); // "MARKET" | "LIMIT"
   const [stockQuantity, setStockQuantity] = useState(1);
   const [stockPrice, setStockPrice] = useState(defaultPrice || 0);
+  const [limitPrice, setLimitPrice] = useState(defaultPrice || 0);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const orderValue = Number(stockQuantity || 0) * Number(stockPrice || 0);
+
   const isBuyOrder = mode === "BUY";
+  const isLimit = orderType === "LIMIT";
   const parsedQuantity = Number(stockQuantity);
-  const parsedPrice = Number(stockPrice);
+  const parsedPrice = Number(isLimit ? limitPrice : stockPrice);
+  const orderValue = parsedQuantity * parsedPrice;
+
   const isInvalidOrder =
     !Number.isInteger(parsedQuantity) ||
     parsedQuantity <= 0 ||
@@ -35,17 +40,16 @@ const BuyActionWindow = ({ uid, mode = "BUY", defaultPrice = 0 }) => {
     setError("");
 
     try {
-      await axios.post(
-        `${API_BASE_URL}/newOrder`,
-        {
-          name: uid,
-          qty: Number(stockQuantity),
-          price: Number(stockPrice),
-          mode,
-        },
-        getAuthConfig()
-      );
+      const body = {
+        name: uid,
+        qty: parsedQuantity,
+        price: isLimit ? parsedPrice : Number(stockPrice),
+        mode,
+        orderType,
+        ...(isLimit && { limitPrice: parsedPrice }),
+      };
 
+      await axios.post(`${API_BASE_URL}/newOrder`, body, getAuthConfig());
       window.dispatchEvent(new Event("marketlab:order-filled"));
       generalContext.closeBuyWindow();
     } catch (err) {
@@ -59,10 +63,40 @@ const BuyActionWindow = ({ uid, mode = "BUY", defaultPrice = 0 }) => {
     generalContext.closeBuyWindow();
   };
 
+  const orderLabel = isLimit
+    ? `${mode} LIMIT`
+    : `${mode} MARKET`;
+
+  const limitHint =
+    isLimit && isBuyOrder
+      ? "Executes when market price falls to or below your limit"
+      : isLimit
+      ? "Executes when market price rises to or above your limit"
+      : null;
+
   return (
     <div className="container" id="buy-window">
       <div className="regular-order">
-        <h4>{`${mode} ${uid}`}</h4>
+        <div className="order-header">
+          <h4>{`${mode} · ${uid}`}</h4>
+          <div className="order-type-toggle">
+            <button
+              className={`ot-btn ${orderType === "MARKET" ? "ot-active" : ""}`}
+              onClick={() => setOrderType("MARKET")}
+              type="button"
+            >
+              Market
+            </button>
+            <button
+              className={`ot-btn ${orderType === "LIMIT" ? "ot-active" : ""}`}
+              onClick={() => setOrderType("LIMIT")}
+              type="button"
+            >
+              Limit
+            </button>
+          </div>
+        </div>
+
         <div className="inputs">
           <fieldset>
             <legend>Qty.</legend>
@@ -75,19 +109,37 @@ const BuyActionWindow = ({ uid, mode = "BUY", defaultPrice = 0 }) => {
               value={stockQuantity}
             />
           </fieldset>
-          <fieldset>
-            <legend>Price</legend>
-            <input
-              type="number"
-              name="price"
-              id="price"
-              min="0"
-              step="0.05"
-              onChange={(e) => setStockPrice(e.target.value)}
-              value={stockPrice}
-            />
-          </fieldset>
+
+          {isLimit ? (
+            <fieldset>
+              <legend>Limit price</legend>
+              <input
+                type="number"
+                name="limitPrice"
+                id="limitPrice"
+                min="0"
+                step="0.05"
+                onChange={(e) => setLimitPrice(e.target.value)}
+                value={limitPrice}
+              />
+            </fieldset>
+          ) : (
+            <fieldset>
+              <legend>Market price</legend>
+              <input
+                type="number"
+                name="price"
+                id="price"
+                min="0"
+                step="0.05"
+                onChange={(e) => setStockPrice(e.target.value)}
+                value={stockPrice}
+              />
+            </fieldset>
+          )}
         </div>
+
+        {limitHint && <p className="limit-hint">{limitHint}</p>}
         {error && <p className="error">{error}</p>}
       </div>
 
@@ -100,7 +152,11 @@ const BuyActionWindow = ({ uid, mode = "BUY", defaultPrice = 0 }) => {
             onClick={handleTradeClick}
             disabled={isInvalidOrder || isSubmitting}
           >
-            {isSubmitting ? "Placing..." : mode}
+            {isSubmitting
+              ? "Placing..."
+              : isLimit
+              ? `Place ${orderLabel}`
+              : mode}
           </button>
           <button type="button" className="btn btn-grey" onClick={handleCancelClick}>
             Cancel
