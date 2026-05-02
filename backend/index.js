@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const rateLimit = require("express-rate-limit");
 
 const { AccountModel } = require("./model/AccountModel");
 const { HoldingsModel } = require("./model/HoldingsModel");
@@ -42,21 +43,33 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Rate limiting — protects auth endpoints and the order route
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many requests — please try again in a few minutes" },
+  skip: () => useMemoryStore, // skip in memory/test mode so tests aren't affected
+});
+
+const orderLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Order rate limit exceeded — please slow down" },
+  skip: () => useMemoryStore,
+});
+
 let memoryUsers = [];
-let memoryAccounts = {
-  demo: {
-    userId: "demo",
-    name: DEMO_USER.name,
-    openingBalance: 100000,
-    cash: 100000,
-    save: async () => memoryAccounts.demo,
-  },
-};
+let memoryAccounts = {};  // populated lazily by getDemoAccount on first request
 let memoryHoldings = [];
 let memoryOrders = [];
 let memoryWatchlists = {
   demo: getDefaultWatchlistSymbols(),
 };
+
 
 const asyncHandler = (handler) => async (req, res) => {
   try {
@@ -222,9 +235,11 @@ const getDemoAccount = async (user = DEMO_USER) => {
         userId,
         name: user.name || "Demo Trader",
         openingBalance: 100000,
-        cash: 100000,
+        cash: 100000 - SEED_INVESTED,
         save: async () => memoryAccounts[userId],
       };
+      // Seed a realistic portfolio so the dashboard is never blank on first load
+      await seedDemoPortfolio(userId);
     }
 
     return memoryAccounts[userId];
@@ -237,12 +252,15 @@ const getDemoAccount = async (user = DEMO_USER) => {
       userId,
       name: user.name || "Demo Trader",
       openingBalance: 100000,
-      cash: 100000,
+      cash: 100000 - SEED_INVESTED,
     });
+    // Seed holdings and orders for first-time users
+    await seedDemoPortfolio(userId);
   }
 
   return account;
 };
+
 
 const enrichHolding = (holding) => {
   const rawHolding =
@@ -452,6 +470,72 @@ const getAccountSnapshot = async (user) => {
   };
 };
 
+// Realistic seed data for demo showcase — spans 5 sectors so the
+// portfolio allocation chart shows meaningful diversification
+const SEED_HOLDINGS = [
+  { name: "INFY",       qty: 10, avg: 1520.00 }, // Tech
+  { name: "TCS",        qty: 3,  avg: 3150.00 }, // Tech
+  { name: "RELIANCE",   qty: 5,  avg: 2090.00 }, // Energy
+  { name: "HDFCBANK",   qty: 7,  avg: 1500.00 }, // Banking
+  { name: "BHARTIARTL", qty: 15, avg: 535.00  }, // Telecom
+];
+
+// Total invested: 15200 + 9450 + 10450 + 10500 + 8025 = 53625
+// Starting cash after seeding: 100000 - 53625 = 46375
+const SEED_INVESTED = SEED_HOLDINGS.reduce((t, h) => t + h.avg * h.qty, 0);
+
+const SEED_ORDERS = [
+  // BUY orders matching each holding
+  { name: "INFY",       qty: 10, price: 1520.00, mode: "BUY",  realizedPnl: 0    },
+  { name: "TCS",        qty: 3,  price: 3150.00, mode: "BUY",  realizedPnl: 0    },
+  { name: "RELIANCE",   qty: 5,  price: 2090.00, mode: "BUY",  realizedPnl: 0    },
+  { name: "HDFCBANK",   qty: 7,  price: 1500.00, mode: "BUY",  realizedPnl: 0    },
+  { name: "BHARTIARTL", qty: 15, price: 535.00,  mode: "BUY",  realizedPnl: 0    },
+  // SELL orders — show realized P&L in Orders and Insights
+  { name: "WIPRO",  qty: 5, price: 592.00, mode: "SELL", realizedPnl:  75.00 }, // +75
+  { name: "ITC",    qty: 8, price: 218.00, mode: "SELL", realizedPnl: 128.00 }, // +128
+];
+
+const seedDemoPortfolio = async (userId) => {
+  // Seed holdings
+  for (const h of SEED_HOLDINGS) {
+    const holding = {
+      userId,
+      name: h.name,
+      qty: h.qty,
+      avg: h.avg,
+      price: h.avg,
+      net: "+0.00%",
+      day: "+0.00%",
+    };
+    await createHolding(holding);
+  }
+
+  // Seed orders with staggered timestamps for a realistic order history
+  const baseTime = Date.now() - 1000 * 60 * 60 * 3; // 3 hours ago
+  for (let i = 0; i < SEED_ORDERS.length; i++) {
+    const o = SEED_ORDERS[i];
+    const order = {
+      userId,
+      name: o.name,
+      qty: o.qty,
+      price: o.price,
+      mode: o.mode,
+      value: o.qty * o.price,
+      realizedPnl: o.realizedPnl,
+      message: o.mode === "SELL" ? "Position closed" : "Order executed",
+      status: "EXECUTED",
+      createdAt: new Date(baseTime + i * 1000 * 60 * 18), // 18 min apart
+    };
+
+    if (useMemoryStore) {
+      memoryOrders.push({ ...order, _id: `seed-order-${i}-${Date.now()}` });
+    } else {
+      await OrdersModel.create(order);
+    }
+  }
+};
+
 const resetPortfolio = async (user) => {
   const userId = user.id || "demo";
   const defaultWatchlist = getDefaultWatchlistSymbols();
@@ -461,12 +545,13 @@ const resetPortfolio = async (user) => {
       userId,
       name: user.name || "Demo Trader",
       openingBalance: 100000,
-      cash: 100000,
+      cash: 100000 - SEED_INVESTED,
       save: async () => memoryAccounts[userId],
     };
-    memoryHoldings = memoryHoldings.filter((holding) => holding.userId !== userId);
-    memoryOrders = memoryOrders.filter((order) => order.userId !== userId);
+    memoryHoldings = memoryHoldings.filter((h) => h.userId !== userId);
+    memoryOrders   = memoryOrders.filter((o) => o.userId !== userId);
     memoryWatchlists[userId] = defaultWatchlist;
+    await seedDemoPortfolio(userId);
     return getAccountSnapshot(user);
   }
 
@@ -477,7 +562,7 @@ const resetPortfolio = async (user) => {
         userId,
         name: user.name || "Demo Trader",
         openingBalance: 100000,
-        cash: 100000,
+        cash: 100000 - SEED_INVESTED,
       },
     },
     { upsert: true }
@@ -489,9 +574,11 @@ const resetPortfolio = async (user) => {
     defaultWatchlist.map((symbol) => ({ userId, symbol })),
     { ordered: false }
   );
+  await seedDemoPortfolio(userId);
 
   return getAccountSnapshot(user);
 };
+
 
 const getDerivedPositions = async (userId) => {
   const holdings = await getHoldings(userId);
@@ -666,6 +753,7 @@ app.post(
 
 app.post(
   "/auth/signup",
+  authLimiter,
   asyncHandler(async (req, res) => {
     const name = String(req.body.name || "").trim();
     const email = String(req.body.email || "").trim().toLowerCase();
@@ -691,6 +779,7 @@ app.post(
 
 app.post(
   "/auth/login",
+  authLimiter,
   asyncHandler(async (req, res) => {
     const email = String(req.body.email || "").trim().toLowerCase();
     const password = String(req.body.password || "");
@@ -763,6 +852,7 @@ app.get(
 
 app.post(
   "/newOrder",
+  orderLimiter,
   asyncHandler(async (req, res) => {
     const validation = validateOrder(req.body);
 
