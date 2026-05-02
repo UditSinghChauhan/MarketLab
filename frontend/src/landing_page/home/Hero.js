@@ -27,7 +27,7 @@ function Hero() {
           <div className="product-preview" aria-label="MarketLab dashboard preview">
             <div className="preview-topbar">
               <span>NIFTY 50</span>
-              <strong>14,230.61</strong>
+              <strong>24,318.45</strong>
               <em>+0.42%</em>
             </div>
             <div className="preview-body">

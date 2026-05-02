@@ -9,23 +9,24 @@ function Stats() {
           <h1 className="fs-2 mb-5">Learn with confidence</h1>
           <h2 className="fs-4">Virtual capital first</h2>
           <p className="text-muted">
-            Practice order placement and portfolio tracking before making real
-            market decisions.
+            Start with ₹1,00,000 of virtual cash and practice BUY/SELL
+            order placement with full cash and holdings validation.
           </p>
-          <h2 className="fs-4">Focused dashboard</h2>
+          <h2 className="fs-4">Market &amp; Limit orders</h2>
           <p className="text-muted">
-            Watchlist, holdings, positions, funds, and charts stay together in
-            one dashboard designed for repeated use.
+            Place market orders for instant execution or limit orders that
+            trigger automatically when the market price crosses your target.
           </p>
-          <h2 className="fs-4">The MarketLab workflow</h2>
+          <h2 className="fs-4">Live P&amp;L and portfolio analytics</h2>
           <p className="text-muted">
-            The project is evolving toward user wallets, full buy/sell
-            execution, dynamic P&L, and simulated market data.
+            Watchlist, holdings, positions, funds, and an interactive price
+            history chart stay together in one real-time dashboard.
           </p>
-          <h2 className="fs-4">Portfolio-ready engineering</h2>
+          <h2 className="fs-4">Production-grade engineering</h2>
           <p className="text-muted">
-            Built as a MERN fintech project with clean setup docs, deployable
-            apps, and an extensible trading engine roadmap.
+            Server-Sent Events for live feed, hand-rolled PBKDF2 auth,
+            dual-mode storage (memory + MongoDB), and an in-process
+            integration test suite — all without a single framework shortcut.
           </p>
         </div>
         <div className="col-6 p-5">
