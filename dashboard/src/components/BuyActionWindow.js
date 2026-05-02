@@ -60,7 +60,7 @@ const BuyActionWindow = ({ uid, mode = "BUY", defaultPrice = 0 }) => {
   };
 
   return (
-    <div className="container" id="buy-window" draggable="true">
+    <div className="container" id="buy-window">
       <div className="regular-order">
         <h4>{`${mode} ${uid}`}</h4>
         <div className="inputs">
@@ -96,7 +96,7 @@ const BuyActionWindow = ({ uid, mode = "BUY", defaultPrice = 0 }) => {
         <div>
           <button
             type="button"
-            className={`btn ${isBuyOrder ? "btn-blue" : "btn-grey"}`}
+            className={`btn ${isBuyOrder ? "btn-blue" : "btn-sell"}`}
             onClick={handleTradeClick}
             disabled={isInvalidOrder || isSubmitting}
           >

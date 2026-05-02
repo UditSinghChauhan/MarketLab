@@ -92,9 +92,15 @@ const Orders = () => {
                 <td>{formatCurrency(order.value)}</td>
                 <td>{order.status}</td>
                 <td
-                  className={(order.realizedPnl || 0) >= 0 ? "profit" : "loss"}
+                  className={
+                    order.mode === "SELL"
+                      ? (order.realizedPnl || 0) >= 0
+                        ? "profit"
+                        : "loss"
+                      : ""
+                  }
                 >
-                  {formatCurrency(order.realizedPnl)}
+                  {order.mode === "SELL" ? formatCurrency(order.realizedPnl) : "—"}
                 </td>
               </tr>
             ))}
