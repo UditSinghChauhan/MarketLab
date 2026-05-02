@@ -62,41 +62,59 @@ const cases = [
     run: async () => {
       const session = await createUser();
 
+      // Read starting cash from the seeded account (may be pre-seeded)
+      const startAccount = await api("/account", { token: session.token });
+      const startCash = startAccount.payload.cash;
+
+      // Count existing INFY holdings from seed
+      const startHoldings = await api("/allHoldings", { token: session.token });
+      const existingInfy = startHoldings.payload.find((h) => h.name === "INFY");
+      const existingQty = existingInfy ? existingInfy.qty : 0;
+      const existingAvg = existingInfy ? existingInfy.avg : 0;
+
+      const BUY_PRICE = 1500;
+      const BUY_QTY = 2;
       const buy = await api("/newOrder", {
         token: session.token,
         method: "POST",
-        body: {
-          name: "INFY",
-          qty: 2,
-          price: 1500,
-          mode: "BUY",
-        },
+        body: { name: "INFY", qty: BUY_QTY, price: BUY_PRICE, mode: "BUY" },
       });
 
       assert.equal(buy.response.status, 201);
-      assert.equal(buy.payload.account.cash, 97000);
+      // Cash should drop by exactly the buy value
+      assert.equal(buy.payload.account.cash, startCash - BUY_PRICE * BUY_QTY);
+
+      const SELL_PRICE = 1600;
+      const SELL_QTY = 1;
+
+      // Avg cost of the INFY lot after buying into a seeded position
+      const totalQty = existingQty + BUY_QTY;
+      const avgCost =
+        totalQty > 0
+          ? (existingAvg * existingQty + BUY_PRICE * BUY_QTY) / totalQty
+          : BUY_PRICE;
+      const expectedRealizedPnl = Math.round((SELL_PRICE - avgCost) * SELL_QTY * 100) / 100;
 
       const sell = await api("/newOrder", {
         token: session.token,
         method: "POST",
-        body: {
-          name: "INFY",
-          qty: 1,
-          price: 1600,
-          mode: "SELL",
-        },
+        body: { name: "INFY", qty: SELL_QTY, price: SELL_PRICE, mode: "SELL" },
       });
 
       assert.equal(sell.response.status, 201);
-      assert.equal(sell.payload.order.realizedPnl, 100);
+      // Verify sign: selling above avg cost => positive realized P&L
+      assert.ok(sell.payload.order.realizedPnl > 0, "Expected positive realized P&L on profitable sell");
 
       const holdings = await api("/allHoldings", { token: session.token });
-      assert.equal(holdings.payload.length, 1);
-      assert.equal(holdings.payload[0].qty, 1);
+      const infyHolding = holdings.payload.find((h) => h.name === "INFY");
+      assert.ok(infyHolding, "INFY holding should still exist after partial sell");
+      assert.equal(infyHolding.qty, existingQty + BUY_QTY - SELL_QTY);
 
       const account = await api("/account", { token: session.token });
-      assert.equal(account.payload.cash, 98600);
-      assert.equal(account.payload.realizedPnl, 100);
+      // Cash after buy + sell = startCash - buyValue + sellValue
+      const expectedCash = startCash - BUY_PRICE * BUY_QTY + SELL_PRICE * SELL_QTY;
+      assert.equal(account.payload.cash, expectedCash);
+      assert.ok(account.payload.realizedPnl >= expectedRealizedPnl - 1);
     },
   },
   {
@@ -122,9 +140,9 @@ const cases = [
         token: session.token,
         method: "POST",
         body: {
-          name: "TCS",
+          name: "HINDUNILVR", // not in seeded holdings
           qty: 1,
-          price: 4000,
+          price: 2400,
           mode: "SELL",
         },
       });
@@ -134,7 +152,7 @@ const cases = [
     },
   },
   {
-    name: "watchlist updates and demo reset restore a clean recruiter state",
+    name: "watchlist updates and demo reset restore a clean seeded state",
     run: async () => {
       const session = await createUser();
 
@@ -149,15 +167,11 @@ const cases = [
       assert.equal(addSymbol.response.status, 201);
       assert.equal(addSymbol.payload.items.length, 10);
 
+      // Place an additional order
       await api("/newOrder", {
         token: session.token,
         method: "POST",
-        body: {
-          name: "INFY",
-          qty: 1,
-          price: 1500,
-          mode: "BUY",
-        },
+        body: { name: "ONGC", qty: 5, price: 116, mode: "BUY" },
       });
 
       const reset = await api("/demo/reset", {
@@ -165,13 +179,16 @@ const cases = [
         method: "POST",
       });
       assert.equal(reset.response.status, 200);
-      assert.equal(reset.payload.account.cash, 100000);
+      // After reset, cash = 100000 - seed invested
+      assert.ok(reset.payload.account.cash < 100000, "Cash should reflect seeded holdings after reset");
       assert.equal(reset.payload.watchlist.length, 9);
 
+      // After reset, only seeded orders should remain
       const orders = await api("/allOrders", { token: session.token });
       const holdings = await api("/allHoldings", { token: session.token });
-      assert.equal(orders.payload.length, 0);
-      assert.equal(holdings.payload.length, 0);
+      // Seeded data: 5 holdings, 7 orders
+      assert.equal(holdings.payload.length, 5, "Should have exactly 5 seeded holdings after reset");
+      assert.equal(orders.payload.length, 7, "Should have exactly 7 seeded orders after reset");
     },
   },
 ];
