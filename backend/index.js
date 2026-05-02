@@ -357,9 +357,9 @@ const createOrder = async (order) => {
   if (useMemoryStore) {
     const newOrder = {
       ...order,
-      _id: `order-${Date.now()}`,
-      status: "EXECUTED",
-      createdAt: new Date(),
+      _id: `order-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      status: order.status || "EXECUTED",
+      createdAt: order.createdAt || new Date(),
     };
     memoryOrders.push(newOrder);
     return newOrder;
@@ -367,6 +367,130 @@ const createOrder = async (order) => {
 
   return OrdersModel.create(order);
 };
+
+const updateOrder = async (orderId, updates) => {
+  if (useMemoryStore) {
+    const order = memoryOrders.find((o) => o._id === orderId);
+    if (order) Object.assign(order, updates);
+    return order;
+  }
+  return OrdersModel.findByIdAndUpdate(orderId, { $set: updates }, { new: true });
+};
+
+const deleteOrder = async (orderId, userId) => {
+  if (useMemoryStore) {
+    const idx = memoryOrders.findIndex((o) => o._id === orderId && o.userId === userId);
+    if (idx !== -1) memoryOrders.splice(idx, 1);
+    return idx !== -1;
+  }
+  const result = await OrdersModel.deleteOne({ _id: orderId, userId });
+  return result.deletedCount > 0;
+};
+
+const getPendingOrders = async () => {
+  if (useMemoryStore) {
+    return memoryOrders.filter((o) => o.status === "PENDING");
+  }
+  return OrdersModel.find({ status: "PENDING" });
+};
+
+// Limit order evaluation engine — fires every 4 s (matches market tick)
+// For each PENDING limit order, checks if the market price has crossed
+// the limit price and executes it if so.
+const evaluateLimitOrders = async () => {
+  try {
+    const pendingOrders = await getPendingOrders();
+    if (!pendingOrders.length) return;
+
+    const marketMap = getMarketMap();
+
+    for (const order of pendingOrders) {
+      const market = marketMap[order.name];
+      if (!market) continue;
+
+      const currentPrice = market.price;
+      const limitPrice = order.limitPrice;
+
+      const triggered =
+        order.mode === "BUY"
+          ? currentPrice <= limitPrice   // buy when market falls to or below limit
+          : currentPrice >= limitPrice;  // sell when market rises to or above limit
+
+      if (!triggered) continue;
+
+      // Re-fetch account and holding to ensure they're still valid
+      const fakeUser = { id: order.userId };
+      const account = await getDemoAccount(fakeUser);
+      const holding = await findHolding(order.userId, order.name);
+      const executionValue = currentPrice * order.qty;
+      let realizedPnl = 0;
+
+      if (order.mode === "BUY") {
+        if (account.cash < executionValue) {
+          // Insufficient funds at execution time — cancel the order
+          await updateOrder(order._id, { status: "CANCELLED", message: "Insufficient cash at execution" });
+          continue;
+        }
+        account.cash -= executionValue;
+        upsertSymbol(order.name, currentPrice);
+
+        if (holding) {
+          const totalQty = holding.qty + order.qty;
+          const totalCost = holding.avg * holding.qty + executionValue;
+          holding.qty = totalQty;
+          holding.avg = totalCost / totalQty;
+          holding.price = currentPrice;
+          holding.day = "+0.00%";
+          await saveHolding(holding);
+        } else {
+          await createHolding({
+            userId: order.userId,
+            name: order.name,
+            qty: order.qty,
+            avg: currentPrice,
+            price: currentPrice,
+            net: "+0.00%",
+            day: "+0.00%",
+          });
+        }
+      } else {
+        // SELL limit
+        if (!holding || holding.qty < order.qty) {
+          await updateOrder(order._id, { status: "CANCELLED", message: "Insufficient holdings at execution" });
+          continue;
+        }
+        account.cash += executionValue;
+        upsertSymbol(order.name, currentPrice);
+        realizedPnl = (currentPrice - holding.avg) * order.qty;
+        holding.qty -= order.qty;
+        holding.price = currentPrice;
+        holding.day = "+0.00%";
+
+        if (holding.qty === 0) {
+          await deleteHolding(holding);
+        } else {
+          await saveHolding(holding);
+        }
+      }
+
+      await account.save();
+      await updateOrder(order._id, {
+        status: "EXECUTED",
+        price: currentPrice,
+        value: executionValue,
+        realizedPnl,
+        message: `Limit order executed at \u20B9${currentPrice}`,
+      });
+    }
+  } catch (err) {
+    // Evaluation errors should never crash the server
+    console.error("[limit-order-eval]", err.message);
+  }
+};
+
+const limitEvalInterval = setInterval(evaluateLimitOrders, 4000);
+if (typeof limitEvalInterval.unref === "function") limitEvalInterval.unref();
+
 
 const getWatchlistSymbols = async (userId) => {
   if (useMemoryStore) {
@@ -864,6 +988,45 @@ app.post(
     const orderInput = validation.order;
     const account = await getDemoAccount(req.user);
     const holding = await findHolding(userId, orderInput.name);
+
+    // ── LIMIT ORDER: validate upfront then queue as PENDING ──────────
+    if (orderInput.orderType === "LIMIT") {
+      const limitPrice = Number(orderInput.limitPrice);
+
+      if (!Number.isFinite(limitPrice) || limitPrice <= 0) {
+        return res.status(400).json({ message: "Limit price must be a positive number" });
+      }
+
+      if (orderInput.mode === "BUY" && account.cash < limitPrice * orderInput.qty) {
+        return res.status(400).json({ message: "Insufficient virtual cash for limit order" });
+      }
+
+      if (orderInput.mode === "SELL" && (!holding || holding.qty < orderInput.qty)) {
+        return res.status(400).json({ message: "Insufficient holdings for limit order" });
+      }
+
+      const pendingOrder = await createOrder({
+        userId,
+        name: orderInput.name,
+        qty: orderInput.qty,
+        price: limitPrice,
+        limitPrice,
+        value: limitPrice * orderInput.qty,
+        mode: orderInput.mode,
+        orderType: "LIMIT",
+        status: "PENDING",
+        realizedPnl: 0,
+        message: `Limit ${orderInput.mode} @ \u20B9${limitPrice} — waiting for trigger`,
+      });
+
+      return res.status(201).json({
+        message: pendingOrder.message,
+        order: pendingOrder,
+        account: await getAccountSnapshot(req.user),
+      });
+    }
+
+    // ── MARKET ORDER: execute immediately (existing behaviour) ───────
     let realizedPnl = 0;
     let message = "Order executed";
 
@@ -921,6 +1084,7 @@ app.post(
     const savedOrder = await createOrder({
       userId,
       ...orderInput,
+      orderType: "MARKET",
       realizedPnl,
       message,
     });
@@ -932,6 +1096,38 @@ app.post(
     });
   })
 );
+
+app.delete(
+  "/orders/:id/cancel",
+  asyncHandler(async (req, res) => {
+    const orderId = String(req.params.id || "");
+    const userId = req.user.id || "demo";
+
+    // Only PENDING orders can be cancelled
+    let order;
+    if (useMemoryStore) {
+      order = memoryOrders.find((o) => o._id === orderId && o.userId === userId);
+    } else {
+      order = await OrdersModel.findOne({ _id: orderId, userId });
+    }
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    if (order.status !== "PENDING") {
+      return res.status(400).json({ message: "Only pending orders can be cancelled" });
+    }
+
+    await updateOrder(orderId, {
+      status: "CANCELLED",
+      message: "Cancelled by user",
+    });
+
+    res.json({ message: "Order cancelled", orderId });
+  })
+);
+
 
 const startServer = async () => {
   if (useMemoryStore) {
