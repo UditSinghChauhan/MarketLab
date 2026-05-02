@@ -1360,3 +1360,100 @@ hr {
 @media (max-width: 520px) {
   .arch-grid { grid-template-columns: 1fr; }
 }
+
+/* ── BuyActionWindow — order-type toggle & limit hint ─────────────── */
+.order-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.order-header h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: rgb(50, 50, 50);
+}
+.order-type-toggle {
+  display: flex;
+  border: 1px solid rgb(210, 210, 210);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ot-btn {
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: none;
+  background: #fff;
+  color: rgb(100, 100, 100);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ot-btn:hover { background: rgb(245, 245, 245); }
+.ot-btn.ot-active {
+  background: #4184f3;
+  color: #fff;
+}
+.limit-hint {
+  font-size: 0.72rem;
+  color: rgb(130, 130, 130);
+  margin: 6px 0 0;
+  font-style: italic;
+}
+
+/* ── Orders — status chips ────────────────────────────────────────── */
+.order-status {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 3px;
+}
+.order-status.executed {
+  background: rgb(225, 245, 220);
+  color: rgb(60, 150, 40);
+}
+.order-status.pending {
+  background: rgb(255, 243, 215);
+  color: rgb(180, 110, 0);
+}
+.order-status.cancelled {
+  background: rgb(245, 235, 235);
+  color: rgb(170, 80, 80);
+}
+.row-pending td {
+  opacity: 0.82;
+}
+.order-type-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  background: rgb(230, 240, 255);
+  color: rgb(60, 100, 200);
+  border-radius: 2px;
+  padding: 1px 5px;
+  margin-left: 5px;
+  vertical-align: middle;
+  text-transform: uppercase;
+}
+.cancel-order-btn {
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border: 1px solid rgb(220, 100, 100);
+  color: rgb(200, 60, 60);
+  background: #fff;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cancel-order-btn:hover {
+  background: rgb(255, 240, 240);
+}
+.cancel-order-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
