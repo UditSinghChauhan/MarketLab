@@ -241,3 +241,16 @@
     color: #666666;
   }
   
+
+  /* btn-sell — red/orange for SELL orders */
+  .btn-sell {
+    background: #e55353;
+  }
+  .btn-sell:hover {
+    background: #c94343;
+  }
+  .btn-sell:disabled,
+  .btn-sell:disabled:hover {
+    background: #d4d4d4;
+    color: #666666;
+  }
