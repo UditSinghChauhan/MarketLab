@@ -145,13 +145,39 @@ const Apps = () => {
         </section>
 
         <section>
-          <h4>Demo Proof Points</h4>
-          <ul className="proof-list">
-            <li>Token-based signup and login with user-scoped portfolios</li>
-            <li>BUY/SELL validation for cash, quantity, and holdings</li>
-            <li>Live dashboard refresh after executed paper orders</li>
-            <li>MongoDB-ready backend with memory mode for local demos</li>
-          </ul>
+          <h4>System Architecture</h4>
+          <div className="arch-grid">
+            <div className="arch-item">
+              <span className="arch-label">Transport</span>
+              <span className="arch-value">Server-Sent Events</span>
+              <span className="arch-note">1 persistent stream · 4 s tick</span>
+            </div>
+            <div className="arch-item">
+              <span className="arch-label">Auth</span>
+              <span className="arch-value">HMAC-SHA256 tokens</span>
+              <span className="arch-note">PBKDF2 · 120k iterations · no library</span>
+            </div>
+            <div className="arch-item">
+              <span className="arch-label">Storage</span>
+              <span className="arch-value">Dual-mode</span>
+              <span className="arch-note">Memory fallback · MongoDB-ready</span>
+            </div>
+            <div className="arch-item">
+              <span className="arch-label">Positions</span>
+              <span className="arch-value">Derived on read</span>
+              <span className="arch-note">Live quote × holding qty</span>
+            </div>
+            <div className="arch-item">
+              <span className="arch-label">Rate limits</span>
+              <span className="arch-value">Auth · Orders</span>
+              <span className="arch-note">30 req / 15 min · 30 req / min</span>
+            </div>
+            <div className="arch-item">
+              <span className="arch-label">Tests</span>
+              <span className="arch-value">4 / 4 passing</span>
+              <span className="arch-note">In-process · no database required</span>
+            </div>
+          </div>
         </section>
       </div>
 
