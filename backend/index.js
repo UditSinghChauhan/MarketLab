@@ -14,6 +14,7 @@ const {
   getAvailableSymbols,
   getIndexFeed,
   getMarketFeed,
+  getPriceHistory,
   getQuote,
   upsertSymbol,
 } = require("./marketData");
@@ -22,6 +23,12 @@ const PORT = process.env.PORT || 3002;
 const uri = process.env.MONGO_URL;
 const authSecret = process.env.AUTH_SECRET || "marketlab-local-secret";
 const useMemoryStore = !uri || uri.includes("<<");
+
+if (!process.env.AUTH_SECRET) {
+  console.warn(
+    "[WARN] AUTH_SECRET is not set — using insecure default key. Set AUTH_SECRET before any production use."
+  );
+}
 
 const DEMO_USER = {
   id: "demo",
@@ -601,6 +608,47 @@ app.get(
   "/indices",
   asyncHandler(async (req, res) => {
     res.json(getIndexFeed());
+  })
+);
+
+// Server-Sent Events — single persistent stream replaces three polling loops
+app.get("/market-stream", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.flushHeaders();
+
+  const send = () => {
+    try {
+      const payload = JSON.stringify({
+        market: getMarketFeed(),
+        indices: getIndexFeed(),
+      });
+      res.write(`data: ${payload}\n\n`);
+    } catch {
+      // client disconnected
+    }
+  };
+
+  send();
+  const intervalId = setInterval(send, 4000);
+
+  req.on("close", () => {
+    clearInterval(intervalId);
+  });
+});
+
+app.get(
+  "/history/:symbol",
+  asyncHandler(async (req, res) => {
+    const symbol = String(req.params.symbol || "").trim().toUpperCase();
+
+    if (!getAvailableSymbols().includes(symbol)) {
+      return res.status(404).json({ message: "Symbol not found" });
+    }
+
+    res.json({ symbol, history: getPriceHistory(symbol) });
   })
 );
 
