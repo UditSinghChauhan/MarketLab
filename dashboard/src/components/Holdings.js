@@ -1,9 +1,25 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { VerticalGraph } from "./VerticalGraph";
+import { Doughnut } from "react-chartjs-2";
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import API_BASE_URL from "../config/api";
 import { getAuthConfig } from "../config/auth";
 import { formatCurrency, getApiErrorMessage } from "../utils/format";
+
+ChartJS.register(ArcElement, Tooltip, Legend);
+
+const PALETTE = [
+  "#4184f3",
+  "#ff5722",
+  "#48c237",
+  "#ffc107",
+  "#9c27b0",
+  "#00bcd4",
+  "#ff9800",
+  "#e91e63",
+  "#3f51b5",
+  "#009688",
+];
 
 const Holdings = () => {
   const [allHoldings, setAllHoldings] = useState([]);
@@ -41,19 +57,6 @@ const Holdings = () => {
     };
   }, []);
 
-  const labels = allHoldings.map((subArray) => subArray["name"]);
-
-  const data = {
-    labels,
-    datasets: [
-      {
-        label: "Stock Price",
-        data: allHoldings.map((stock) => stock.price),
-        backgroundColor: "rgba(255, 99, 132, 0.5)",
-      },
-    ],
-  };
-
   if (isLoading) {
     return <div className="dashboard-status">Loading holdings...</div>;
   }
@@ -68,6 +71,49 @@ const Holdings = () => {
       </div>
     );
   }
+
+  // Portfolio allocation doughnut — by current market value
+  const allocationData = {
+    labels: allHoldings.map((h) => h.name),
+    datasets: [
+      {
+        data: allHoldings.map((h) => h.currentValue || 0),
+        backgroundColor: PALETTE.slice(0, allHoldings.length),
+        borderColor: "#fff",
+        borderWidth: 2,
+        hoverOffset: 8,
+      },
+    ],
+  };
+
+  const doughnutOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: "65%",
+    plugins: {
+      legend: {
+        position: "right",
+        labels: {
+          padding: 16,
+          font: { size: 11 },
+          color: "rgb(80, 80, 80)",
+          usePointStyle: true,
+        },
+      },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => {
+            const value = ctx.raw || 0;
+            const total = ctx.dataset.data.reduce((s, v) => s + v, 0);
+            const pct = total > 0 ? ((value / total) * 100).toFixed(1) : "0.0";
+            return ` ₹${Number(value).toLocaleString("en-IN", {
+              maximumFractionDigits: 0,
+            })} (${pct}%)`;
+          },
+        },
+      },
+    },
+  };
 
   return (
     <>
@@ -126,11 +172,21 @@ const Holdings = () => {
           <p>Current value</p>
         </div>
         <div className="col">
-          <h5>{formatCurrency(account?.unrealizedPnl)}</h5>
+          <h5 className={(account?.unrealizedPnl || 0) >= 0 ? "profit" : "loss"}>
+            {formatCurrency(account?.unrealizedPnl)}
+          </h5>
           <p>Unrealized P&L</p>
         </div>
       </div>
-      {allHoldings.length > 0 && <VerticalGraph data={data} />}
+
+      {allHoldings.length > 0 && (
+        <div className="allocation-section">
+          <h4 className="allocation-title">Portfolio Allocation</h4>
+          <div className="allocation-chart">
+            <Doughnut data={allocationData} options={doughnutOptions} />
+          </div>
+        </div>
+      )}
     </>
   );
 };
