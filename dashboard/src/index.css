@@ -1457,3 +1457,35 @@ hr {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ── 404 Not Found page ───────────────────────────────────────────── */
+.not-found {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  text-align: center;
+}
+.not-found-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.not-found-code {
+  font-size: 5rem;
+  font-weight: 700;
+  color: rgb(210, 210, 215);
+  line-height: 1;
+}
+.not-found h2 {
+  font-size: 1.2rem;
+  font-weight: 500;
+  color: rgb(50, 50, 60);
+  margin: 0;
+}
+.not-found p {
+  font-size: 0.85rem;
+  color: rgb(130, 130, 140);
+  margin: 0 0 10px;
+}
