@@ -191,6 +191,63 @@ const cases = [
       assert.equal(orders.payload.length, 7, "Should have exactly 7 seeded orders after reset");
     },
   },
+  {
+    name: "limit orders are queued as PENDING and can be cancelled",
+    run: async () => {
+      const session = await createUser();
+
+      // A limit price of 1 is far below any realistic market price,
+      // so this order will stay PENDING for the duration of the test.
+      const limitPrice = 1;
+
+      const limitOrder = await api("/newOrder", {
+        token: session.token,
+        method: "POST",
+        body: {
+          name: "RELIANCE",
+          qty: 1,
+          price: limitPrice,
+          mode: "BUY",
+          orderType: "LIMIT",
+          limitPrice,
+        },
+      });
+
+      assert.equal(limitOrder.response.status, 201);
+      assert.equal(limitOrder.payload.order.status, "PENDING");
+      assert.equal(limitOrder.payload.order.orderType, "LIMIT");
+      assert.equal(limitOrder.payload.order.limitPrice, limitPrice);
+
+      // Verify order appears in order list as PENDING
+      const orders = await api("/allOrders", { token: session.token });
+      const pending = orders.payload.find(
+        (o) => o._id === limitOrder.payload.order._id
+      );
+      assert.ok(pending, "Limit order should appear in order list");
+      assert.equal(pending.status, "PENDING");
+
+      // Cancel the pending order
+      const cancel = await api(
+        `/orders/${limitOrder.payload.order._id}/cancel`,
+        { token: session.token, method: "DELETE" }
+      );
+      assert.equal(cancel.response.status, 200);
+
+      // Verify it is now CANCELLED
+      const afterCancel = await api("/allOrders", { token: session.token });
+      const cancelled = afterCancel.payload.find(
+        (o) => o._id === limitOrder.payload.order._id
+      );
+      assert.equal(cancelled.status, "CANCELLED");
+
+      // A second cancel attempt on a non-PENDING order must be rejected
+      const doubleCancel = await api(
+        `/orders/${limitOrder.payload.order._id}/cancel`,
+        { token: session.token, method: "DELETE" }
+      );
+      assert.equal(doubleCancel.response.status, 400);
+    },
+  },
 ];
 
 const main = async () => {

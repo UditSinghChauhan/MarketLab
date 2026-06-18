@@ -724,9 +724,10 @@ const getDerivedPositions = async (userId) => {
   });
 };
 
-const validateOrder = ({ name, qty, price, mode }) => {
+const validateOrder = ({ name, qty, price, mode, orderType, limitPrice }) => {
   const normalizedMode = String(mode || "").toUpperCase();
   const normalizedName = String(name || "").trim().toUpperCase();
+  const normalizedOrderType = String(orderType || "MARKET").toUpperCase();
   const parsedQty = Number(qty);
   const parsedPrice = Number(price);
 
@@ -756,6 +757,8 @@ const validateOrder = ({ name, qty, price, mode }) => {
       qty: parsedQty,
       price: parsedPrice,
       mode: normalizedMode,
+      orderType: normalizedOrderType,
+      limitPrice: limitPrice != null ? Number(limitPrice) : undefined,
       value: parsedQty * parsedPrice,
     },
   };
