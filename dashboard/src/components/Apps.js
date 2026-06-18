@@ -88,7 +88,7 @@ const Apps = () => {
     <div className="insights-page">
       <div className="insights-header">
         <div>
-          <p className="eyebrow">Recruiter demo console</p>
+          <p className="eyebrow">Portfolio Analytics</p>
           <h3>Portfolio Insights</h3>
         </div>
         <span className={(account?.totalPnl || 0) >= 0 ? "profit pill" : "loss pill"}>
