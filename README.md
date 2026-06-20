@@ -1,5 +1,7 @@
 # MarketLab
 
+[![CI](https://github.com/UditSinghChauhan/MarketLab/actions/workflows/ci.yml/badge.svg)](https://github.com/UditSinghChauhan/MarketLab/actions/workflows/ci.yml)
+
 MarketLab is a full-stack paper trading platform with a public landing site, a trading dashboard, and an Express backend. It lets users create an account, manage a simulated portfolio, place paper trades, track holdings, view order history, and receive simulated live market updates.
 
 This project is inspired by modern brokerage platforms, but it is not affiliated with Zerodha or any real broker. Market prices and trades are simulated.
