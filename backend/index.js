@@ -412,9 +412,11 @@ const evaluateLimitOrders = async () => {
       const limitPrice = order.limitPrice;
 
       const triggered =
-        order.mode === "BUY"
-          ? currentPrice <= limitPrice   // buy when market falls to or below limit
-          : currentPrice >= limitPrice;  // sell when market rises to or above limit
+        order.orderType === "STOP_LOSS"
+          ? currentPrice <= order.stopPrice   // stop-loss: sell when price drops to/below stop
+          : order.mode === "BUY"
+          ? currentPrice <= limitPrice         // limit buy: execute when market falls to limit
+          : currentPrice >= limitPrice;        // limit sell: execute when market rises to limit
 
       if (!triggered) continue;
 
@@ -490,6 +492,38 @@ const evaluateLimitOrders = async () => {
 
 const limitEvalInterval = setInterval(evaluateLimitOrders, 4000);
 if (typeof limitEvalInterval.unref === "function") limitEvalInterval.unref();
+
+// Portfolio value history — rolling 60-point buffer per user
+// Updated every market tick so the frontend can render a live sparkline
+const PORTFOLIO_HISTORY_LENGTH = 60;
+const portfolioHistory = {}; // { [userId]: [{ t, v }] }
+
+const recordPortfolioSnapshot = async () => {
+  try {
+    const activeUserIds = useMemoryStore
+      ? [...new Set(memoryAccounts ? Object.keys(memoryAccounts) : [])]
+      : (await UserModel.find({}, "id").lean()).map((u) => u.id);
+
+    for (const userId of activeUserIds) {
+      const fakeUser = { id: userId };
+      const snapshot = await getAccountSnapshot(fakeUser);
+      if (!snapshot) continue;
+
+      if (!portfolioHistory[userId]) portfolioHistory[userId] = [];
+      portfolioHistory[userId].push({ t: Date.now(), v: snapshot.totalValue });
+
+      if (portfolioHistory[userId].length > PORTFOLIO_HISTORY_LENGTH) {
+        portfolioHistory[userId].shift();
+      }
+    }
+  } catch (err) {
+    // Never crash the server on snapshot errors
+    console.error("[portfolio-snapshot]", err.message);
+  }
+};
+
+const portfolioSnapshotInterval = setInterval(recordPortfolioSnapshot, 4000);
+if (typeof portfolioSnapshotInterval.unref === "function") portfolioSnapshotInterval.unref();
 
 
 const getWatchlistSymbols = async (userId) => {
@@ -724,7 +758,7 @@ const getDerivedPositions = async (userId) => {
   });
 };
 
-const validateOrder = ({ name, qty, price, mode, orderType, limitPrice }) => {
+const validateOrder = ({ name, qty, price, mode, orderType, limitPrice, stopPrice }) => {
   const normalizedMode = String(mode || "").toUpperCase();
   const normalizedName = String(name || "").trim().toUpperCase();
   const normalizedOrderType = String(orderType || "MARKET").toUpperCase();
@@ -737,6 +771,14 @@ const validateOrder = ({ name, qty, price, mode, orderType, limitPrice }) => {
 
   if (!["BUY", "SELL"].includes(normalizedMode)) {
     return { error: "Order mode must be BUY or SELL" };
+  }
+
+  if (!["MARKET", "LIMIT", "STOP_LOSS"].includes(normalizedOrderType)) {
+    return { error: "Order type must be MARKET, LIMIT, or STOP_LOSS" };
+  }
+
+  if (normalizedOrderType === "STOP_LOSS" && normalizedMode !== "SELL") {
+    return { error: "Stop-loss orders must be SELL orders" };
   }
 
   if (!Number.isFinite(parsedQty) || parsedQty <= 0) {
@@ -759,6 +801,7 @@ const validateOrder = ({ name, qty, price, mode, orderType, limitPrice }) => {
       mode: normalizedMode,
       orderType: normalizedOrderType,
       limitPrice: limitPrice != null ? Number(limitPrice) : undefined,
+      stopPrice: stopPrice != null ? Number(stopPrice) : undefined,
       value: parsedQty * parsedPrice,
     },
   };
@@ -863,6 +906,15 @@ app.get(
     }
 
     res.json({ symbol, history: getPriceHistory(symbol) });
+  })
+);
+
+app.get(
+  "/portfolio-history",
+  asyncHandler(async (req, res) => {
+    const userId = req.user?.id || "demo";
+    const history = portfolioHistory[userId] || [];
+    res.json({ history });
   })
 );
 
@@ -1020,6 +1072,39 @@ app.post(
         status: "PENDING",
         realizedPnl: 0,
         message: `Limit ${orderInput.mode} @ \u20B9${limitPrice} — waiting for trigger`,
+      });
+
+      return res.status(201).json({
+        message: pendingOrder.message,
+        order: pendingOrder,
+        account: await getAccountSnapshot(req.user),
+      });
+    }
+
+    // ── STOP-LOSS ORDER: validate upfront then queue as PENDING ──────
+    if (orderInput.orderType === "STOP_LOSS") {
+      const stopPrice = Number(orderInput.stopPrice);
+
+      if (!Number.isFinite(stopPrice) || stopPrice <= 0) {
+        return res.status(400).json({ message: "Stop price must be a positive number" });
+      }
+
+      if (!holding || holding.qty < orderInput.qty) {
+        return res.status(400).json({ message: "Insufficient holdings for stop-loss order" });
+      }
+
+      const pendingOrder = await createOrder({
+        userId,
+        name: orderInput.name,
+        qty: orderInput.qty,
+        price: stopPrice,
+        stopPrice,
+        value: stopPrice * orderInput.qty,
+        mode: "SELL",
+        orderType: "STOP_LOSS",
+        status: "PENDING",
+        realizedPnl: 0,
+        message: `Stop-loss SELL @ ₹${stopPrice} — triggers if price falls to stop`,
       });
 
       return res.status(201).json({

@@ -115,12 +115,17 @@ const Orders = () => {
                   {order.orderType === "LIMIT" && (
                     <span className="order-type-badge">LIMIT</span>
                   )}
+                  {order.orderType === "STOP_LOSS" && (
+                    <span className="order-type-badge stop-loss-badge">STOP-LOSS</span>
+                  )}
                 </td>
                 <td>{order.name}</td>
                 <td>{order.qty}</td>
                 <td>
                   {order.orderType === "LIMIT" && order.status === "PENDING"
                     ? `≤ ₹${formatCurrency(order.limitPrice)}`
+                    : order.orderType === "STOP_LOSS" && order.status === "PENDING"
+                    ? `Stop ₹${formatCurrency(order.stopPrice)}`
                     : formatCurrency(order.price)}
                 </td>
                 <td>{formatCurrency(order.value)}</td>

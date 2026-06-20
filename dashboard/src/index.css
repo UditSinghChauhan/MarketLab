@@ -1489,3 +1489,39 @@ hr {
   color: rgb(130, 130, 140);
   margin: 0 0 10px;
 }
+
+/* ── Stop-loss order badge ────────────────────────────────────────── */
+.stop-loss-badge {
+  background: rgba(229, 83, 83, 0.12);
+  color: #c94343;
+  border: 1px solid rgba(229, 83, 83, 0.30);
+}
+
+/* ── Live portfolio value chart (Summary sidebar) ─────────────────── */
+.portfolio-chart-wrap {
+  margin: 0 0 18px;
+  padding: 14px 16px 10px;
+  background: #fff;
+  border: 1px solid rgb(230, 230, 235);
+  border-radius: 8px;
+}
+.portfolio-chart-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.portfolio-chart-label {
+  font-size: 0.72rem;
+  color: rgb(130, 130, 140);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.portfolio-chart-value {
+  font-size: 1rem;
+  font-weight: 600;
+}
+.portfolio-chart-canvas {
+  height: 80px;
+  position: relative;
+}
