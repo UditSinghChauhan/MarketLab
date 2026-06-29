@@ -1,0 +1,7 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build --prefix dashboard",
+  "outputDirectory": "dashboard/build",
+  "installCommand": "npm install --prefix dashboard",
+  "framework": null
+}
