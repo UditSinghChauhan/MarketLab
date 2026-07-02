@@ -8,6 +8,7 @@ import {
   getStoredUser,
   setSession,
 } from "../config/auth";
+import { closeStream } from "../hooks/useMarketFeed";
 
 const AuthPanel = () => {
   const [user, setUser] = useState(getStoredUser());
@@ -73,6 +74,8 @@ const AuthPanel = () => {
 
   const handleLogout = () => {
     clearSession();
+    // Tear down the SSE stream so a subsequent login gets a fresh connection
+    closeStream();
     setUser(null);
     setNotice("");
     syncPortfolio();

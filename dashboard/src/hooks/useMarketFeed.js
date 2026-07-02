@@ -8,6 +8,9 @@
  * The hook also fires `marketlab:market-tick` on every message so that
  * portfolio components (Holdings, Summary, Apps) continue to re-fetch their
  * server-computed data without modification.
+ *
+ * Call closeStream() on logout or auth change to cleanly tear down the
+ * connection — the next component that mounts will open a fresh one.
  */
 import { useEffect, useState } from "react";
 import API_BASE_URL from "../config/api";
@@ -40,6 +43,21 @@ const getOrCreateStream = () => {
   streamSource.onerror = () => {
     // EventSource auto-reconnects after a network error — no manual handling needed
   };
+};
+
+/**
+ * closeStream — cleanly tears down the SSE connection.
+ * Call this on logout or 401 so a subsequent login opens a fresh connection
+ * with the correct auth context, rather than reusing a stale stream.
+ */
+export const closeStream = () => {
+  if (streamSource) {
+    streamSource.close();
+    streamSource = null;
+  }
+  latestSnapshot = { market: [], indices: null };
+  // Notify all current subscribers to reset to empty state
+  streamListeners.forEach((fn) => fn({ market: [], indices: null }));
 };
 // -------------------------------------------
 
