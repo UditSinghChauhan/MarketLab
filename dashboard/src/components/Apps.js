@@ -99,7 +99,7 @@ const Apps = () => {
       <div className="insight-grid">
         <div className="insight-card">
           <span>Account value</span>
-          <strong>Rs. {formatCurrency(account?.totalValue)}</strong>
+          <strong>₹{formatCurrency(account?.totalValue)}</strong>
           <p>Cash plus current holdings value.</p>
         </div>
         <div className="insight-card">
@@ -114,7 +114,7 @@ const Apps = () => {
         </div>
         <div className="insight-card">
           <span>Traded value</span>
-          <strong>Rs. {formatCurrency(metrics.tradedValue)}</strong>
+          <strong>₹{formatCurrency(metrics.tradedValue)}</strong>
           <p>Total paper order flow placed in this session.</p>
         </div>
       </div>
@@ -133,13 +133,13 @@ const Apps = () => {
           <div className="risk-row">
             <span>Unrealized P&L</span>
             <strong className={(account?.unrealizedPnl || 0) >= 0 ? "profit" : "loss"}>
-              Rs. {formatCurrency(account?.unrealizedPnl)}
+              ₹{formatCurrency(account?.unrealizedPnl)}
             </strong>
           </div>
           <div className="risk-row">
             <span>Realized P&L</span>
             <strong className={(account?.realizedPnl || 0) >= 0 ? "profit" : "loss"}>
-              Rs. {formatCurrency(account?.realizedPnl)}
+              ₹{formatCurrency(account?.realizedPnl)}
             </strong>
           </div>
         </section>
@@ -174,7 +174,7 @@ const Apps = () => {
             </div>
             <div className="arch-item">
               <span className="arch-label">Tests</span>
-              <span className="arch-value">4 / 4 passing</span>
+              <span className="arch-value">5 / 5 passing</span>
               <span className="arch-note">In-process · no database required</span>
             </div>
           </div>

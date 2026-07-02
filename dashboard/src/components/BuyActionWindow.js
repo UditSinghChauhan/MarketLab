@@ -187,7 +187,7 @@ const BuyActionWindow = ({ uid, mode = "BUY", defaultPrice = 0 }) => {
       </div>
 
       <div className="buttons">
-        <span>Order value: Rs. {formatCurrency(orderValue)}</span>
+        <span>Order value: ₹{formatCurrency(orderValue)}</span>
         <div>
           <button
             type="button"
