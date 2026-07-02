@@ -40,7 +40,20 @@ const getDefaultWatchlistSymbols = () => getAvailableSymbols().slice(0, 9);
 
 const app = express();
 
-app.use(cors());
+// CORS — lock to CORS_ORIGIN in production; default to wildcard in dev / memory-store mode.
+// Set CORS_ORIGIN=https://your-dashboard.vercel.app before any real deployment.
+const corsOrigin = process.env.CORS_ORIGIN || "*";
+if (corsOrigin === "*" && !useMemoryStore) {
+  console.warn(
+    "[WARN] CORS_ORIGIN is not set — all origins are allowed. Set CORS_ORIGIN before any production use."
+  );
+}
+app.use(
+  cors({
+    origin: corsOrigin,
+    credentials: corsOrigin !== "*",
+  })
+);
 app.use(express.json());
 
 // Rate limiting — protects auth endpoints and the order route
@@ -61,6 +74,7 @@ const orderLimiter = rateLimit({
   message: { message: "Order rate limit exceeded — please slow down" },
   skip: () => useMemoryStore,
 });
+
 
 let memoryUsers = [];
 let memoryAccounts = {};  // populated lazily by getDemoAccount on first request
@@ -122,6 +136,23 @@ const verifyToken = (token) => {
     return null;
   }
 };
+
+// requireAuth — middleware for routes that must reject unauthenticated callers.
+// Unlike the global getRequestUser middleware (which falls back to the demo user
+// so the dashboard is always usable), this explicitly returns 401 for mutations
+// such as placing orders, modifying the watchlist, and resetting the portfolio.
+const requireAuth = (req, res, next) => {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  const payload = verifyToken(token);
+
+  if (!payload?.sub) {
+    return res.status(401).json({ message: "Authentication required" });
+  }
+
+  next();
+};
+
 
 const hashPassword = (password, salt = crypto.randomBytes(16).toString("hex")) => {
   const passwordHash = crypto
@@ -836,6 +867,7 @@ app.get(
 
 app.post(
   "/watchlist",
+  requireAuth,
   asyncHandler(async (req, res) => {
     const symbol = String(req.body.symbol || "").trim().toUpperCase();
 
@@ -854,6 +886,7 @@ app.post(
 
 app.delete(
   "/watchlist/:symbol",
+  requireAuth,
   asyncHandler(async (req, res) => {
     const symbol = String(req.params.symbol || "").trim().toUpperCase();
     await removeWatchlistSymbol(req.user.id, symbol);
@@ -920,6 +953,7 @@ app.get(
 
 app.post(
   "/demo/reset",
+  requireAuth,
   asyncHandler(async (req, res) => {
     const account = await resetPortfolio(req.user);
     res.json({
@@ -938,7 +972,8 @@ app.post(
     const email = String(req.body.email || "").trim().toLowerCase();
     const password = String(req.body.password || "");
 
-    if (!name || !email || password.length < 6) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!name || !emailRegex.test(email) || password.length < 6) {
       return res.status(400).json({
         message: "Name, valid email, and 6+ character password are required",
       });
@@ -1031,6 +1066,7 @@ app.get(
 
 app.post(
   "/newOrder",
+  requireAuth,
   orderLimiter,
   asyncHandler(async (req, res) => {
     const validation = validateOrder(req.body);
@@ -1187,6 +1223,7 @@ app.post(
 
 app.delete(
   "/orders/:id/cancel",
+  requireAuth,
   asyncHandler(async (req, res) => {
     const orderId = String(req.params.id || "");
     const userId = req.user.id || "demo";
