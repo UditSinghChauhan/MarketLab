@@ -11,7 +11,7 @@ function Brokerage() {
           </Link>
           <ul
             style={{ textAlign: "left", lineHeight: "2.5", fontSize: "12px" }}
-            className="text-mut"
+            className="text-muted"
           >
             <li>Orders are paper trades and do not execute on an exchange.</li>
             <li>Virtual balances are used for learning and demo workflows.</li>

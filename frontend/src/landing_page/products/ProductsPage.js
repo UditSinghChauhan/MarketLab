@@ -5,7 +5,7 @@ import LeftSection from "./LeftSection";
 import RightSection from "./RightSection";
 import Universe from "./Universe";
 
-function PricingPage() {
+function ProductsPage() {
   return (
     <>
       <Hero />
@@ -57,4 +57,4 @@ function PricingPage() {
   );
 }
 
-export default PricingPage;
+export default ProductsPage;
