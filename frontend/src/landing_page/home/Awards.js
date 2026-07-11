@@ -45,7 +45,7 @@ function Awards() {
             </div>
           </div>
           <img
-            src="media/images/pressLogos.png"
+            src="media/images/pressLogos.svg"
             style={{ width: "90%" }}
             alt="MarketLab platform integrations"
           />

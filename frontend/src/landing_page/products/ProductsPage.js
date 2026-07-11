@@ -10,7 +10,7 @@ function ProductsPage() {
     <>
       <Hero />
       <LeftSection
-        imageURL="media/images/kite.png"
+        imageURL="media/images/kite.svg"
         productName="Trading Dashboard"
         productDesription="A focused workspace for watchlists, holdings, positions, funds, charts, and paper order placement."
         tryDemo="/signup"
@@ -19,13 +19,13 @@ function ProductsPage() {
         appStore="/product"
       />
       <RightSection
-        imageURL="media/images/console.png"
+        imageURL="media/images/console.svg"
         productName="Portfolio Console"
         productDesription="A portfolio view for tracking virtual capital, investment value, P&L, and trading activity as the simulator evolves."
         learnMore="/about"
       />
       <LeftSection
-        imageURL="media/images/coin.png"
+        imageURL="media/images/coin.svg"
         productName="Virtual Holdings"
         productDesription="Track simulated stock holdings and understand how quantity, average price, current value, and returns interact."
         tryDemo="/signup"
@@ -34,13 +34,13 @@ function ProductsPage() {
         appStore="/product"
       />
       <RightSection
-        imageURL="media/images/kiteconnect.png"
+        imageURL="media/images/kiteconnect.svg"
         productName="Trading API"
         productDesription="Express and MongoDB APIs power orders, holdings, and positions, with a roadmap toward user wallets and complete execution flows."
         learnMore="/about"
       />
       <LeftSection
-        imageURL="media/images/varsity.png"
+        imageURL="media/images/varsity.svg"
         productName="Learning Roadmap"
         productDesription="MarketLab is designed to grow into a practical learning product with trade journaling, simulated prices, and analytics."
         tryDemo="/signup"

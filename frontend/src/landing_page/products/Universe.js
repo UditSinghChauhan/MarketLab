@@ -22,7 +22,7 @@ function Universe() {
 
         {modules.map((module) => (
           <div className="col-4 p-3 mt-5" key={module}>
-            <img src="media/images/smallcaseLogo.png" alt={`${module} module`} />
+            <img src="media/images/smallcaseLogo.svg" alt={`${module} module`} />
             <p className="small text-muted">{module}</p>
           </div>
         ))}

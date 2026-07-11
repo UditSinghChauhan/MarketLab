@@ -31,7 +31,7 @@ function Stats() {
         </div>
         <div className="col-6 p-5">
           <img
-            src="media/images/ecosystem.png"
+            src="media/images/ecosystem.svg"
             style={{ width: "90%" }}
             alt="MarketLab dashboard ecosystem"
           />

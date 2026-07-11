@@ -13,7 +13,7 @@ function Team() {
       >
         <div className="col-6 p-3 text-center">
           <img
-            src="media/images/nithinKamath.jpg"
+            src="media/images/nithinKamath.svg"
             style={{ borderRadius: "100%", width: "50%" }}
             alt="MarketLab project creator"
           />
