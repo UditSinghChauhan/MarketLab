@@ -20,7 +20,7 @@ function Pricing() {
         <div className="col-6  mb-5">
           <div className="row text-center">
             <div className="col p-3 border">
-              <h1 className="mb-3">Rs. 0</h1>
+              <h1 className="mb-3">₹0</h1>
               <p>
                 Virtual account setup and
                 <br />
@@ -28,7 +28,7 @@ function Pricing() {
               </p>
             </div>
             <div className="col p-3 border">
-              <h1 className="mb-3">Rs. 20</h1>
+              <h1 className="mb-3">₹20</h1>
               <p>Sample intraday brokerage assumption</p>
             </div>
           </div>

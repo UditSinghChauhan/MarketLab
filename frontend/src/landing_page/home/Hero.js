@@ -41,7 +41,7 @@ function Hero() {
               </div>
               <div className="preview-panel">
                 <span>Portfolio value</span>
-                <strong>Rs. 1,04,820.50</strong>
+                <strong>₹1,04,820.50</strong>
                 <div className="preview-bars">
                   <i style={{ height: "42%" }} />
                   <i style={{ height: "64%" }} />

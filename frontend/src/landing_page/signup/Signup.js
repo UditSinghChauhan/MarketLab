@@ -9,7 +9,7 @@ function Signup() {
         <div className="signup-grid">
           <section>
             <p className="hero-kicker">Demo account</p>
-            <h1>Start with Rs. 1,00,000 in virtual capital</h1>
+            <h1>Start with ₹1,00,000 in virtual capital</h1>
             <p>
               Use the dashboard login panel to create a demo profile, place
               paper trades, and show how the backend updates cash, holdings,
