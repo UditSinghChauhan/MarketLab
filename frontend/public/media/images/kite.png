@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60" fill="none">
+  <rect width="200" height="60" rx="10" fill="#387ed1"/>
+  <text x="100" y="28" text-anchor="middle" font-size="11" font-weight="600" fill="white" font-family="system-ui">Trading Dashboard</text>
+  <text x="100" y="44" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.7)" font-family="system-ui">Real-time paper trading</text>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 180" fill="none">
+  <rect width="300" height="180" rx="10" fill="#f8fafc"/>
+  <path d="M30 130 Q80 60, 150 90 T270 50" stroke="#387ed1" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <circle cx="150" cy="90" r="4" fill="#387ed1"/>
+  <circle cx="270" cy="50" r="4" fill="#387ed1"/>
+  <text x="150" y="40" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2937" font-family="system-ui">Intraday Practice</text>
+  <text x="150" y="56" text-anchor="middle" font-size="9" fill="#7a8797" font-family="system-ui">₹20 sample brokerage assumption</text>
+  <rect x="40" y="150" width="220" height="6" rx="3" fill="#e2ecf7"/>
+</svg>

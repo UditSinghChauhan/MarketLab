@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+  <rect width="200" height="200" rx="100" fill="#f0f6ff"/>
+  <circle cx="100" cy="80" r="35" fill="#387ed1" opacity="0.15"/>
+  <text x="100" y="88" text-anchor="middle" font-size="16" font-weight="600" fill="#387ed1" font-family="system-ui">US</text>
+  <rect x="50" y="130" width="100" height="10" rx="5" fill="#e2ecf7"/>
+  <rect x="60" y="150" width="80" height="8" rx="4" fill="#eef3fb"/>
+  <text x="100" y="185" text-anchor="middle" font-size="9" fill="#9ca3af" font-family="system-ui">Udit Singh Chauhan</text>
+</svg>

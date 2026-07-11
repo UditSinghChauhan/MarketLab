@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 300" fill="none">
+  <rect width="380" height="300" rx="12" fill="#f8fafc"/>
+  <circle cx="190" cy="100" r="50" fill="#387ed1" opacity="0.1"/>
+  <path d="M170 100 l10 -30 10 20 10 -10 10 25" stroke="#387ed1" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <rect x="60" y="180" width="260" height="8" rx="4" fill="#e2ecf7"/>
+  <rect x="80" y="200" width="220" height="8" rx="4" fill="#eef3fb"/>
+  <rect x="100" y="220" width="180" height="8" rx="4" fill="#eef3fb"/>
+  <text x="190" y="270" text-anchor="middle" font-size="11" fill="#7a8797" font-family="system-ui">Learn market concepts through practice</text>
+</svg>

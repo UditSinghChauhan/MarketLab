@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 80" fill="none">
+  <rect width="500" height="80" rx="8" fill="#fafbfd"/>
+  <rect x="20" y="25" width="80" height="30" rx="6" fill="#eef3fb"/>
+  <text x="60" y="44" text-anchor="middle" font-size="10" fill="#7a8797" font-family="system-ui">Node.js</text>
+  <rect x="120" y="25" width="80" height="30" rx="6" fill="#e6f4ea"/>
+  <text x="160" y="44" text-anchor="middle" font-size="10" fill="#4caf50" font-family="system-ui">MongoDB</text>
+  <rect x="220" y="25" width="80" height="30" rx="6" fill="#fff3e0"/>
+  <text x="260" y="44" text-anchor="middle" font-size="10" fill="#e65100" font-family="system-ui">Express</text>
+  <rect x="320" y="25" width="80" height="30" rx="6" fill="#e3f2fd"/>
+  <text x="360" y="44" text-anchor="middle" font-size="10" fill="#1565c0" font-family="system-ui">React</text>
+  <rect x="420" y="25" width="60" height="30" rx="6" fill="#f3e5f5"/>
+  <text x="450" y="44" text-anchor="middle" font-size="10" fill="#7b1fa2" font-family="system-ui">SSE</text>
+</svg>
