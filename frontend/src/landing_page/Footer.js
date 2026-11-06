@@ -1,6 +1,8 @@
 import React from "react";
 import { Link } from "react-router-dom";
 
+const dashboardUrl = process.env.REACT_APP_DASHBOARD_URL || "http://localhost:3001";
+
 function Footer() {
   return (
     <footer style={{ backgroundColor: "rgb(250, 250, 250)" }}>
@@ -11,30 +13,15 @@ function Footer() {
             <p>&copy; 2026 MarketLab. Built as a paper trading simulator.</p>
           </div>
           <div className="col">
-            <p>Company</p>
-            <Link to="/about">About</Link>
+            <p>Product</p>
+            <a href={dashboardUrl}>Trading dashboard</a>
             <br />
-            <Link to="/product">Products</Link>
-            <br />
-            <Link to="/pricing">Pricing</Link>
-            <br />
-            <Link to="/support">Support</Link>
-            <br />
-          </div>
-          <div className="col">
-            <p>Platform</p>
             <Link to="/signup">Create demo account</Link>
             <br />
-            <Link to="/product">Trading dashboard</Link>
-            <br />
-            <Link to="/pricing">Virtual brokerage</Link>
-            <br />
           </div>
           <div className="col">
-            <p>Use Case</p>
-            <Link to="/support">Help center</Link>
-            <br />
-            <Link to="/about">Portfolio project</Link>
+            <p>Source</p>
+            <a href="https://github.com/UditSinghChauhan/MarketLab">GitHub</a>
             <br />
           </div>
         </div>

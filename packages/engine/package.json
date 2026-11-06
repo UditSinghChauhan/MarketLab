@@ -1,0 +1,17 @@
+{
+  "name": "@marketlab/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pure matching engine and money primitives for MarketLab. No I/O, no timers.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit"
+  }
+}
