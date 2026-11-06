@@ -60,10 +60,12 @@ A full-stack paper trading simulator built with the MERN stack. Users sign up, g
 
 ```
 .
-├── backend/      Express API, auth, order engine, market simulator
-├── dashboard/    Trading dashboard (React)
-├── frontend/     Public landing site (React)
-├── docs/         Screenshots and assets
+├── packages/
+│   └── engine/   Matching engine and money primitives (TypeScript, pure)
+├── backend/      Legacy Express API (replaced in Phase 3)
+├── dashboard/    Legacy trading dashboard (replaced in Phase 5)
+├── frontend/     Legacy landing site (replaced in Phase 8)
+├── docs/         Roadmap, design direction, ADRs, screenshots
 ├── scripts/      Local utility scripts
 └── .github/      CI workflow
 ```
@@ -183,12 +185,15 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for step-by-step instructions to deploy on 
 
 | Command | Description |
 |---|---|
-| `npm run install:all` | Install all dependencies |
-| `npm run start:backend` | Start Express API (dev) |
-| `npm run start:dashboard` | Start dashboard (dev) |
-| `npm run start:frontend` | Start landing site (dev) |
-| `npm run build` | Production build for dashboard and landing |
-| `npm test --prefix backend` | Run integration tests |
+| `npm run install:all` | Install workspace and legacy dependencies |
+| `npm run check` | Typecheck, lint, format check and tests for the TypeScript workspace |
+| `npm test` | Workspace unit and property tests (Vitest) |
+| `npm run build` | Build workspace packages |
+| `npm run start:backend` | Start legacy Express API (dev) |
+| `npm run start:dashboard` | Start legacy dashboard (dev) |
+| `npm run start:frontend` | Start legacy landing site (dev) |
+| `npm run build:legacy` | Production build for legacy dashboard and landing |
+| `npm run test:legacy` | Legacy backend integration tests |
 
 ---
 
