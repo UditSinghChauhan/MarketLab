@@ -1,6 +1,8 @@
 import React from "react";
 import { Link } from "react-router-dom";
 
+const dashboardUrl = process.env.REACT_APP_DASHBOARD_URL || "http://localhost:3001";
+
 function Navbar() {
   return (
     <nav
@@ -30,24 +32,9 @@ function Navbar() {
               </Link>
             </li>
             <li className="nav-item">
-              <Link className="nav-link active" to="/about">
-                About
-              </Link>
-            </li>
-            <li className="nav-item">
-              <Link className="nav-link active" to="/product">
-                Product
-              </Link>
-            </li>
-            <li className="nav-item">
-              <Link className="nav-link active" to="/pricing">
-                Pricing
-              </Link>
-            </li>
-            <li className="nav-item">
-              <Link className="nav-link active" to="/support">
-                Support
-              </Link>
+              <a className="nav-link active" href={dashboardUrl}>
+                Open dashboard
+              </a>
             </li>
           </ul>
         </div>
