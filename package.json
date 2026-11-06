@@ -2,14 +2,41 @@
   "name": "marketlab",
   "version": "1.0.0",
   "private": true,
-  "description": "Full-stack paper trading simulator and portfolio analytics platform.",
+  "type": "module",
+  "description": "Real-time exchange simulator: price-time matching engine, live order book and event-sourced ledger.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "install:all": "npm install --prefix backend && npm install --prefix dashboard && npm install --prefix frontend",
+    "typecheck": "tsc --noEmit && npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
+    "install:all": "npm install && npm install --prefix backend && npm install --prefix dashboard && npm install --prefix frontend",
     "start:backend": "npm run dev --prefix backend",
     "start:dashboard": "npm start --prefix dashboard",
     "start:frontend": "npm start --prefix frontend",
-    "build": "npm run build --prefix dashboard && npm run build --prefix frontend",
-    "serve:dashboard": "node scripts/serve-build.js dashboard/build 3001",
-    "serve:frontend": "node scripts/serve-build.js frontend/build 3000"
+    "test:legacy": "npm test --prefix backend",
+    "build:legacy": "npm run build --prefix dashboard && npm run build --prefix frontend",
+    "serve:dashboard": "node scripts/serve-build.cjs dashboard/build 3001",
+    "serve:frontend": "node scripts/serve-build.cjs frontend/build 3000",
+    "build": "npm run build --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.20.5",
+    "eslint": "^9.39.5",
+    "fast-check": "^4.10.2",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.1.0"
   }
 }
