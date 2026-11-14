@@ -1,0 +1,138 @@
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "tailwindcss";
+
+/*
+ * Design tokens. The landing page is light; the terminal is dark.
+ * Every text colour passes WCAG AA on its surfaces. `--faint` is for
+ * gridlines and depth bars only, never text.
+ */
+:root {
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --raised: #eef1f5;
+  --line: #dde2e9;
+  --text: #121a26;
+  --muted: #566273;
+  --faint: #c5ccd6;
+  --accent: #1f4fe0;
+  --accent-ink: #ffffff;
+  --bid: #0f7a50;
+  --ask: #c8323a;
+  --pending: #94640a;
+  --bid-wash: rgb(15 122 80 / 0.1);
+  --ask-wash: rgb(200 50 58 / 0.1);
+  color-scheme: light;
+}
+
+.dark-ui {
+  --bg: #121820;
+  --surface: #171e27;
+  --raised: #1e2631;
+  --line: #262f3b;
+  --text: #e7ebf0;
+  --muted: #93a0b2;
+  --faint: #3a4553;
+  --accent: #6f93ff;
+  --accent-ink: #0d1424;
+  --bid: #3ccb94;
+  --ask: #ff7a80;
+  --pending: #f0b44c;
+  --bid-wash: rgb(60 203 148 / 0.13);
+  --ask-wash: rgb(255 122 128 / 0.13);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-bid: var(--bid);
+  --color-ask: var(--ask);
+  --color-pending: var(--pending);
+  --color-bid-wash: var(--bid-wash);
+  --color-ask-wash: var(--ask-wash);
+
+  /* Type scale (perfect fourth from 13px), tight for a dense terminal. */
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.0625rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.875rem;
+  --text-3xl: 2.5rem;
+  --text-4xl: 3.375rem;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    min-height: 100dvh;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+}
+
+@layer utilities {
+  /* Prices and quantities: equal-width digits so columns never jitter. */
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* A traded price briefly tints its row; nothing else animates on its own. */
+@keyframes tick-up {
+  from {
+    background-color: var(--bid-wash);
+  }
+}
+@keyframes tick-down {
+  from {
+    background-color: var(--ask-wash);
+  }
+}
+.flash-up {
+  animation: tick-up 900ms ease-out;
+}
+.flash-down {
+  animation: tick-down 900ms ease-out;
+}
