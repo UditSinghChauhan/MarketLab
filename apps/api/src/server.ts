@@ -1,5 +1,9 @@
 /** Process entry point: wires configuration, the command log, the engine host and HTTP. */
 
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import pg from "pg";
 
 import { buildApp } from "./app.js";
@@ -11,7 +15,14 @@ import { PostgresLog } from "./log/postgres.js";
 import type { CommandLog } from "./log/types.js";
 import { StreamHub } from "./stream.js";
 
-const config = loadConfig();
+const loaded = loadConfig();
+// Serve the web build next to this package by default (apps/web/dist), whether
+// running from src/ in development or dist/ in production.
+const bundledWeb = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../web/dist");
+const config = {
+  ...loaded,
+  WEB_DIST: loaded.WEB_DIST ?? (existsSync(bundledWeb) ? bundledWeb : undefined),
+};
 
 function fatal(error: unknown): never {
   console.error("fatal:", error);
@@ -37,6 +48,7 @@ const host = await EngineHost.start({
   instruments: INSTRUMENTS,
   tickMs: config.TICK_MS,
   sessionMaxAgeMs: config.SESSION_HOURS * 60 * 60 * 1000,
+  warmupTicks: Math.round((config.WARMUP_MINUTES * 60_000) / config.TICK_MS),
   onFatal: fatal,
 });
 const hub = new StreamHub(host, INSTRUMENTS);

@@ -10,6 +10,8 @@ const Env = z.object({
   TOKEN_SECRET: z.string().min(32).optional(),
   /** Milliseconds between simulated market ticks. */
   TICK_MS: z.coerce.number().int().min(100).default(600),
+  /** Minutes of simulated history generated when a new session starts. */
+  WARMUP_MINUTES: z.coerce.number().min(0).max(240).default(30),
   /** A session (one simulated trading day) is replaced after this many hours. */
   SESSION_HOURS: z.coerce.number().positive().default(24),
   /** Directory of the built web app to serve, if any. */

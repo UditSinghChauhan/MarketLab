@@ -75,6 +75,23 @@ describe.each(logs)("engine host replay (%s log)", (_name, makeLog) => {
 });
 
 describe("engine host", () => {
+  it("warms a new session up with backdated history, logged once and replayed exactly", async () => {
+    const log = new MemoryLog();
+    const time = clock();
+    const options = { ...hostOptions(log, time.now), warmupTicks: 100 };
+    const first = await EngineHost.start(options);
+
+    const { entries } = await log.openSession(time.now(), Infinity, 1);
+    expect(entries).toEqual([
+      { kind: "ticks", count: 100, from: time.now() - 99 * 600, at: time.now() },
+    ]);
+    expect(first.data.candles("ORBT").length).toBeGreaterThan(1);
+
+    const second = await EngineHost.start(options); // existing session: no second warm-up
+    expect(second.replay.entries).toBe(1);
+    expect(fingerprint(second, [])).toEqual(fingerprint(first, []));
+  });
+
   it("logs ticks as one entry, flushed before the next user command", async () => {
     const log = new MemoryLog();
     const time = clock();

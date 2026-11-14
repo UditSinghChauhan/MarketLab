@@ -57,6 +57,11 @@ export interface HostOptions {
   readonly now?: () => number;
   /** Fixed seed for tests; random otherwise. */
   readonly seed?: number;
+  /**
+   * Ticks of history to simulate when a new session starts, so charts are not
+   * empty. Backdated and logged as one `ticks` entry, so replay stays exact.
+   */
+  readonly warmupTicks?: number;
   /** Called when the log can no longer be written; the process should restart. */
   readonly onFatal?: (error: unknown) => void;
 }
@@ -138,7 +143,7 @@ export class EngineHost {
           seed: (session.seed + index * 7_919) >>> 0,
           makerId: `${MAKER_PREFIX}${i.symbol}`,
           takerIds: FLOW_IDS,
-          levels: 8,
+          levels: 12,
           levelSize: i.levelSize,
           levelGapTicks: i.levelGapTicks,
           volatilityTicks: i.volatilityTicks,
@@ -162,6 +167,13 @@ export class EngineHost {
     for (const entry of session.entries) host.apply(entry);
     host.seq = session.entries.length;
     host.replay = { entries: session.entries.length, ms: Math.round(performance.now() - started) };
+
+    const warmup = options.warmupTicks ?? 0;
+    if (session.entries.length === 0 && warmup > 0) {
+      const end = now();
+      for (let i = 0; i < warmup; i++) host.tick(end - (warmup - 1 - i) * options.tickMs);
+      await host.serial(() => host.maybeFlushTicks(true));
+    }
     return host;
   }
 
@@ -220,8 +232,9 @@ export class EngineHost {
 
   async submit(command: Command): Promise<CommandResult> {
     const receivedAt = this.now();
+    const enqueued = performance.now();
     return this.serial(async () => {
-      const queueMs = this.now() - receivedAt;
+      const queueMs = Math.round((performance.now() - enqueued) * 1000) / 1000;
       const at = this.now();
       const entry: LogEntry = { kind: "command", command, at };
 

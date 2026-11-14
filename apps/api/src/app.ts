@@ -7,6 +7,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
+import compress from "@fastify/compress";
 import fastifyStatic from "@fastify/static";
 import rateLimit from "@fastify/rate-limit";
 import {
@@ -78,6 +79,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     bodyLimit: 16 * 1024,
   });
 
+  // gzip/brotli for JSON and static assets. The event stream is hijacked from
+  // the reply pipeline, so it is never buffered by compression.
+  await app.register(compress, { threshold: 1024 });
+
   await app.register(rateLimit, {
     global: false,
     errorResponseBuilder: (_request, context) => ({
@@ -137,8 +142,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   // System -------------------------------------------------------------------
 
-  app.get("/api/health", (): HealthResponse => {
+  // 503 when the engine can no longer write its log, so the platform restarts it.
+  app.get("/api/health", (_request, reply): HealthResponse => {
     const violations = host.exchange.audit().length;
+    if (!host.healthy) void reply.status(503);
     return {
       status: host.healthy && violations === 0 ? "ok" : "degraded",
       session: host.session.id,

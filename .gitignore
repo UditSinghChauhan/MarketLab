@@ -30,3 +30,7 @@ Thumbs.db
 
 # TypeScript incremental build info
 *.tsbuildinfo
+
+# Playwright
+playwright-report/
+test-results/
