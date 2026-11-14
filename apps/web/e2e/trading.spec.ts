@@ -24,6 +24,7 @@ test.describe("terminal", () => {
   test("places a limit order, traces it in the inspector, then cancels it", async ({ page }) => {
     await page.goto("/terminal/SOLR");
     await expect(page.getByRole("status").filter({ hasText: "Live" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Buy 10 SOLR/ })).toBeEnabled();
 
     await page.keyboard.press("l");
     await page.getByRole("textbox", { name: "Shares" }).fill("40");
@@ -47,6 +48,8 @@ test.describe("terminal", () => {
 
   test("explains a rejected order", async ({ page }) => {
     await page.goto("/terminal/HLXB");
+    // Wait for the ticket before typing, as a person would.
+    await expect(page.getByRole("button", { name: /Buy 10 HLXB/ })).toBeEnabled();
     await page.keyboard.press("s");
     await page.getByRole("button", { name: /Sell 10 HLXB/ }).click();
     await expect(page.getByText("You don't hold enough shares to sell that many.")).toBeVisible();
