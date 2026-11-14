@@ -4,7 +4,7 @@
  * file only translates HTTP to commands and results to HTTP.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import compress from "@fastify/compress";
@@ -17,7 +17,7 @@ import {
   type SessionResponse,
 } from "@marketlab/contracts";
 import { MoneyError, parseRupees, quantity, type Command, type OrderId } from "@marketlab/engine";
-import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { ZodError } from "zod";
 
 import { issueToken, verifyToken } from "./auth.js";
@@ -64,6 +64,31 @@ const SECURITY_HEADERS = {
     "form-action 'self'",
   ].join("; "),
 };
+
+/**
+ * Link previews (Open Graph) need absolute URLs, and the built page cannot
+ * know its own address. Given the public origin, this rewrites the page's
+ * root-relative preview image, page URL and canonical link for one path.
+ */
+export function absoluteLinks(html: string, origin: string, pathname: string): string {
+  const escape = (value: string) =>
+    value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
+  const here = escape(`${origin}${pathname === "/" ? "/" : pathname.replace(/\/+$/, "")}`);
+  return html
+    .replace(
+      /(<meta property="og:image" content=")(\/[^"]*)(")/,
+      (_match, open: string, image: string, close: string) =>
+        `${open}${escape(origin)}${image}${close}`,
+    )
+    .replace(
+      /(<meta property="og:url" content=")[^"]*(")/,
+      (_match, open: string, close: string) => `${open}${here}${close}`,
+    )
+    .replace(
+      /(<link rel="canonical" href=")[^"]*(")/,
+      (_match, open: string, close: string) => `${open}${here}${close}`,
+    );
+}
 
 const errorBody = (code: string, message: string, details?: unknown): ApiError => ({
   error: details === undefined ? { code, message } : { code, message, details },
@@ -117,6 +142,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     }
     request.log.error(error);
     return reply.status(500).send(errorBody("internal", "Something went wrong"));
+  });
+
+  const limit = (max: number, timeWindow: string) => ({
+    config: { rateLimit: { max: Math.ceil(max * config.RATE_LIMIT_SCALE), timeWindow } },
   });
 
   const requireAccount = (request: FastifyRequest, token?: string): string => {
@@ -178,7 +207,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   app.post(
     "/api/session",
-    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    limit(10, "1 minute"),
     async (_request, reply): Promise<SessionResponse> => {
       const accountId = await host.openGuest();
       const expiresAt = Date.now() + TOKEN_TTL_MS;
@@ -195,42 +224,38 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   app.get("/api/orders", (request) => host.data.ordersOf(requireAccount(request)));
 
-  app.post(
-    "/api/orders",
-    { config: { rateLimit: { max: 30, timeWindow: "10 seconds" } } },
-    async (request, reply) => {
-      const accountId = requireAccount(request);
-      const body = PlaceOrderRequest.parse(request.body);
-      const market = instrument(body.symbol);
-      const base = {
-        kind: "place",
-        accountId,
-        symbol: market.symbol,
-        side: body.side,
-        qty: quantity(body.qty),
-      } as const;
+  app.post("/api/orders", limit(30, "10 seconds"), async (request, reply) => {
+    const accountId = requireAccount(request);
+    const body = PlaceOrderRequest.parse(request.body);
+    const market = instrument(body.symbol);
+    const base = {
+      kind: "place",
+      accountId,
+      symbol: market.symbol,
+      side: body.side,
+      qty: quantity(body.qty),
+    } as const;
 
-      let command: Command;
-      try {
-        command =
-          body.type === "market"
-            ? { ...base, type: "market" }
-            : body.type === "limit"
-              ? { ...base, type: "limit", limitPrice: parseRupees(body.price) }
-              : { ...base, type: "stop", stopPrice: parseRupees(body.stopPrice) };
-      } catch (error) {
-        if (error instanceof MoneyError) throw new HttpError(400, "invalid_price", error.message);
-        throw error;
-      }
+    let command: Command;
+    try {
+      command =
+        body.type === "market"
+          ? { ...base, type: "market" }
+          : body.type === "limit"
+            ? { ...base, type: "limit", limitPrice: parseRupees(body.price) }
+            : { ...base, type: "stop", stopPrice: parseRupees(body.stopPrice) };
+    } catch (error) {
+      if (error instanceof MoneyError) throw new HttpError(400, "invalid_price", error.message);
+      throw error;
+    }
 
-      const result = await host.submit(command);
-      return reply.status(result.ok ? 201 : 422).send(result);
-    },
-  );
+    const result = await host.submit(command);
+    return reply.status(result.ok ? 201 : 422).send(result);
+  });
 
   app.delete<{ Params: { id: string } }>(
     "/api/orders/:id",
-    { config: { rateLimit: { max: 30, timeWindow: "10 seconds" } } },
+    limit(30, "10 seconds"),
     async (request, reply) => {
       const accountId = requireAccount(request);
       const result = await host.submit({
@@ -259,7 +284,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   app.get<{ Querystring: { symbol?: string; token?: string } }>(
     "/api/stream",
-    { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    limit(20, "1 minute"),
     (request, reply) => {
       const symbol = instrument(request.query.symbol ?? instruments[0]?.symbol ?? "").symbol;
       // EventSource cannot send headers, so the token travels in the query string.
@@ -279,6 +304,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     await app.register(fastifyStatic, {
       root: webRoot,
       wildcard: false,
+      index: false, // "/" is rendered below, like every other page
       setHeaders: (res, filePath) => {
         void res.header(
           "cache-control",
@@ -288,11 +314,28 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         );
       },
     });
+    const indexHtml = readFileSync(path.join(webRoot, "index.html"), "utf8");
+    // The configured origin wins. Without one (local runs), the request's own
+    // host is used, so the canonical link and preview image are always absolute.
+    const configured = (config.PUBLIC_URL ?? config.RENDER_EXTERNAL_URL)?.replace(/\/+$/, "");
+    const originOf = (request: FastifyRequest) =>
+      configured ??
+      (/^[\w.-]+(:\d+)?$/.test(request.host) ? `${request.protocol}://${request.host}` : undefined);
+    const sendPage = (request: FastifyRequest, reply: FastifyReply) => {
+      const origin = originOf(request);
+      const { pathname } = new URL(request.url, "http://localhost");
+      return reply
+        .header("cache-control", "no-cache")
+        .type("text/html; charset=utf-8")
+        .send(origin ? absoluteLinks(indexHtml, origin, pathname) : indexHtml);
+    };
+
+    app.get("/", sendPage);
     app.get("/*", (request, reply) => {
       if (request.url.startsWith("/api/")) {
         return reply.status(404).send(errorBody("not_found", "No such endpoint"));
       }
-      return reply.header("cache-control", "no-cache").sendFile("index.html");
+      return sendPage(request, reply);
     });
   } else {
     app.setNotFoundHandler((_request, reply) =>

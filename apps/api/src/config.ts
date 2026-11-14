@@ -16,6 +16,14 @@ const Env = z.object({
   SESSION_HOURS: z.coerce.number().positive().default(24),
   /** Directory of the built web app to serve, if any. */
   WEB_DIST: z.string().optional(),
+  /**
+   * The site's public origin, for absolute URLs in link previews. Render sets
+   * RENDER_EXTERNAL_URL on its own; PUBLIC_URL overrides it for a custom domain.
+   */
+  PUBLIC_URL: z.url().optional(),
+  RENDER_EXTERNAL_URL: z.url().optional(),
+  /** Multiplies every rate limit. The end-to-end suite raises it; leave it at 1 otherwise. */
+  RATE_LIMIT_SCALE: z.coerce.number().positive().default(1),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
 });
 

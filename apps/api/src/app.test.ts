@@ -7,7 +7,7 @@ import type {
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { buildApp } from "./app.js";
+import { absoluteLinks, buildApp } from "./app.js";
 import type { EngineHost } from "./host.js";
 import { INSTRUMENTS } from "./instruments.js";
 import { MemoryLog } from "./log/memory.js";
@@ -191,5 +191,32 @@ describe("trading", () => {
       );
     }
     expect(statuses.filter((s) => s === 429).length).toBeGreaterThan(0);
+  });
+});
+
+describe("absoluteLinks", () => {
+  const html = [
+    '<link rel="canonical" href="/" />',
+    '<meta property="og:url" content="/" />',
+    '<meta property="og:image" content="/og.png" />',
+  ].join("\n");
+
+  it("points the preview image, page URL and canonical link at the public origin", () => {
+    const out = absoluteLinks(html, "https://marketlab.example", "/terminal/ORBT/");
+    expect(out).toContain(
+      '<link rel="canonical" href="https://marketlab.example/terminal/ORBT" />',
+    );
+    expect(out).toContain(
+      '<meta property="og:url" content="https://marketlab.example/terminal/ORBT" />',
+    );
+    expect(out).toContain(
+      '<meta property="og:image" content="https://marketlab.example/og.png" />',
+    );
+  });
+
+  it("cannot be used to inject markup through the path", () => {
+    const out = absoluteLinks(html, "https://marketlab.example", '/"><script>alert(1)</script>');
+    expect(out).not.toContain("<script>");
+    expect(out).not.toContain('/">');
   });
 });
