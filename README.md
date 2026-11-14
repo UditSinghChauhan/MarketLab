@@ -62,10 +62,10 @@ A full-stack paper trading simulator built with the MERN stack. Users sign up, g
 .
 ├── packages/
 │   └── engine/   Matching engine and money primitives (TypeScript, pure)
-├── backend/      Legacy Express API (replaced in Phase 3)
-├── dashboard/    Legacy trading dashboard (replaced in Phase 5)
-├── frontend/     Legacy landing site (replaced in Phase 8)
-├── docs/         Roadmap, design direction, ADRs, screenshots
+├── backend/      Legacy Express API (being replaced)
+├── dashboard/    Legacy trading dashboard (being replaced)
+├── frontend/     Legacy landing site (being replaced)
+├── docs/         Design direction, ADRs, screenshots
 ├── scripts/      Local utility scripts
 └── .github/      CI workflow
 ```
