@@ -5,12 +5,13 @@
   "type": "module",
   "description": "MarketLab API: engine host, command log, REST and server-sent events.",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --env-file-if-exists=.env src/server.ts",
     "build": "node build.js",
     "start": "node --enable-source-maps dist/server.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fastify/compress": "^9.3.0",
     "@fastify/rate-limit": "^11.2.2",
     "@fastify/static": "^10.1.11",
     "@marketlab/contracts": "*",
