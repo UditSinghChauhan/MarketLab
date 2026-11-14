@@ -1,0 +1,16 @@
+{
+  "name": "@marketlab/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "API request schemas and response types shared by the API and the web app.",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}
