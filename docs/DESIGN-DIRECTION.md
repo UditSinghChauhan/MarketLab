@@ -1,70 +1,96 @@
-# MarketLab — Design Direction
+# MarketLab — Design
 
-Chosen from the references at <https://vibrant.design/websites>.
+## Brief
 
-> Method note: these choices come from each reference's published palette, fonts,
-> stack and style tags on Vibrant. The live sites still need a visual
-> walkthrough before the components are finalised.
+- **Subject:** a simulated stock exchange with a real matching engine.
+- **Audience:** engineers and hiring teams, plus anyone curious how an exchange works.
+- **Primary job:** let a visitor place an order and watch exactly what the
+  engine does with it.
 
-## References and what we take from each
+## The one memorable thing
 
-| Reference                                      | Why it fits MarketLab                                                         | What we take                                                                                                                |
-| ---------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| **Lightspark** — "The API for money" (primary) | Financial infrastructure sold to engineers, the same position MarketLab wants | Near-white surfaces, near-black text, **one saturated blue accent**, Swiss grotesk type, restrained scroll and hover motion |
-| **Skydive** — agents in the cloud (product UI) | Clean, minimal product UI built on Radix primitives                           | Light-gray and white layering, a small semantic palette (green, coral, amber) that maps to gain, loss and pending           |
-| **Rauno Freiberg** (interaction craft)         | Known for interaction detail                                                  | Precise micro-interactions: hover states, number transitions, focus rings                                                   |
+**The order's journey.** The landing page's hero is the live order book and a
+single button that places a real order and shows its trace: accepted, written
+to the log, matched, filled, with the microseconds each step took. In the
+terminal, the same trace lives in the engine inspector. Everything else is kept
+quiet so this stands out.
 
-Not chosen: agency and portfolio sites with heavy art direction (basement.studio,
-Lué Studio) — expressive, but they compete with dense financial data.
+## References
 
-## Principles
+Chosen from [vibrant.design](https://vibrant.design/websites):
 
-1. **Data is the decoration.** No stock illustrations or gradients; the live book, tape and charts carry the visuals.
-2. **One accent.** Blue marks actions and focus only. Green and red are reserved for gain and loss.
-3. **Numbers are typeset.** Monospaced tabular figures for every price and quantity, so columns never jitter.
-4. **Quiet motion.** Motion confirms changes (a fill, a price tick); it never decorates. `prefers-reduced-motion` disables it.
-5. **Keyboard first** in the terminal.
+| Reference      | What we took                                                                                    |
+| -------------- | ----------------------------------------------------------------------------------------------- |
+| Lightspark     | A light, restrained marketing page for financial infrastructure; one saturated blue for actions |
+| Skydive        | Layered greys in product UI; a small semantic palette for states                                |
+| Rauno Freiberg | Interaction detail: focus states, hover states, motion only in response to an action            |
 
-## Themes
+## Colour
 
-- **Landing site:** light (Lightspark direction).
-- **Trading terminal:** dark by default, light available, following the system setting.
+Two themes from one token set. The landing page is light; the terminal is dark
+(`.dark-ui`). The terminal uses a cool graphite rather than near-black, so long
+sessions are easier on the eyes and green and red carry the meaning.
 
-## Tokens
+| Token     | Light     | Dark      | Use                                       |
+| --------- | --------- | --------- | ----------------------------------------- |
+| `bg`      | `#F5F7FA` | `#121820` | Page                                      |
+| `surface` | `#FFFFFF` | `#171E27` | Panels                                    |
+| `raised`  | `#EEF1F5` | `#1E2631` | Hover, inset, spread row                  |
+| `line`    | `#DDE2E9` | `#262F3B` | Hairlines between panels                  |
+| `text`    | `#121A26` | `#E7EBF0` | Primary text                              |
+| `muted`   | `#566273` | `#93A0B2` | Labels, secondary text                    |
+| `faint`   | `#C5CCD6` | `#3A4553` | Gridlines and depth bars only, never text |
+| `accent`  | `#1F4FE0` | `#6F93FF` | Actions, focus, the inspector             |
+| `bid`     | `#0F7A50` | `#3CCB94` | Buys, bids, gains                         |
+| `ask`     | `#C8323A` | `#FF7A80` | Sells, asks, losses                       |
+| `pending` | `#94640A` | `#F0B44C` | Orders waiting in the book                |
 
-All text colours pass WCAG AA (≥ 4.5:1) on both `bg` and `surface`.
+Every text colour passes WCAG AA (4.5:1) on its backgrounds. A change of zero
+is shown in `muted`, never in green.
 
-| Token         | Light     | Dark      | Use                |
-| ------------- | --------- | --------- | ------------------ |
-| `--bg`        | `#F7F7F8` | `#0E0E0D` | Page               |
-| `--surface`   | `#FFFFFF` | `#161514` | Panels, cards      |
-| `--surface-2` | `#F0F0EE` | `#1E1D1B` | Hover, inset       |
-| `--border`    | `#E6E6E3` | `#2A2926` | Hairlines          |
-| `--text`      | `#1A1A1A` | `#EDEDEB` | Primary text       |
-| `--muted`     | `#6B6B66` | `#9B9A95` | Labels, secondary  |
-| `--accent`    | `#0052FF` | `#5C8BFF` | Actions, focus     |
-| `--gain`      | `#13804F` | `#3DD68C` | Profit, bids, buys |
-| `--loss`      | `#D12F36` | `#FF6B70` | Loss, asks, sells  |
-| `--pending`   | `#9A6700` | `#F2B544` | Resting orders     |
+## Type
 
-## Typography
+- **IBM Plex Sans** throughout, self-hosted. Its engineering and terminal
+  heritage suits an exchange, and its tabular figures keep price columns from
+  jittering (`.num`).
+- **IBM Plex Mono** only for raw engine events in the inspector, which really
+  are machine data.
+- Scale from 11 to 54 px; the terminal's body text is 13 px, the landing page's 15–17 px.
+- Headings are sentence case with tight tracking. No all-caps labels.
 
-- **Geist Sans** for UI and headings (free, OFL; closest open alternative to the Suisse Intl look).
-- **Geist Mono** with tabular numerals for prices, quantities and the inspector.
-- Scale: 12 / 13 / 14 / 16 / 20 / 28 / 40 / 56. Terminal body text is 13px; landing body text is 16px.
-- Headings: tight tracking (−0.02em), weight 500–600. No all-caps except small labels.
+## Layout
 
-## Space and shape
+**Terminal (≥1280 px):**
 
-- 4px base grid: 4, 8, 12, 16, 24, 32, 48, 64, 96.
-- Radius: 6px for controls, 10px for panels. Hairline 1px borders instead of shadows in the terminal.
+```
+┌ symbols ──────────────────────────────────── equity, inspector ┐
+│ chart (candles + volume)          │ order book │ order ticket  │
+│                                   │  ladder    │               │
+├───────────────────────────────────┤            ├───────────────┤
+│ positions / orders                │            │ trades        │
+└───────────────────────────────────┴────────────┴───────────────┘
+```
 
-## Landing page outline
+Panels are separated by 1 px hairlines rather than cards and shadows. On
+smaller screens the panels stack, with the order ticket directly under the
+chart, so a phone user never scrolls past the whole book to trade.
 
-1. Hero: one-line pitch, one sentence, and a live, read-only order book from the real engine.
-2. "Watch an order": the inspector lifecycle, animated on scroll.
-3. Engine: price-time priority explained with a small interactive book.
-4. Architecture diagram and key decisions (links to ADRs).
-5. Benchmarks: real numbers.
-6. "What is simulated": an honest limits section.
-7. CTA: "Open the terminal" (guest, no signup).
+**Landing page:** hero (headline, live stats, live order book with the
+one-click order), how price-time priority works with a worked example, the
+engineering, an architecture diagram, and an honest list of what is simulated.
+
+## Motion
+
+- A trade briefly tints its row in the tape; nothing else moves on its own.
+- Motion otherwise answers an action: opening the inspector, switching tabs.
+- `prefers-reduced-motion` turns animation off.
+
+## Interaction
+
+- Keyboard first: `B`/`S` side, `M`/`L`/`T` type, `Enter` places, `Esc`
+  clears, `↑`/`↓` move a price one tick, `I` opens the inspector, `?` lists
+  shortcuts. Letters never fire while typing in a field; Enter never fires on a
+  focused button.
+- Clicking any price in the book, or the best bid or ask, fills in a limit order.
+- Errors say what happened and how to fix it ("Prices move in steps of ₹0.05.
+  Round the price to the nearest step.").

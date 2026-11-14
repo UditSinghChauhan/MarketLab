@@ -1,141 +1,68 @@
-# MarketLab — Deployment Guide
+# Deploying MarketLab
 
-This guide deploys MarketLab as three separate services:
-
-| Service | Platform | URL pattern |
-|---|---|---|
-| Backend API | Railway | `https://marketlab-api.up.railway.app` |
-| Dashboard | Vercel | `https://marketlab-dashboard.vercel.app` |
-| Landing site | Vercel | `https://marketlab.vercel.app` |
-
----
-
-## Step 1 — Deploy the Backend on Railway
-
-Railway gives you a free managed Node.js host with environment variable support.
-
-### 1.1 Create a Railway project
-
-1. Go to [railway.app](https://railway.app) and sign in with GitHub
-2. Click **New Project → Deploy from GitHub repo**
-3. Select **UditSinghChauhan/MarketLab**
-4. Railway will detect Node.js automatically
-
-### 1.2 Set the root directory
-
-Railway needs to know the backend is in a subdirectory:
-
-1. In your Railway service settings → **Settings tab**
-2. Set **Root Directory** to `backend`
-3. Railway will now run `npm start` inside `backend/` — which runs `node index.js`
-
-### 1.3 Set environment variables
-
-In the Railway service → **Variables tab**, add:
+One Render web service runs the API and the matching engine and serves the
+built web app from the same origin. Neon provides PostgreSQL for the command
+log. Both have free plans.
 
 ```
-AUTH_SECRET=<generate a random 64-char string>
-MONGO_URL=<your MongoDB Atlas connection string>  ← optional
-PORT=3002
+Browser ──HTTPS──▶ Render web service (Node 22)
+                     ├─ /api/*   REST + server-sent events
+                     └─ /*       built web app
+                          │
+                          └──TLS──▶ Neon PostgreSQL (command log)
 ```
 
-> **MongoDB Atlas (free tier):** Create a free cluster at [mongodb.com/atlas](https://www.mongodb.com/atlas), create a database user, whitelist `0.0.0.0/0`, and copy the connection string.
->
-> If you skip `MONGO_URL`, the backend uses in-memory storage — data resets on every deploy. Fine for demos, not for persistent use.
+## 1. Database (Neon)
 
-### 1.4 Deploy
+1. Create a project. Pick the region closest to your Render region
+   (`AWS Asia Pacific (Singapore)` matches the blueprint's `singapore`).
+2. Open **Connection details**, turn **Connection pooling off**, and copy the
+   connection string. It looks like
+   `postgresql://user:password@ep-xxx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require`.
 
-Click **Deploy**. Railway builds and starts the server. Copy the generated URL — you'll need it next.
+Use the **direct** (non-pooled) string. The engine holds a session-level
+advisory lock to guarantee a single writer, which a transaction-mode pooler
+cannot keep. The schema is created automatically on first start.
 
-**Verify:**
-```
-GET https://your-railway-url.up.railway.app/health
-→ { "status": "ok", "service": "MarketLab API" }
-```
+## 2. Web service (Render)
 
----
+1. In Render, choose **New → Blueprint** and connect this repository. Render
+   reads [`render.yaml`](render.yaml).
+2. When asked for `DATABASE_URL`, paste the Neon connection string.
+   `TOKEN_SECRET` is generated for you.
+3. Apply. The first build runs `npm ci --include=dev && npm run build`, then
+   `npm start`. Render marks the service live once `/api/health` answers.
 
-## Step 2 — Deploy the Dashboard on Vercel
+## 3. Check it
 
-### 2.1 Create a Vercel project
+- `https://<your-service>.onrender.com/api/health` shows `"status":"ok"`,
+  `"persistence":"postgres"` and `"invariantViolations":0`.
+- The landing page shows a live order book; **Buy 5 shares at market** returns
+  a trace with a "Logged to Postgres" time.
 
-1. Go to [vercel.com](https://vercel.com) and sign in with GitHub
-2. Click **Add New → Project**
-3. Import **UditSinghChauhan/MarketLab**
-4. Set **Root Directory** to `dashboard`
-5. Framework Preset: **Create React App**
+## Configuration
 
-### 2.2 Set environment variables
+| Variable         | Default | Notes                                                                      |
+| ---------------- | ------- | -------------------------------------------------------------------------- |
+| `DATABASE_URL`   | none    | Required in production. Direct Neon connection string.                     |
+| `TOKEN_SECRET`   | none    | Required in production, 32+ characters. Rotating it signs every guest out. |
+| `TICK_MS`        | `600`   | Milliseconds between simulated market ticks.                               |
+| `WARMUP_MINUTES` | `30`    | Minutes of history simulated when a new session starts.                    |
+| `SESSION_HOURS`  | `24`    | A fresh market session starts after this long.                             |
+| `LOG_LEVEL`      | `info`  | Fastify/pino log level.                                                    |
+| `PORT`           | `8080`  | Render sets this automatically.                                            |
 
-In the Vercel project → **Settings → Environment Variables**:
+## Operating notes
 
-```
-REACT_APP_API_URL=https://your-railway-url.up.railway.app
-```
-
-> This is the Railway backend URL from Step 1.
-
-### 2.3 Deploy
-
-Click **Deploy**. Vercel builds the React app and serves it globally via CDN.
-
----
-
-## Step 3 — Deploy the Landing Site on Vercel
-
-Repeat Step 2 but with these differences:
-
-- **Root Directory:** `frontend`
-- **Environment variable:**
-  ```
-  REACT_APP_DASHBOARD_URL=https://your-vercel-dashboard-url.vercel.app
-  ```
-
----
-
-## Step 4 — Update the README
-
-Once all three are live, add the URLs to your README:
-
-```markdown
-## Live Demo
-
-| App | URL |
-|---|---|
-| Landing site | https://your-frontend.vercel.app |
-| Dashboard | https://your-dashboard.vercel.app |
-| Backend API | https://your-backend.up.railway.app |
-```
-
----
-
-## CORS Note
-
-If the deployed backend rejects requests from Vercel, update `backend/index.js`:
-
-```js
-// Replace
-app.use(cors());
-
-// With
-app.use(cors({
-  origin: [
-    "https://your-dashboard.vercel.app",
-    "https://your-frontend.vercel.app",
-  ],
-}));
-```
-
-Redeploy the backend after this change.
-
----
-
-## Costs
-
-| Service | Free tier limits |
-|---|---|
-| Railway | 500 hours/month free (enough for a demo) |
-| Vercel | Unlimited static deploys free |
-| MongoDB Atlas | 512 MB free cluster, no expiry |
-
-All three services are free for a portfolio project at this scale.
+- **One instance only.** The engine is a single writer. A second instance fails
+  at startup with "Another engine process holds the command-log lock"; that is
+  the lock doing its job. Don't scale the service horizontally.
+- **Free-plan sleep.** Render's free plan stops the service after about 15
+  minutes without traffic. The next visit wakes it (expect a cold start of
+  roughly a minute), and startup replays the session's log, so no order or
+  balance is lost. A paid instance avoids the sleep.
+- **Restarts and deploys** replay the log the same way. Guests keep their
+  accounts until the session rolls over.
+- **Data retention.** Sessions older than seven days are deleted at startup.
+- **If the database becomes unreachable**, the engine stops accepting orders,
+  `/api/health` returns `503`, and the process exits so Render restarts it.

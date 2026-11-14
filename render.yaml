@@ -1,0 +1,27 @@
+# Render blueprint: one web service runs the API and engine and serves the web app.
+# The database is Neon (PostgreSQL); see DEPLOYMENT.md.
+services:
+  - type: web
+    name: marketlab
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: TOKEN_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: TICK_MS
+        value: "600"
+      - key: SESSION_HOURS
+        value: "24"
+      - key: WARMUP_MINUTES
+        value: "30"
