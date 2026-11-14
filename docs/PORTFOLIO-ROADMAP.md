@@ -2,103 +2,82 @@
 
 ## The product in one line
 
-**MarketLab is a real-time exchange simulator you can watch working.** You trade
-against a live order book, and you can open the engine and see every order move
-through it.
+**MarketLab is a real-time exchange simulator you can watch working.** You open
+the link, you are trading as a guest within seconds against a live order book
+full of bots, and one toggle shows the engine matching your order step by step.
 
-Today MarketLab is a solid paper-trading app: orders fill at a simulated price,
-and a live ticker streams quotes. The roadmap turns it into a system with one
-hard engineering problem at its centre, solved visibly, inside a quiet and
-premium interface.
+## What makes it worth a recruiter's time
 
----
+1. **One hard problem, solved properly:** a price-time priority matching engine
+   with partial fills, stop orders, self-trade prevention and balance
+   reservations, proven by property-based tests.
+2. **Visible engineering:** the engine inspector shows each order's lifecycle
+   live, so a visitor sees the system working without reading code.
+3. **Shipped:** a live link, a demo GIF, and a README that reads in 30 seconds.
 
-## Signature features
+## Plan: three weeks to a finished product
 
-### 1. A matching engine with a real order book
-- Price-time priority matching: best price first, then earliest arrival.
-- Order types: market, limit, stop; partial fills; cancel.
-- Simulated market participants (bots) keep the book full and moving.
-- Market orders walk the book, so large orders get real slippage.
-- Deterministic: the same seed always produces the same market, so every bug is reproducible.
+Scope is cut to what can ship and be explained in an interview. Each week is
+one or two PRs; the owner reviews and merges.
 
-### 2. Engine inspector ("under the hood")
-A panel that shows each order's lifecycle as it happens —
-*received → validated → resting → matched → filled → ledger posted* — with a
-timestamp per step and the engine's processing time. Visitors see the system
-working without reading code.
+| Week | Delivers                                                                                                                   | Status  |
+| ---- | -------------------------------------------------------------------------------------------------------------------------- | ------- |
+| 0    | TypeScript workspace, integer money, CI, clone content removed                                                             | Done    |
+| 1    | Matching engine, seeded bot market, property tests, interview notes                                                        | This PR |
+| 2    | TypeScript API (Fastify), PostgreSQL ledger, SSE streaming, guest mode, first live deploy; legacy backend removed          | Next    |
+| 3    | Trading terminal (book, tape, chart, keyboard ticket, inspector), landing page, README, demo GIF; legacy frontends removed |         |
 
-### 3. Event-sourced double-entry ledger with replay
-- Every change is an immutable event; money moves as balanced debit and credit entries.
-- Any portfolio can be rebuilt from its events, and a test proves it.
-- A replay timeline rewinds the portfolio and the book.
+### Week 2 detail
 
-### Supporting
-- One-click guest access and a three-step guided first run.
-- Analytics: equity curve, max drawdown, Sharpe ratio, win rate.
-- A benchmarks page with load-test numbers (orders/sec, p50 and p99 match latency).
+- `apps/api`: Fastify + zod contracts shared with the web app.
+- One engine process owns the in-memory state; every event is appended to
+  PostgreSQL (`events` table plus a double-entry `ledger_entries` table). On
+  restart the engine replays the event log.
+- SSE streams: order book depth, trades, the caller's own order events.
+- Guest sessions: one click creates a funded guest account; no signup.
+- Deploy the API and the engine early, so a live link exists from week 2.
 
-### Removed
-- The Pricing, Support, About and Products pages and their assets. They came
-  from the Zerodha clone and describe a broker, not this product.
-- MUI and Create React App (deprecated).
+### Week 3 detail
 
----
+- `apps/web`: Vite, React, TypeScript, Tailwind using the tokens in
+  [DESIGN-DIRECTION.md](./DESIGN-DIRECTION.md).
+- Terminal: order book with depth bars, trade tape, price chart, order ticket
+  (`B`/`S`, `L`/`M`, `Enter`, `Esc`), open orders, positions.
+- Inspector: a side panel listing the engine events for each order.
+- Landing page: the live book as the hero, "how matching works", architecture,
+  decisions, honest limits.
+- README rewritten for a 30-second reader; demo GIF; architecture diagram.
 
-## Technical decisions
+## Hosting (decided now)
 
-| Area | Decision | Reason |
-|---|---|---|
-| Language | TypeScript everywhere | Types shared from API to UI |
-| Repo | npm workspaces: `packages/engine`, `packages/shared`, `apps/api`, `apps/web` | The engine is a pure, independently tested library |
-| Money | Integer minor units (paise) and integer price ticks; no floats | Floats cannot represent money exactly |
-| Database | **PostgreSQL** (replacing MongoDB) | Transactions and constraints fit a ledger; good serverless hosting options |
-| Real-time | SSE for streams, HTTP for commands | Simpler than WebSockets for one-way data |
-| Frontend | Vite, React, TypeScript, Tailwind with design tokens, TanStack Query | Modern, fast, typed |
-| Testing | Vitest, property-based engine tests (fast-check), API contract tests, Playwright end-to-end | Invariants are proven, not sampled |
-| Migration | Strangler pattern: the legacy `backend/`, `dashboard/` and `frontend/` keep running until each is replaced | The app stays usable at every merge |
-| Records | Architecture decision records in `docs/adr/` | Reasoning is visible to reviewers |
+The engine is stateful and long-running, which pure serverless functions do
+not support. The plan:
 
-Engine invariants the property tests must hold:
-- Money and shares are never created or destroyed by matching.
-- The book never crosses (best bid < best ask after every match).
-- Fills respect price-time priority.
-- Replaying the event log reproduces the exact state.
+| Part           | Host                                      | Why                                               |
+| -------------- | ----------------------------------------- | ------------------------------------------------- |
+| Web app        | Vercel                                    | Static build, global CDN, free                    |
+| API and engine | Render or Fly.io (one always-on instance) | Keeps the in-memory engine alive between requests |
+| Database       | Neon (serverless PostgreSQL)              | Free tier, branches per PR                        |
 
----
+One engine instance is a deliberate choice: a single writer means no
+distributed locking. The interview answer for scale is sharding by symbol.
 
-## Phases
+## Deferred until after interviews start
 
-Each phase is one branch (`claude/phase-N-<slug>`), one PR, committed in the
-owner's name with no AI trailers. The owner reviews and merges; nothing is
-pushed to `main` directly.
+Session replay UI, analytics (Sharpe, drawdown), a benchmarks page, multiple
+symbols in the UI. Each is a good "what I would build next" answer.
 
-| # | Phase | Deliverable | Size |
-|---|---|---|---|
-| 0 | Foundation | Workspaces, TypeScript, lint, Vitest, CI on every PR, engine package seed with integer money, clone pages removed | M |
-| 1 | Engine core | Order book, price-time matching, partial fills, cancel, seeded simulation, property tests | L |
-| 2 | Ledger | Postgres schema and migrations, event store, double-entry postings, rebuild-from-events test | L |
-| 3 | API and streaming | Typed API (zod contracts in `shared`), event bus feeding SSE, guest mode, rate limits; legacy backend retired | M |
-| 4 | Design system | Tokens, type, components per `docs/DESIGN-DIRECTION.md` | M |
-| 5 | Trading terminal | Order book, depth chart, trade tape, keyboard order ticket, portfolio; legacy dashboard retired | L |
-| 6 | Inspector and replay | Order lifecycle panel and session timeline | M |
-| 7 | Analytics and benchmarks | Drawdown and Sharpe, load-test harness, published numbers | M |
-| 8 | Landing and README | Minimal landing page with live hero, architecture and decisions pages, demo GIF; legacy landing retired | M |
-| 9 | Deploy | Hosting decision record, then deploy | S–M |
+## Working agreement
 
-Phases 1–3 do not depend on visual design and come first.
-
-### Deployment note (decided in Phase 9)
-A matching engine is stateful and long-running; serverless functions are
-short-lived and stateless. Options to weigh then:
-- Frontend on a serverless host, engine on a small always-on host, Postgres on a serverless provider.
-- Each symbol's order book as a Cloudflare Durable Object.
-
----
+- After each week's PR, an interview prep sheet in `docs/interview/`: likely
+  questions, strong answers, tradeoffs, and one exercise to rebuild a piece by hand.
+- Read every PR before merging; anything unclear gets explained before it ships.
+- Commits are in the owner's name with no AI trailers; nothing goes to `main` directly.
 
 ## Definition of done
-- Unit, property, contract and end-to-end tests pass in CI on every PR.
-- No third-party brand names, logos or photos of real people remain.
-- Every non-obvious decision has an ADR.
-- The README's first screen shows a working product.
-- A reviewer can read `packages/engine` in ten minutes and understand the system.
+
+- A live link that opens into a working market in under 3 seconds, no signup.
+- Unit, property and end-to-end tests pass in CI on every PR.
+- No third-party brand names, logos or photos of real people.
+- The README's first screen shows the product working.
+- The owner can explain every module in an interview.
