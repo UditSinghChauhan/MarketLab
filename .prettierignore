@@ -3,11 +3,5 @@ dist
 build
 coverage
 package-lock.json
-backend
-dashboard
-frontend
-scripts
-docs/screenshot.png
-# Rewritten in Phase 8; not reformatted to keep diffs focused
-README.md
-DEPLOYMENT.md
+playwright-report
+test-results

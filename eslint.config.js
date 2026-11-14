@@ -1,19 +1,17 @@
 import js from "@eslint/js";
+import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    // Legacy apps keep their own tooling until each is replaced (see docs/adr/0001).
     ignores: [
       "**/node_modules/**",
       "**/dist/**",
       "**/build/**",
       "**/coverage/**",
-      "backend/**",
-      "dashboard/**",
-      "frontend/**",
-      "scripts/**",
+      "**/playwright-report/**",
+      "**/test-results/**",
     ],
   },
   js.configs.recommended,
@@ -29,6 +27,12 @@ export default tseslint.config(
     rules: {
       "@typescript-eslint/restrict-template-expressions": ["error", { allowNumber: true }],
     },
+  },
+  {
+    files: ["apps/web/**/*.{ts,tsx}"],
+    languageOptions: { globals: globals.browser },
+    plugins: { "react-hooks": reactHooks },
+    rules: reactHooks.configs.recommended.rules,
   },
   {
     files: ["**/*.js"],

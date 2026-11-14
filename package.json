@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Real-time exchange simulator: price-time matching engine, live order book and event-sourced ledger.",
+  "description": "A simulated stock exchange you can watch work: price-time matching engine, command-log persistence, live order book and engine inspector.",
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -12,27 +12,24 @@
     "node": ">=20"
   },
   "scripts": {
+    "dev:api": "npm run dev -w @marketlab/api",
+    "dev:web": "npm run dev -w @marketlab/web",
+    "build": "npm run build --workspaces --if-present",
+    "start": "npm start -w @marketlab/api",
     "typecheck": "tsc --noEmit && npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
-    "install:all": "npm install && npm install --prefix backend && npm install --prefix dashboard && npm install --prefix frontend",
-    "start:backend": "npm run dev --prefix backend",
-    "start:dashboard": "npm start --prefix dashboard",
-    "start:frontend": "npm start --prefix frontend",
-    "test:legacy": "npm test --prefix backend",
-    "build:legacy": "npm run build --prefix dashboard && npm run build --prefix frontend",
-    "serve:dashboard": "node scripts/serve-build.cjs dashboard/build 3001",
-    "serve:frontend": "node scripts/serve-build.cjs frontend/build 3000",
-    "build": "npm run build --workspaces --if-present"
+    "e2e": "npm run e2e -w @marketlab/web",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "@types/node": "^22.20.5",
     "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "fast-check": "^4.10.2",
     "globals": "^17.14.0",
     "prettier": "^3.9.10",
