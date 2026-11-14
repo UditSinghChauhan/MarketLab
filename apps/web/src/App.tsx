@@ -1,34 +1,37 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Suspense, lazy } from "react";
-import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router";
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react-router";
 
+import { Landing } from "./landing/Landing";
+import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { Logo } from "./ui/Logo";
 
-// Each page loads only its own code: visitors to the landing page do not
-// download the terminal, and the reverse.
-const Landing = lazy(() => import("./landing/Landing").then((m) => ({ default: m.Landing })));
+// The landing page is the first thing most visitors see, so it ships in the
+// main bundle. The terminal, with its data layer, loads when it is opened.
 const TerminalRoute = lazy(() =>
   import("./terminal/Terminal").then((m) => ({ default: m.TerminalRoute })),
 );
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 2_000, retry: 1, refetchOnWindowFocus: false } },
-});
-
 export function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Suspense fallback={<div className="min-h-dvh bg-bg" />}>
-          <Routes>
-            <Route path="/" element={<Landing />} />
-            <Route path="/terminal" element={<Navigate to="/terminal/ORBT" replace />} />
-            <Route path="/terminal/:symbol" element={<TerminalRoute />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
-    </QueryClientProvider>
+    <BrowserRouter>
+      <Pages />
+    </BrowserRouter>
+  );
+}
+
+function Pages() {
+  const { pathname } = useLocation();
+  return (
+    <ErrorBoundary resetKey={pathname}>
+      <Suspense fallback={<div className="dark-ui min-h-dvh bg-bg" />}>
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/terminal" element={<Navigate to="/terminal/ORBT" replace />} />
+          <Route path="/terminal/:symbol" element={<TerminalRoute />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 

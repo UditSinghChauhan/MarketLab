@@ -1,10 +1,11 @@
 /** Positions and orders for the guest account. */
 
 import type { AccountView, OrderView } from "@marketlab/contracts";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { direction, price, qty, rupees, signedRupees, time } from "../lib/format";
 import { cancelMessage, sideLabel, statusLabel, typeLabel } from "../lib/orders";
+import { Skeleton } from "../ui/Skeleton";
 
 type Tab = "positions" | "orders";
 
@@ -17,14 +18,18 @@ export function Blotter({
   onCancel,
   onInspect,
   cancelling,
+  ordersLoading = false,
 }: {
   account: AccountView | null;
   orders: readonly OrderView[];
+  /** True until the first order list has loaded. */
+  ordersLoading?: boolean;
   onCancel: (id: string) => void;
   onInspect: (id: string) => void;
   cancelling: ReadonlySet<string>;
 }) {
   const [tab, setTab] = useState<Tab>("positions");
+  const id = useId();
   const open = orders.filter((o) => o.status === "resting" || o.status === "pending_stop").length;
 
   return (
@@ -47,6 +52,8 @@ export function Blotter({
             key={value}
             role="tab"
             type="button"
+            id={`${id}-${value}`}
+            aria-controls={`${id}-panel`}
             aria-selected={tab === value}
             onClick={() => {
               setTab(value);
@@ -61,9 +68,21 @@ export function Blotter({
           </button>
         ))}
       </div>
-      <div role="tabpanel" className="min-h-0 flex-1 overflow-auto">
+      <div
+        role="tabpanel"
+        id={`${id}-panel`}
+        aria-labelledby={`${id}-${tab}`}
+        tabIndex={0}
+        className="min-h-0 flex-1 overflow-auto"
+      >
         {tab === "positions" ? (
-          <Positions account={account} />
+          account ? (
+            <Positions account={account} />
+          ) : (
+            <RowsSkeleton label="Loading your positions" />
+          )
+        ) : ordersLoading ? (
+          <RowsSkeleton label="Loading your orders" />
         ) : (
           <Orders
             orders={orders}
@@ -77,8 +96,25 @@ export function Blotter({
   );
 }
 
-function Positions({ account }: { account: AccountView | null }) {
-  const rows = account?.positions ?? [];
+/** Placeholder rows with the height of the tables' header and rows. */
+function RowsSkeleton({ label }: { label: string }) {
+  return (
+    <div role="status" aria-label={label}>
+      <div className="h-7" />
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="flex h-8 items-center gap-6 border-t border-line px-3">
+          <Skeleton className="h-2.5 w-12" />
+          <Skeleton className="h-2.5 w-24" />
+          <Skeleton className="ml-auto h-2.5 w-16" />
+          <Skeleton className="h-2.5 w-16" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Positions({ account }: { account: AccountView }) {
+  const rows = account.positions;
   if (rows.length === 0) {
     return (
       <p className="p-4 text-sm text-muted">

@@ -5,12 +5,14 @@
 
 import type { OrderTrace, OrderView } from "@marketlab/contracts";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { api } from "../lib/api";
 import { duration, time } from "../lib/format";
 import { describeEvent, sideLabel, typeLabel } from "../lib/orders";
+import { useFocusScope } from "../ui/Dialog";
 import { Kbd } from "../ui/Panel";
+import { Skeleton } from "../ui/Skeleton";
 
 export function Inspector({
   open,
@@ -30,7 +32,7 @@ export function Inspector({
   /** Changes whenever the user's orders change, so the trace refreshes on later fills. */
   version: number;
 }) {
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
   const orderId = selectedId ?? orders[0]?.id ?? null;
   const trace = useQuery({
     queryKey: ["trace", orderId, version],
@@ -39,18 +41,24 @@ export function Inspector({
     placeholderData: (previous) => (previous?.orderId === orderId ? previous : undefined),
   });
 
-  useEffect(() => {
-    if (open) closeRef.current?.focus();
-  }, [open]);
+  // Focus moves into the panel, Tab stays inside it, and closing returns focus
+  // to the control that opened it. The page behind stays usable with a pointer.
+  useFocusScope(panelRef, open);
 
   if (!open) return null;
 
   return (
-    <aside
+    <section
+      ref={panelRef}
+      role="dialog"
       aria-label="Engine inspector"
+      tabIndex={-1}
       className="fixed inset-y-0 right-0 z-30 flex w-full max-w-[440px] flex-col border-l border-line bg-surface shadow-[-24px_0_48px_-24px_rgb(0_0_0/0.6)]"
       onKeyDown={(e) => {
-        if (e.key === "Escape") onClose();
+        if (e.key === "Escape") {
+          e.stopPropagation(); // close the panel, don't also clear the order ticket
+          onClose();
+        }
       }}
     >
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-line px-4">
@@ -59,8 +67,8 @@ export function Inspector({
           <p className="text-xs text-muted">What happened to your order, step by step</p>
         </div>
         <button
-          ref={closeRef}
           type="button"
+          data-autofocus
           onClick={onClose}
           className="flex items-center gap-2 rounded px-2 py-1 text-xs text-muted hover:bg-raised hover:text-text"
         >
@@ -92,13 +100,36 @@ export function Inspector({
               ))}
             </select>
           </label>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-            {trace.isError && <p className="text-sm text-ask">Couldn't load this order's trace.</p>}
-            {trace.data && <TraceView trace={trace.data} />}
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label="Order trace"
+            className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+          >
+            {trace.isError && (
+              <p className="text-sm text-ask">
+                Couldn't load this order's trace. Close the inspector and open it again to retry.
+              </p>
+            )}
+            {trace.data ? <TraceView trace={trace.data} /> : trace.isPending && <TraceSkeleton />}
           </div>
         </>
       )}
-    </aside>
+    </section>
+  );
+}
+
+function TraceSkeleton() {
+  return (
+    <div role="status" aria-label="Loading the trace" className="space-y-3">
+      <Skeleton className="h-3 w-24" />
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="space-y-1.5">
+          <Skeleton className="h-3.5 w-3/5" />
+          <Skeleton className="h-3 w-4/5" />
+        </div>
+      ))}
+    </div>
   );
 }
 

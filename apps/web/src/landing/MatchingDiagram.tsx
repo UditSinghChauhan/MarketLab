@@ -58,7 +58,7 @@ export function MatchingDiagram() {
       </div>
 
       <div className="rounded-md border border-bid/30 bg-bid-wash px-4 py-3 text-sm">
-        <span className="font-medium text-bid">Incoming:</span> buy 30 shares, limit ₹1,250.30
+        <span className="font-semibold">Incoming:</span> buy 30 shares, limit ₹1,250.30
       </div>
 
       <figcaption className="mt-5 space-y-1.5 text-sm leading-relaxed text-muted">

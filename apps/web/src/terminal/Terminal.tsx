@@ -1,16 +1,22 @@
 import type { Candle, CommandResult, EventView, OrderView } from "@marketlab/contracts";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, Navigate, useParams } from "react-router";
 
 import { ApiRequestError, api } from "../lib/api";
 import { changeTone, pct, price, qty, rupees, signedRupees } from "../lib/format";
+import { useExchange, type ExchangeState } from "../lib/health";
 import { sideLabel } from "../lib/orders";
 import { clearSession, ensureSession, storedSession } from "../lib/session";
 import { useMarketStream, type ConnectionStatus } from "../lib/stream";
+import { Dialog } from "../ui/Dialog";
 import { LogoMark } from "../ui/Logo";
 import { Kbd, Panel } from "../ui/Panel";
+import { SkeletonText } from "../ui/Skeleton";
+import { StartingNotice } from "../ui/StartingNotice";
 import { Blotter } from "./Blotter";
+import { Guide, useGuide } from "./Guide";
+import { HeaderMenu } from "./HeaderMenu";
 import { Inspector } from "./Inspector";
 import { OrderBookLadder } from "./OrderBookLadder";
 import { OrderTicket, isField, type Prefill } from "./OrderTicket";
@@ -19,22 +25,40 @@ import { TradeTape } from "./TradeTape";
 
 export const SYMBOLS = ["ORBT", "QNTA", "SOLR", "HLXB"] as const;
 
+/** A typical price per market, used only to size placeholders so the header does not move. */
+const SAMPLE_PRICE: Record<string, string> = {
+  ORBT: "1,250.00",
+  QNTA: "842.50",
+  SOLR: "318.20",
+  HLXB: "2,140.00",
+};
+
 interface Toast {
   id: number;
   text: string;
   tone: "ok" | "info";
 }
 
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { staleTime: 2_000, retry: 1, refetchOnWindowFocus: false } },
+});
+
 export function TerminalRoute() {
   const { symbol = "ORBT" } = useParams();
   const upper = symbol.toUpperCase();
   if (!(SYMBOLS as readonly string[]).includes(upper))
     return <Navigate to="/terminal/ORBT" replace />;
-  return <Terminal symbol={upper} />;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <Terminal symbol={upper} />
+    </QueryClientProvider>
+  );
 }
 
 function Terminal({ symbol }: { symbol: string }) {
   const queryClient = useQueryClient();
+  const exchange = useExchange();
+  const ready = exchange.state === "ready";
   const [session, setSession] = useState(storedSession);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const token = session?.token ?? null;
@@ -54,16 +78,30 @@ function Terminal({ symbol }: { symbol: string }) {
       });
   }, []);
 
+  // A guest account is opened once the server is awake, not while it is still starting.
   useEffect(() => {
-    if (!session) startSession();
-  }, [session, startSession]);
+    if (!session && ready) startSession();
+  }, [session, ready, startSession]);
 
   const renewSession = useCallback(() => {
     clearSession();
     setSession(null);
   }, []);
 
-  const market = useMarketStream(symbol, token, renewSession);
+  // The browser tab and its toolbar follow the page: graphite here, light on the landing page.
+  useEffect(() => {
+    const previousTitle = document.title;
+    const theme = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    const previousTheme = theme?.content;
+    document.title = `${symbol} on MarketLab`;
+    if (theme) theme.content = "#171E27";
+    return () => {
+      document.title = previousTitle;
+      if (theme && previousTheme !== undefined) theme.content = previousTheme;
+    };
+  }, [symbol]);
+
+  const market = useMarketStream(symbol, token, { onSessionEnded: renewSession, enabled: ready });
   const summary = market.markets.find((m) => m.symbol === symbol);
 
   const orders = useQuery({
@@ -112,6 +150,13 @@ function Terminal({ symbol }: { symbol: string }) {
   const [inspected, setInspected] = useState<string | null>(null);
   const [prefill, setPrefill] = useState<Prefill | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [confirmStartOver, setConfirmStartOver] = useState(false);
+  const guide = useGuide();
+  const completeStep = guide.complete;
+
+  useEffect(() => {
+    if (inspectorOpen) completeStep("inspector");
+  }, [inspectorOpen, completeStep]);
   const [hovered, setHovered] = useState<Candle | null>(null);
   const [cancelling, setCancelling] = useState<ReadonlySet<string>>(new Set());
 
@@ -122,8 +167,7 @@ function Terminal({ symbol }: { symbol: string }) {
         event.preventDefault();
         setInspectorOpen((o) => !o);
       }
-      if (event.key === "?") setShortcutsOpen((o) => !o);
-      if (event.key === "Escape") setShortcutsOpen(false);
+      if (event.key === "?") setShortcutsOpen(true);
     };
     window.addEventListener("keydown", onKey);
     return () => {
@@ -134,7 +178,18 @@ function Terminal({ symbol }: { symbol: string }) {
   const onResult = (result: CommandResult) => {
     for (const e of result.events) ownSeqs.current.add(e.seq);
     if (result.orderId) setInspected(result.orderId);
+    if (result.ok) completeStep("order");
     void queryClient.invalidateQueries({ queryKey: ["orders"] });
+  };
+
+  const startOver = () => {
+    setConfirmStartOver(false);
+    setInspectorOpen(false);
+    setInspected(null);
+    queryClient.removeQueries({ queryKey: ["orders"] });
+    queryClient.removeQueries({ queryKey: ["trace"] });
+    renewSession(); // clears the stored guest; the effect above opens a new one
+    toast("Started a new account with ₹10,00,000", "info");
   };
 
   const cancel = async (id: string) => {
@@ -196,10 +251,15 @@ function Terminal({ symbol }: { symbol: string }) {
                 }
               >
                 <span className="font-medium">{s}</span>
-                {m && (
+                {m ? (
                   <>
                     <span className="num">{price(m.last)}</span>
                     <span className={`num ${changeTone(m.changePct)}`}>{pct(m.changePct)}</span>
+                  </>
+                ) : (
+                  <>
+                    <SkeletonText sample={SAMPLE_PRICE[s] ?? "000.00"} />
+                    <SkeletonText sample="+0.00%" />
                   </>
                 )}
               </NavLink>
@@ -207,15 +267,20 @@ function Terminal({ symbol }: { symbol: string }) {
           })}
         </nav>
         <div className="hidden items-center gap-5 text-xs md:flex">
-          {account && (
+          <Status status={market.status} exchange={exchange.state} />
+          {account ? (
             <div className="text-right leading-tight">
               <div className="num font-medium">{rupees(account.equity)}</div>
               <div className={`num ${changeTone(account.pnl)}`}>
                 {signedRupees(account.pnl)} ({pct(account.pnlPct)})
               </div>
             </div>
+          ) : (
+            <div className="flex flex-col items-end gap-0.5 leading-tight">
+              <SkeletonText sample="₹10,00,000.00" />
+              <SkeletonText sample="₹0.00 (0.00%)" />
+            </div>
           )}
-          <Status status={market.status} />
         </div>
         <button
           type="button"
@@ -230,14 +295,21 @@ function Terminal({ symbol }: { symbol: string }) {
         <button
           type="button"
           onClick={() => {
-            setShortcutsOpen((o) => !o);
+            setShortcutsOpen(true);
           }}
           aria-label="Keyboard shortcuts"
           className="hidden h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-text sm:flex"
         >
           <Kbd>?</Kbd>
         </button>
+        <HeaderMenu
+          onStartOver={() => {
+            setConfirmStartOver(true);
+          }}
+        />
       </header>
+
+      {guide.visible && <Guide done={guide.done} onDismiss={guide.dismiss} />}
 
       {sessionError && (
         <div
@@ -283,35 +355,52 @@ function Terminal({ symbol }: { symbol: string }) {
           bodyClassName="flex flex-col"
         >
           <div className="flex items-baseline gap-3 px-3 pt-2">
-            <span className="num text-2xl font-semibold tracking-[-0.02em]">
-              {price(summary?.last)}
-            </span>
-            {summary && (
-              <span className={`num text-sm ${changeTone(summary.changePct)}`}>
-                {signedRupees(summary.change)} ({pct(summary.changePct)})
-              </span>
+            {summary ? (
+              <>
+                <span className="num text-2xl font-semibold tracking-[-0.02em]">
+                  {price(summary.last)}
+                </span>
+                <span className={`num text-sm ${changeTone(summary.changePct)}`}>
+                  {signedRupees(summary.change)} ({pct(summary.changePct)})
+                </span>
+              </>
+            ) : (
+              <SkeletonText
+                sample={SAMPLE_PRICE[symbol] ?? "000.00"}
+                className="text-2xl font-semibold tracking-[-0.02em]"
+              />
             )}
             <span className="ml-auto text-2xs text-muted">15-second candles</span>
           </div>
-          <div className="min-h-0 flex-1 px-1 pb-1">
+          <div className="relative min-h-0 flex-1 px-1 pb-1">
             <PriceChart
               candles={market.candles}
               last={summary?.last ?? null}
               onHover={setHovered}
+              loading={!market.candlesLoaded}
             />
+            {exchange.state === "starting" && (
+              <div className="absolute inset-0 grid place-items-center p-4">
+                <StartingNotice
+                  since={exchange.waitingSince}
+                  className="rounded-lg border border-line bg-surface px-6 py-5"
+                />
+              </div>
+            )}
           </div>
         </Panel>
 
         <Panel
           title="Order book"
           aside={<span className="text-2xs text-muted">Click a price to use it</span>}
-          className="order-3 xl:order-none xl:row-span-2"
+          className="order-3 md:row-span-2 xl:order-none"
         >
           <OrderBookLadder
             book={market.book}
             myPrices={myPrices}
             onPick={(p, side) => {
               setPrefill({ price: p, side, nonce: Date.now() });
+              completeStep("price");
             }}
           />
         </Panel>
@@ -334,6 +423,7 @@ function Terminal({ symbol }: { symbol: string }) {
           <Blotter
             account={account}
             orders={orderList}
+            ordersLoading={orders.isPending}
             onCancel={(id) => void cancel(id)}
             onInspect={(id) => {
               setInspected(id);
@@ -347,8 +437,9 @@ function Terminal({ symbol }: { symbol: string }) {
           title="Trades"
           className="order-4 h-[320px] xl:order-none xl:col-start-3 xl:row-start-2 xl:h-auto"
           bodyClassName="overflow-y-auto"
+          scrollable
         >
-          <TradeTape trades={market.trades} />
+          <TradeTape trades={market.trades} loading={!market.tradesLoaded} />
         </Panel>
       </main>
 
@@ -372,6 +463,39 @@ function Terminal({ symbol }: { symbol: string }) {
         />
       )}
 
+      {confirmStartOver && (
+        <Dialog
+          title="Start over with a new account?"
+          onClose={() => {
+            setConfirmStartOver(false);
+          }}
+        >
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            You get a fresh guest account with ₹10,00,000. This account's positions and open orders
+            stay on the exchange, but you won't be able to return to them.
+          </p>
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              data-autofocus
+              onClick={() => {
+                setConfirmStartOver(false);
+              }}
+              className="h-9 rounded-md border border-line px-3 text-sm font-medium hover:bg-raised"
+            >
+              Keep this account
+            </button>
+            <button
+              type="button"
+              onClick={startOver}
+              className="h-9 rounded-md bg-accent px-3 text-sm font-semibold text-accent-ink hover:opacity-90"
+            >
+              Start over
+            </button>
+          </div>
+        </Dialog>
+      )}
+
       <div
         aria-live="polite"
         className="pointer-events-none fixed bottom-4 left-4 z-40 flex flex-col gap-2"
@@ -389,14 +513,20 @@ function Terminal({ symbol }: { symbol: string }) {
   );
 }
 
-function Status({ status }: { status: ConnectionStatus }) {
+function Status({ status, exchange }: { status: ConnectionStatus; exchange: ExchangeState }) {
   const label =
-    status === "live" ? "Live" : status === "connecting" ? "Connecting" : "Reconnecting";
+    exchange === "starting"
+      ? "Starting"
+      : status === "live"
+        ? "Live"
+        : status === "connecting"
+          ? "Connecting"
+          : "Reconnecting";
   return (
     <span className="flex items-center gap-1.5 text-muted" role="status">
       <span
         aria-hidden="true"
-        className={`size-1.5 rounded-full ${status === "live" ? "bg-bid" : "bg-pending"}`}
+        className={`size-1.5 rounded-full ${label === "Live" ? "bg-bid" : "bg-pending"}`}
       />
       {label}
     </span>
@@ -414,29 +544,27 @@ function Shortcuts({ onClose }: { onClose: () => void }) {
     ["?", "Show these shortcuts"],
   ];
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Keyboard shortcuts"
-        className="w-full max-w-sm rounded-lg border border-line bg-surface p-5"
-        onClick={(e) => {
-          e.stopPropagation();
-        }}
-      >
-        <h2 className="mb-4 text-sm font-semibold">Keyboard shortcuts</h2>
-        <dl className="space-y-2 text-sm">
-          {rows.map(([keys, action]) => (
-            <div key={keys} className="flex justify-between gap-4">
-              <dt className="text-muted">{action}</dt>
-              <dd>
-                <Kbd>{keys}</Kbd>
-              </dd>
-            </div>
-          ))}
-        </dl>
+    <Dialog title="Keyboard shortcuts" onClose={onClose}>
+      <dl className="mt-4 space-y-2 text-sm">
+        {rows.map(([keys, action]) => (
+          <div key={keys} className="flex justify-between gap-4">
+            <dt className="text-muted">{action}</dt>
+            <dd>
+              <Kbd>{keys}</Kbd>
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <div className="mt-5 flex justify-end">
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-8 items-center gap-2 rounded-md border border-line px-3 text-xs font-medium hover:bg-raised"
+        >
+          Close <Kbd>Esc</Kbd>
+        </button>
       </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -445,7 +573,8 @@ function describeAsync(event: EventView, orders: readonly OrderView[]): string |
   const order = (id: string) => orders.find((o) => o.id === id);
   if (event.type === "order.filled") {
     const o = order(event.orderId);
-    return o ? `${sideLabel(o.side)} ${qty(o.qty)} ${o.symbol} filled` : "An order filled";
+    // An order missing from the list was placed a moment ago; its ticket already confirmed it.
+    return o ? `${sideLabel(o.side)} ${qty(o.qty)} ${o.symbol} filled` : null;
   }
   if (event.type === "stop.triggered") {
     const o = order(event.orderId);

@@ -44,10 +44,13 @@ export function PriceChart({
   candles,
   last,
   onHover,
+  loading = false,
 }: {
   candles: readonly Candle[];
   last: string | null;
   onHover: (candle: Candle | null) => void;
+  /** True until the first candles have loaded: draws the empty frame instead of a message. */
+  loading?: boolean;
 }) {
   const [ref, { width, height }] = useSize<HTMLDivElement>();
   const [hover, setHover] = useState<{ index: number; y: number } | null>(null);
@@ -80,8 +83,51 @@ export function PriceChart({
 
   if (width === 0 || !view || view.data.length === 0) {
     return (
-      <div ref={ref} className="grid h-full place-items-center text-sm text-muted">
-        {width > 0 && "Waiting for the first trades in this session."}
+      <div ref={ref} className="relative grid h-full place-items-center text-sm text-muted">
+        {width > 0 && (
+          <>
+            <svg
+              width={width}
+              height={height}
+              aria-hidden="true"
+              className="absolute inset-0 block"
+            >
+              {[0.2, 0.4, 0.6, 0.8].map((f) => (
+                <line
+                  key={f}
+                  x1={0}
+                  x2={plotW}
+                  y1={priceH * f}
+                  y2={priceH * f}
+                  stroke="var(--line)"
+                />
+              ))}
+              <line x1={plotW} x2={plotW} y1={0} y2={plotH} stroke="var(--line)" />
+              <line x1={0} x2={plotW} y1={volumeTop - 3} y2={volumeTop - 3} stroke="var(--line)" />
+              {loading &&
+                [0.2, 0.4, 0.6, 0.8].map((f) => (
+                  <rect
+                    key={f}
+                    x={plotW + 8}
+                    y={priceH * f - 4}
+                    width={44}
+                    height={8}
+                    rx={2}
+                    fill="var(--raised)"
+                  />
+                ))}
+            </svg>
+            {loading ? (
+              <span className="sr-only" role="status">
+                Loading the chart
+              </span>
+            ) : (
+              <span className="relative bg-surface px-3 py-1">
+                Waiting for the first trades in this session.
+              </span>
+            )}
+          </>
+        )}
       </div>
     );
   }

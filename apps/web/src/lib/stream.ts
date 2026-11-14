@@ -2,8 +2,10 @@
  * Live market state from the server-sent event stream.
  *
  * One EventSource per (symbol, session). The browser reconnects on its own after
- * a dropped connection; a stream that closes for good (for example a 401 after
- * the market session rolled over) is reported through `onClosed`.
+ * a dropped connection. When the stream closes for good, the hook asks why: a
+ * 401 means the market session rolled over and is reported through
+ * `onSessionEnded`; anything else (a gateway error while the server restarts)
+ * is retried, keeping the guest's account.
  */
 
 import type {
@@ -15,9 +17,10 @@ import type {
   StreamMessage,
   TradePrint,
 } from "@marketlab/contracts";
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 
 const MAX_TRADES = 60;
+const RECONNECT_MS = 3_000;
 
 export type ConnectionStatus = "connecting" | "live" | "reconnecting";
 
@@ -28,6 +31,9 @@ export interface MarketState {
   readonly book: OrderBook | null;
   readonly trades: readonly TradePrint[];
   readonly candles: readonly Candle[];
+  /** False until the candle history and the tape have arrived, so panels show a skeleton, not "empty". */
+  readonly candlesLoaded: boolean;
+  readonly tradesLoaded: boolean;
   readonly account: AccountView | null;
   /** Increments whenever the caller's own orders change. */
   readonly ordersVersion: number;
@@ -47,6 +53,8 @@ const initial = (symbol: string): MarketState => ({
   book: null,
   trades: [],
   candles: [],
+  candlesLoaded: false,
+  tradesLoaded: false,
   account: null,
   ordersVersion: 0,
   lastOrderEvents: [],
@@ -70,6 +78,7 @@ export function reducer(state: MarketState, action: Action): MarketState {
       // Keep any candle the stream delivered while the history request was in flight.
       return {
         ...state,
+        candlesLoaded: true,
         candles: state.candles.reduce(upsertCandle, action.candles),
       };
     case "message": {
@@ -83,7 +92,11 @@ export function reducer(state: MarketState, action: Action): MarketState {
           return m.book.symbol === state.symbol ? { ...state, book: m.book } : state;
         case "trades":
           if (m.symbol !== state.symbol) return state;
-          return { ...state, trades: [...m.trades, ...state.trades].slice(0, MAX_TRADES) };
+          return {
+            ...state,
+            tradesLoaded: true,
+            trades: [...m.trades, ...state.trades].slice(0, MAX_TRADES),
+          };
         case "candle":
           if (m.symbol !== state.symbol) return state;
           return { ...state, candles: upsertCandle(state.candles, m.candle) };
@@ -103,29 +116,55 @@ export function reducer(state: MarketState, action: Action): MarketState {
 export function useMarketStream(
   symbol: string,
   token: string | null,
-  onClosed?: () => void,
+  options: { onSessionEnded?: () => void; enabled?: boolean } = {},
 ): MarketState {
+  const { onSessionEnded, enabled = true } = options;
   const [state, dispatch] = useReducer(reducer, symbol, initial);
-  const onClosedRef = useRef(onClosed);
+  const [attempt, setAttempt] = useState(0);
+  const onSessionEndedRef = useRef(onSessionEnded);
   useEffect(() => {
-    onClosedRef.current = onClosed;
-  }, [onClosed]);
+    onSessionEndedRef.current = onSessionEnded;
+  }, [onSessionEnded]);
 
+  // A different market or account starts from empty; a reconnect keeps what is on screen.
   useEffect(() => {
     dispatch({ type: "reset", symbol });
+  }, [symbol, token]);
+
+  useEffect(() => {
+    if (!enabled) {
+      dispatch({ type: "status", status: "connecting" });
+      return;
+    }
     const query = new URLSearchParams({ symbol });
     if (token) query.set("token", token);
     const source = new EventSource(`/api/stream?${query.toString()}`);
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
 
     source.onmessage = (event: MessageEvent<string>) => {
       dispatch({ type: "message", message: JSON.parse(event.data) as StreamMessage });
     };
     source.onerror = () => {
-      if (source.readyState === EventSource.CLOSED) onClosedRef.current?.();
-      else dispatch({ type: "status", status: "reconnecting" });
+      dispatch({ type: "status", status: "reconnecting" });
+      if (source.readyState !== EventSource.CLOSED) return;
+      const sessionEnded = token
+        ? fetch("/api/account", { headers: { authorization: `Bearer ${token}` } }).then(
+            (response) => response.status === 401,
+            () => false,
+          )
+        : Promise.resolve(false);
+      void sessionEnded.then((ended) => {
+        if (cancelled) return;
+        if (ended) onSessionEndedRef.current?.();
+        else {
+          retry = setTimeout(() => {
+            setAttempt((n) => n + 1);
+          }, RECONNECT_MS);
+        }
+      });
     };
 
-    let cancelled = false;
     fetch(`/api/markets/${symbol}/candles`)
       .then((r) => (r.ok ? (r.json() as Promise<Candle[]>) : []))
       .then((candles) => {
@@ -135,9 +174,10 @@ export function useMarketStream(
 
     return () => {
       cancelled = true;
+      clearTimeout(retry);
       source.close();
     };
-  }, [symbol, token]);
+  }, [symbol, token, enabled, attempt]);
 
   return state;
 }

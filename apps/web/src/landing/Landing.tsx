@@ -1,24 +1,17 @@
-import type { HealthResponse } from "@marketlab/contracts";
-import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
-import { api } from "../lib/api";
 import { duration, qty } from "../lib/format";
+import { useExchange } from "../lib/health";
+import { DECISIONS, REPO } from "../lib/links";
 import { Logo } from "../ui/Logo";
 import { Architecture } from "./Architecture";
 import { HeroDemo } from "./HeroDemo";
 import { MatchingDiagram } from "./MatchingDiagram";
 
-const REPO = "https://github.com/UditSinghChauhan/MarketLab";
-
 export function Landing() {
-  const health = useQuery({
-    queryKey: ["health"],
-    queryFn: () => api<HealthResponse>("/api/health"),
-    refetchInterval: 5_000,
-  });
-  const h = health.data;
+  // Everything on this page except the live numbers renders without the API.
+  const h = useExchange().health;
 
   return (
     <div className="min-h-dvh bg-bg text-text">
@@ -183,7 +176,7 @@ export function Landing() {
       <footer className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-10 text-sm text-muted">
         <span>Designed and built by Udit Singh Chauhan.</span>
         <span className="flex gap-6">
-          <a href={`${REPO}/tree/main/docs/adr`} className="hover:text-text">
+          <a href={DECISIONS} className="hover:text-text">
             Design decisions
           </a>
           <a href={REPO} className="hover:text-text">

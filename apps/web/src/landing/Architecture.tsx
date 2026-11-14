@@ -82,7 +82,7 @@ export function Architecture() {
       <div className="overflow-x-auto rounded-lg border border-line bg-surface p-4">
         <svg
           viewBox="0 0 960 300"
-          className="min-w-[760px]"
+          className="min-w-[680px]"
           role="img"
           aria-label="Architecture: the browser sends orders over HTTP and receives market data over server-sent events. The API validates and authenticates, then the engine host's single writer first appends the command to the Postgres command log and then applies it to the in-memory matching engine. On startup the log is replayed into the engine."
         >
