@@ -39,8 +39,12 @@ export interface SimulatorConfig {
   readonly levelSize?: number;
   /** Ticks between fair value and the best quote on each side. Default 1. */
   readonly halfSpreadTicks?: number;
+  /** Ticks between consecutive quoted levels. Default 1. */
+  readonly levelGapTicks?: number;
   /** Largest fair-value move per step, in ticks. Default 2. */
   readonly volatilityTicks?: number;
+  /** Chance per step of a jump of up to 4× volatility. Default 0. */
+  readonly jumpProbability?: number;
   /** Chance each taker trades on a step. Default 0.3. */
   readonly takerProbability?: number;
   /** Largest market order a taker sends. Default 40. */
@@ -63,7 +67,9 @@ export class MarketSimulator {
       levels: 5,
       levelSize: 50,
       halfSpreadTicks: 1,
+      levelGapTicks: 1,
       volatilityTicks: 2,
+      jumpProbability: 0,
       takerProbability: 0.3,
       maxTakerQty: 40,
       ...config,
@@ -84,15 +90,18 @@ export class MarketSimulator {
 
   /** Advances the market one step and returns every event it caused. */
   step(): EngineEvent[] {
-    const { symbol, makerId, levels, levelSize, halfSpreadTicks, volatilityTicks } = this.cfg;
+    const { symbol, makerId, levels, levelSize, halfSpreadTicks, levelGapTicks, volatilityTicks } =
+      this.cfg;
     const events: EngineEvent[] = [];
     const submit = (...args: Parameters<Exchange["submit"]>): void => {
       events.push(...this.exchange.submit(...args));
     };
 
     // 1. Fair value drifts. It never falls below the quoted depth, so bids stay positive.
-    const floor = halfSpreadTicks + levels + 1;
-    this.fairTicks = Math.max(floor, this.fairTicks + this.int(-volatilityTicks, volatilityTicks));
+    const floor = halfSpreadTicks + levels * levelGapTicks + 1;
+    const jump = this.random() < this.cfg.jumpProbability ? 4 : 1;
+    const move = this.int(-volatilityTicks * jump, volatilityTicks * jump);
+    this.fairTicks = Math.max(floor, this.fairTicks + move);
 
     // 2. The maker pulls its old quotes and posts fresh ones around fair value.
     for (const open of this.exchange.openOrders(makerId)) {
@@ -102,7 +111,7 @@ export class MarketSimulator {
     }
     for (let level = 0; level < levels; level++) {
       const size = quantity(levelSize + this.int(0, levelSize));
-      const offset = halfSpreadTicks + level;
+      const offset = halfSpreadTicks + level * levelGapTicks;
       const bid = paise((this.fairTicks - offset) * this.tick);
       const ask = paise((this.fairTicks + offset) * this.tick);
       if (this.exchange.accounts.availableCash(makerId) >= bid * size) {

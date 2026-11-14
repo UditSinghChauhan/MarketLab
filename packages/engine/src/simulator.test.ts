@@ -74,6 +74,24 @@ describe("MarketSimulator", () => {
     expect(a.exchange.lastPrice(SYMBOL)).not.toBe(b.exchange.lastPrice(SYMBOL));
   });
 
+  it("spaces quoted levels by levelGapTicks", () => {
+    const exchange = new Exchange([
+      { symbol: SYMBOL, tickSize: parseRupees("0.05"), referencePrice: parseRupees("100") },
+    ]);
+    exchange.accounts.open("maker", parseRupees("10000000"), { [SYMBOL]: 100_000 });
+    const sim = new MarketSimulator(exchange, {
+      symbol: SYMBOL,
+      seed: 3,
+      makerId: "maker",
+      takerIds: [],
+      levelGapTicks: 4,
+      volatilityTicks: 0,
+    });
+    sim.step();
+    const asks = exchange.depth(SYMBOL)?.asks.map((l) => l.price) ?? [];
+    expect(asks.slice(1).map((p, i) => p - (asks[i] ?? 0))).toEqual([20, 20, 20, 20]);
+  });
+
   it("lets a human order trade against the bots", () => {
     const { exchange, sim } = demoMarket(9);
     exchange.accounts.open("you", parseRupees("100000"));

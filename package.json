@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Real-time exchange simulator: price-time matching engine, live order book and event-sourced ledger.",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "engines": {
     "node": ">=20"

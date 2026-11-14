@@ -6,8 +6,8 @@
   "description": "Pure matching engine and money primitives for MarketLab. No I/O, no timers.",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
     }
   },
   "scripts": {
