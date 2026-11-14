@@ -32,6 +32,6 @@ creates or destroys money" cannot be asserted with exact equality.
 
 - `number` covers about ±₹90 trillion in paise, far beyond any simulated account,
   so `bigint` (slower, awkward to serialise to JSON) is not needed.
-- PostgreSQL columns will be `bigint` paise (Phase 2), not `numeric` or `float`.
-- The API boundary (Phase 3) converts to and from decimal strings, so clients
+- PostgreSQL columns will be `bigint` paise, not `numeric` or `float`.
+- The API boundary converts to and from decimal strings, so clients
   never see raw floats.
