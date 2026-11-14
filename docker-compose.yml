@@ -1,0 +1,21 @@
+# Local PostgreSQL for the command log. Start it with `npm run db:up`.
+# The credentials match DATABASE_URL in apps/api/.env.example.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: marketlab
+      POSTGRES_PASSWORD: marketlab
+      POSTGRES_DB: marketlab
+    ports:
+      - "5432:5432"
+    volumes:
+      - marketlab-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marketlab -d marketlab"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  marketlab-postgres:

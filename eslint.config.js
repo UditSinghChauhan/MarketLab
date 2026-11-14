@@ -20,7 +20,9 @@ export default tseslint.config(
     languageOptions: {
       globals: globals.node,
       parserOptions: {
-        projectService: { allowDefaultProject: ["*.js"] },
+        projectService: {
+          allowDefaultProject: ["*.js", "scripts/*.mjs", "apps/web/scripts/*.mjs"],
+        },
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -35,7 +37,7 @@ export default tseslint.config(
     rules: reactHooks.configs.recommended.rules,
   },
   {
-    files: ["**/*.js"],
+    files: ["**/*.js", "**/*.mjs"],
     ...tseslint.configs.disableTypeChecked,
   },
 );
