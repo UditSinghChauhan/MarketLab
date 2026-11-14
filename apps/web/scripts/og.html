@@ -1,0 +1,89 @@
+<!doctype html>
+<!--
+  Template for the link-preview image (public/og.png), 1200 × 630.
+  render-assets.mjs fills in the fonts, the mark and a real screenshot of the
+  terminal, then photographs this page.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      @font-face {
+        font-family: "IBM Plex Sans";
+        font-weight: 400;
+        src: url("{{font400}}") format("woff2");
+      }
+      @font-face {
+        font-family: "IBM Plex Sans";
+        font-weight: 600;
+        src: url("{{font600}}") format("woff2");
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      body {
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        background: #f5f7fa;
+        color: #121a26;
+        font-family: "IBM Plex Sans", sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .copy {
+        position: absolute;
+        left: 72px;
+        top: 64px;
+        width: 470px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 26px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+      .brand svg {
+        width: 34px;
+        height: 34px;
+      }
+      h1 {
+        margin-top: 84px;
+        font-size: 66px;
+        font-weight: 600;
+        line-height: 1.04;
+        letter-spacing: -0.035em;
+      }
+      p {
+        margin-top: 28px;
+        font-size: 25px;
+        line-height: 1.4;
+        color: #566273;
+      }
+      .shot {
+        position: absolute;
+        left: 600px;
+        top: 96px;
+        width: 1040px;
+        border: 1px solid #262f3b;
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: 0 48px 96px -40px rgb(18 26 38 / 0.55);
+      }
+      .shot img {
+        display: block;
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="copy">
+      <div class="brand">{{mark}} MarketLab</div>
+      <h1>A stock exchange you can watch work.</h1>
+      <p>A real matching engine, a live order book, and a trace of every order through it.</p>
+    </div>
+    <div class="shot"><img src="{{screenshot}}" alt="" /></div>
+  </body>
+</html>
