@@ -85,6 +85,19 @@ engineering, an architecture diagram, and an honest list of what is simulated.
 - Motion otherwise answers an action: opening the inspector, switching tabs.
 - `prefers-reduced-motion` turns animation off.
 
+## Loading and first run
+
+- **Skeletons, not spinners.** While data loads, each panel shows still
+  placeholders in the exact rows the data will fill (chart frame, ladder rows,
+  tape rows, account figures), so nothing moves when it arrives. Skeletons do
+  not pulse.
+- **Cold start.** When the server has not answered within two seconds, the hero
+  and the terminal say "Starting the exchange", explain in one line that the
+  free server is waking up, count the seconds, and go live on their own.
+- **First run.** A single row under the terminal header lists three things to
+  try. Each ticks itself off when done; dismissed or completed once, it never
+  returns.
+
 ## Interaction
 
 - Keyboard first: `B`/`S` side, `M`/`L`/`T` type, `Enter` places, `Esc`
@@ -92,5 +105,7 @@ engineering, an architecture diagram, and an honest list of what is simulated.
   shortcuts. Letters never fire while typing in a field; Enter never fires on a
   focused button.
 - Clicking any price in the book, or the best bid or ask, fills in a limit order.
+- Dialogs, the header menu and the inspector take focus when they open, keep
+  Tab inside, close on `Esc` and return focus to what opened them.
 - Errors say what happened and how to fix it ("Prices move in steps of ₹0.05.
   Round the price to the nearest step.").
