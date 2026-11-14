@@ -1,5 +1,5 @@
 /**
- * Order model shared by the matching engine (Phase 1) and the API (Phase 3).
+ * Order model shared by the matching engine and the API.
  *
  * Orders are a discriminated union on `type`, so a limit order without a limit
  * price, or a market order with one, does not type-check.
