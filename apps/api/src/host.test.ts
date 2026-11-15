@@ -87,7 +87,14 @@ describe("engine host", () => {
 
     const { entries } = await log.openSession(time.now(), Infinity, 1);
     expect(entries).toEqual([
-      { kind: "ticks", count: 100, from: time.now() - 99 * 600, at: time.now() },
+      {
+        kind: "ticks",
+        count: 100,
+        from: time.now() - 99 * 600,
+        at: time.now(),
+        // The state the ticks were applied to: here, the untouched opening market.
+        h: expect.stringMatching(/^[0-9a-f]{16}$/) as string,
+      },
     ]);
     expect(first.data.candles("ORBT").length).toBeGreaterThan(1);
 

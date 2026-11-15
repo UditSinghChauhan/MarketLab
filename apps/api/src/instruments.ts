@@ -6,15 +6,12 @@
  * charts look different from each other.
  */
 
-import { parseRupees, type MarketConfig, type Paise } from "@marketlab/engine";
+import { parseRupees, type Paise, type SessionInstrument } from "@marketlab/engine";
 
-export interface InstrumentConfig extends MarketConfig {
+/** What the engine needs to simulate a market, plus what people call it. */
+export interface InstrumentConfig extends SessionInstrument {
   readonly name: string;
   readonly sector: string;
-  /** Fair-value move per tick, in ticks. */
-  readonly volatilityTicks: number;
-  readonly levelGapTicks: number;
-  readonly levelSize: number;
 }
 
 const TICK = parseRupees("0.05");
@@ -65,8 +62,6 @@ export const INSTRUMENTS: readonly InstrumentConfig[] = [
 /** Cash every guest starts with: ₹10,00,000. */
 export const GUEST_CASH: Paise = parseRupees("1000000");
 
-export const MAKER_PREFIX = "mm:";
-export const FLOW_IDS = ["flow:1", "flow:2", "flow:3", "flow:4", "flow:5", "flow:6"] as const;
 export const GUEST_PREFIX = "g_";
 
 export const isGuest = (accountId: string): boolean => accountId.startsWith(GUEST_PREFIX);

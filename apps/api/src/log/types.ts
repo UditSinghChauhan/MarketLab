@@ -13,15 +13,18 @@
  * arrives at exactly the state it had before. See docs/adr/0004-command-log.md.
  */
 
-import type { Command } from "@marketlab/engine";
+import type { LogEntry } from "@marketlab/engine";
 import { z } from "zod";
 
-export type LogEntry =
-  | { readonly kind: "open"; readonly accountId: string; readonly at: number }
-  | { readonly kind: "ticks"; readonly count: number; readonly from: number; readonly at: number }
-  | { readonly kind: "command"; readonly command: Command; readonly at: number };
+/** Defined next to the engine, which gives entries their meaning; see `SessionEngine`. */
+export type { LogEntry };
 
 const at = z.number().int().nonnegative();
+/** The state hash the entry was applied to; absent on entries written before hashes were recorded. */
+const h = z
+  .string()
+  .regex(/^[0-9a-f]{16}$/)
+  .optional();
 const qty = z.number().int().positive();
 const money = z.number().int().positive();
 const place = {
@@ -34,11 +37,12 @@ const place = {
 
 /** Validates entries read back from storage, so a corrupt row fails loudly at startup. */
 export const LogEntrySchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("open"), accountId: z.string(), at }),
-  z.object({ kind: z.literal("ticks"), count: z.number().int().positive(), from: at, at }),
+  z.object({ kind: z.literal("open"), accountId: z.string(), at, h }),
+  z.object({ kind: z.literal("ticks"), count: z.number().int().positive(), from: at, at, h }),
   z.object({
     kind: z.literal("command"),
     at,
+    h,
     command: z.union([
       z.object({ ...place, type: z.literal("market") }),
       z.object({ ...place, type: z.literal("limit"), limitPrice: money }),
@@ -78,6 +82,8 @@ export interface CommandLog {
   openSession(now: number, maxAgeMs: number, newSeed: number): Promise<Session>;
   /** Appends entry number `seq` (1-based, gap-free) to the session. */
   append(sessionId: number, seq: number, entry: LogEntry): Promise<void>;
+  /** Up to `limit` entries with sequence numbers above `after`, in order. */
+  readEntries(sessionId: number, after: number, limit: number): Promise<LogEntry[]>;
   /** The session's latest snapshot, if it has one. */
   loadSnapshot(sessionId: number): Promise<StoredSnapshot | null>;
   /** Stores a snapshot, replacing the session's previous one. */

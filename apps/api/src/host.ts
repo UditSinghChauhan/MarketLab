@@ -23,39 +23,30 @@ import { randomInt, randomUUID } from "node:crypto";
 
 import type { CommandResult, CommandTiming, EngineStats } from "@marketlab/contracts";
 import {
-  Exchange,
-  MarketSimulator,
-  paise,
+  CountingExchange,
+  SessionEngine,
   type Command,
   type EngineEvent,
-  type ExchangeState,
-  type MarketConfig,
-  type SimulatorState,
+  type SessionConfig,
+  type SessionState,
 } from "@marketlab/engine";
 
-import {
-  FLOW_IDS,
-  GUEST_CASH,
-  GUEST_PREFIX,
-  MAKER_PREFIX,
-  type InstrumentConfig,
-} from "./instruments.js";
+import { GUEST_CASH, GUEST_PREFIX, type InstrumentConfig } from "./instruments.js";
 import type { CommandLog, LogEntry, Session, StoredSnapshot } from "./log/types.js";
 import { MarketData, type MarketDataState } from "./market-data.js";
 import { toEventView } from "./serialize.js";
 
 const TICK_FLUSH_MS = 30_000;
 const LATENCY_SAMPLES = 4_096;
-const SNAPSHOT_VERSION = 1;
+const SNAPSHOT_VERSION = 2;
 export const DEFAULT_SNAPSHOT_MS = 10 * 60_000;
 
-/** What a snapshot holds: the engine, the bots' positions in their random sequences, and the read models. */
+/** What a snapshot holds: the session engine (exchange and simulators) and the read models. */
 interface HostState {
   readonly version: number;
   /** The instruments the state was built for; a changed configuration invalidates it. */
   readonly instruments: string;
-  readonly exchange: ExchangeState;
-  readonly simulators: readonly SimulatorState[];
+  readonly session: SessionState;
   readonly data: MarketDataState;
   /** Engine commands processed so far in the session, for the statistics. */
   readonly commands: number;
@@ -99,17 +90,15 @@ export class HostUnavailableError extends Error {
 }
 
 /** Exchange that records how long each command takes inside the engine. */
-class InstrumentedExchange extends Exchange {
+class InstrumentedExchange extends CountingExchange {
   private readonly samples = new Float64Array(LATENCY_SAMPLES);
-  commands = 0;
   lastUs = 0;
 
   override submit(command: Command): EngineEvent[] {
     const start = process.hrtime.bigint();
-    const events = super.submit(command);
+    const events = super.submit(command); // counts the command
     this.lastUs = Number(process.hrtime.bigint() - start) / 1_000;
-    this.samples[this.commands % LATENCY_SAMPLES] = this.lastUs;
-    this.commands += 1;
+    this.samples[(this.commands - 1) % LATENCY_SAMPLES] = this.lastUs;
     return events;
   }
 
@@ -131,11 +120,16 @@ export class EngineHost {
   /** How the last start rebuilt state: entries replayed, time taken, and the snapshot it began from (0: none). */
   replay = { entries: 0, ms: 0, snapshotSeq: 0 };
 
-  private readonly sims: MarketSimulator[];
+  /** The seed and rules of this session: with the log, everything needed to rebuild it anywhere. */
+  readonly sessionConfig: SessionConfig;
+  private readonly engine: SessionEngine<InstrumentedExchange>;
   private readonly now: () => number;
   private seq = 0;
   private pendingTicks = 0;
   private firstPendingTickAt = 0;
+  /** State hash before the first unlogged tick: what the next `ticks` entry is applied to. */
+  private pendingTicksHash = "";
+  private hashMismatchReported = false;
   private lastTickAt = 0;
   private lastFlushAt: number;
   private lastSnapshotAt: number;
@@ -156,47 +150,20 @@ export class EngineHost {
     this.lastFlushAt = this.startedAt;
     this.lastSnapshotAt = this.startedAt;
 
-    const markets: MarketConfig[] = [...options.instruments];
-    this.exchange = new InstrumentedExchange(markets);
+    this.sessionConfig = {
+      seed: session.seed,
+      instruments: options.instruments,
+      guestCash: GUEST_CASH,
+    };
+    this.engine = new SessionEngine(this.sessionConfig, {
+      createExchange: (markets) => new InstrumentedExchange(markets),
+      ...(restored ? { state: restored.session } : {}),
+    });
+    this.exchange = this.engine.exchange;
     this.data = new MarketData(options.instruments);
-
     if (restored) {
-      this.exchange.load(restored.exchange);
       this.exchange.commands = restored.commands;
       this.data.load(restored.data);
-    } else {
-      // Bot accounts are derived from configuration, never logged.
-      for (const i of options.instruments) {
-        this.exchange.accounts.open(`${MAKER_PREFIX}${i.symbol}`, paise(GUEST_CASH * 1_000), {
-          [i.symbol]: 10_000_000,
-        });
-      }
-      const holdings = Object.fromEntries(options.instruments.map((i) => [i.symbol, 50_000]));
-      for (const id of FLOW_IDS) this.exchange.accounts.open(id, paise(GUEST_CASH * 100), holdings);
-    }
-
-    this.sims = options.instruments.map(
-      (i, index) =>
-        new MarketSimulator(this.exchange, {
-          symbol: i.symbol,
-          seed: (session.seed + index * 7_919) >>> 0,
-          makerId: `${MAKER_PREFIX}${i.symbol}`,
-          takerIds: FLOW_IDS,
-          levels: 12,
-          levelSize: i.levelSize,
-          levelGapTicks: i.levelGapTicks,
-          volatilityTicks: i.volatilityTicks,
-          jumpProbability: 0.02,
-          takerProbability: 0.12,
-          maxTakerQty: Math.max(5, Math.round(i.levelSize * 0.8)),
-        }),
-    );
-    if (restored) {
-      if (restored.simulators.length !== this.sims.length) throw new Error("Simulators differ");
-      this.sims.forEach((sim, index) => {
-        const state = restored.simulators[index];
-        if (state) sim.load(state);
-      });
     }
   }
 
@@ -251,7 +218,9 @@ export class EngineHost {
     const snapshotSeq = restored && stored ? stored.seq : 0;
 
     const tail = session.entries.slice(snapshotSeq);
-    for (const entry of tail) host.apply(entry);
+    tail.forEach((entry, index) => {
+      host.apply(entry, snapshotSeq + index + 1);
+    });
     host.seq = session.entries.length;
     host.replay = {
       entries: tail.length,
@@ -305,8 +274,11 @@ export class EngineHost {
 
   /** Advances the market one tick immediately (tests and replay use this). */
   tick(at = this.now()): EngineEvent[] {
-    const events = this.sims.flatMap((sim) => sim.step());
-    if (this.pendingTicks === 0) this.firstPendingTickAt = at;
+    if (this.pendingTicks === 0) {
+      this.firstPendingTickAt = at;
+      this.pendingTicksHash = this.exchange.stateHash();
+    }
+    const events = this.engine.tick();
     this.pendingTicks += 1;
     this.lastTickAt = at;
     this.publish(events, at);
@@ -317,9 +289,15 @@ export class EngineHost {
     const accountId = `${GUEST_PREFIX}${randomUUID().replaceAll("-", "").slice(0, 16)}`;
     await this.serial(async () => {
       await this.maybeFlushTicks(true); // keep the log in application order
-      const entry: LogEntry = { kind: "open", accountId, at: this.now() };
+      const entry: LogEntry = {
+        kind: "open",
+        accountId,
+        at: this.now(),
+        h: this.exchange.stateHash(),
+      };
       await this.persist(entry);
-      this.apply(entry);
+      this.engine.openGuest(accountId);
+      this.data.registerHuman(accountId);
     });
     return accountId;
   }
@@ -330,11 +308,9 @@ export class EngineHost {
     return this.serial(async () => {
       const queueMs = Math.round((performance.now() - enqueued) * 1000) / 1000;
       const at = this.now();
-      const entry: LogEntry = { kind: "command", command, at };
-
       const persistStart = performance.now();
       await this.maybeFlushTicks(true);
-      await this.persist(entry);
+      await this.persist({ kind: "command", command, at, h: this.exchange.stateHash() });
       const persistMs = Math.round((performance.now() - persistStart) * 100) / 100;
 
       const events = this.applyCommand(command, at);
@@ -367,26 +343,26 @@ export class EngineHost {
 
   // Internals --------------------------------------------------------------
 
-  /** Applies a logged entry. Shared by live operation and replay. */
-  private apply(entry: LogEntry): void {
-    switch (entry.kind) {
-      case "open":
-        this.exchange.accounts.open(entry.accountId, GUEST_CASH);
-        this.data.registerHuman(entry.accountId);
-        return;
-      case "ticks":
-        // Ticks run on a steady interval, so their times are interpolated
-        // between the first and last; they only date trades and candles.
-        for (let i = 0; i < entry.count; i++) {
-          const fraction = entry.count === 1 ? 1 : i / (entry.count - 1);
-          this.tick(Math.round(entry.from + (entry.at - entry.from) * fraction));
-        }
-        this.pendingTicks = 0;
-        return;
-      case "command":
-        this.applyCommand(entry.command, entry.at);
-        return;
+  /**
+   * Replays one logged entry through the session engine, the same code a
+   * browser replay runs. If the entry recorded the state hash it was applied
+   * to, the replay checks that it is in that state: a mismatch means the log
+   * and the engine no longer agree, which is reported once.
+   */
+  private apply(entry: LogEntry, seq: number): void {
+    if (entry.h !== undefined && !this.hashMismatchReported) {
+      const actual = this.exchange.stateHash();
+      if (actual !== entry.h) {
+        this.hashMismatchReported = true;
+        this.options.onWarning?.(
+          `Replay diverged before log entry ${String(seq)}: recorded ${entry.h}, rebuilt ${actual}`,
+        );
+      }
     }
+    if (entry.kind === "open") this.data.registerHuman(entry.accountId);
+    this.engine.apply(entry, (events, at) => {
+      this.publish(events, at);
+    });
   }
 
   private applyCommand(command: Command, at: number): EngineEvent[] {
@@ -430,6 +406,7 @@ export class EngineHost {
       count,
       from: this.firstPendingTickAt,
       at: this.lastTickAt,
+      h: this.pendingTicksHash,
     });
     this.pendingTicks -= count;
     this.lastFlushAt = this.now();
@@ -461,8 +438,7 @@ export class EngineHost {
     const state: HostState = {
       version: SNAPSHOT_VERSION,
       instruments: instrumentsKey(this.options.instruments),
-      exchange: this.exchange.serialize(),
-      simulators: this.sims.map((sim) => sim.serialize()),
+      session: this.engine.serialize(),
       data: this.data.serialize(),
       commands: this.exchange.commands,
     };
@@ -490,6 +466,27 @@ export class EngineHost {
     const result = this.queue.then(work);
     this.queue = result.catch(() => undefined);
     return result;
+  }
+
+  /**
+   * The point a replay must reach: the log sequence and the state hash after
+   * it. Unlogged ticks are written first, inside the write queue, so the hash
+   * is exactly "the log up to `seq`, applied".
+   */
+  checkpoint(): Promise<{ seq: number; stateHash: string; commands: number }> {
+    return this.serial(async () => {
+      await this.flush();
+      return {
+        seq: this.seq,
+        stateHash: this.exchange.stateHash(),
+        commands: this.exchange.commands,
+      };
+    });
+  }
+
+  /** Log entries after sequence `after`, for a replay. */
+  readEntries(after: number, limit: number): Promise<LogEntry[]> {
+    return this.options.log.readEntries(this.session.id, after, limit);
   }
 
   // Reads ------------------------------------------------------------------

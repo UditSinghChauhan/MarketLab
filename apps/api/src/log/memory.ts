@@ -25,6 +25,11 @@ export class MemoryLog implements CommandLog {
     return Promise.resolve();
   }
 
+  readEntries(sessionId: number, after: number, limit: number): Promise<LogEntry[]> {
+    const session = this.sessions.find((s) => s.id === sessionId);
+    return Promise.resolve(structuredClone(session?.entries.slice(after, after + limit) ?? []));
+  }
+
   private readonly snapshots = new Map<number, StoredSnapshot>();
 
   loadSnapshot(sessionId: number): Promise<StoredSnapshot | null> {

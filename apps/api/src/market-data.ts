@@ -17,12 +17,18 @@ import type {
   OrderView,
   TradePrint,
 } from "@marketlab/contracts";
-import { parseRupees, type EngineEvent, type OrderId, type Paise } from "@marketlab/engine";
+import {
+  CANDLE_MS,
+  parseRupees,
+  type EngineEvent,
+  type OrderId,
+  type Paise,
+} from "@marketlab/engine";
 
 import type { InstrumentConfig } from "./instruments.js";
 import { rupees, toEventView } from "./serialize.js";
 
-export const CANDLE_MS = 15_000;
+export { CANDLE_MS };
 const MAX_CANDLES = 480; // two hours of 15-second candles
 const MAX_TRADES = 120;
 const MAX_ORDERS_PER_ACCOUNT = 200;
