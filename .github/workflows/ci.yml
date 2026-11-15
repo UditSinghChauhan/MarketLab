@@ -45,6 +45,58 @@ jobs:
           TEST_DATABASE_URL: postgres://marketlab:marketlab@localhost:5432/marketlab
       - run: npm run build
 
+      # The built server, as Render runs it, against the Postgres service above.
+      - name: Smoke test the production build
+        env:
+          NODE_ENV: production
+          DATABASE_URL: postgres://marketlab:marketlab@localhost:5432/marketlab
+          TOKEN_SECRET: ci-only-secret-0123456789abcdef0123456789
+          PORT: "8080"
+          LOG_LEVEL: warn
+          WARMUP_MINUTES: "5"
+        run: |
+          set -euo pipefail
+          base=http://localhost:8080
+          fail() { echo "FAILED: $1"; exit 1; }
+          start() {
+            npm start > server.log 2>&1 &
+            for _ in $(seq 1 60); do
+              curl -sf "$base/api/health" > health.json && return 0
+              sleep 0.5
+            done
+            cat server.log; fail "server did not become healthy"
+          }
+          stop() { pkill -TERM -f "dist/server.js" || true; while pgrep -f "dist/server.js" > /dev/null; do sleep 0.2; done; }
+
+          start
+          grep -q '"status":"ok"' health.json || fail "health is not ok"
+          grep -q '"persistence":"postgres"' health.json || fail "not using Postgres"
+          grep -q '"invariantViolations":0' health.json || fail "invariant violations"
+
+          [ "$(curl -s -o body.json -w '%{http_code} %{content_type}' "$base/api/no-such-route")" = "404 application/json; charset=utf-8" ] || fail "unknown API route is not a JSON 404"
+          grep -q '"code":"not_found"' body.json || fail "404 body has no error code"
+
+          [ "$(curl -s -o page.html -w '%{http_code}' "$base/terminal/ORBT")" = "200" ] || fail "deep link did not return 200"
+          grep -q '<div id="root">' page.html || fail "deep link did not serve the app"
+
+          curl -s -D headers.txt -o /dev/null -H 'Accept-Encoding: br' "$base/"
+          grep -qi '^content-security-policy:' headers.txt || fail "no Content-Security-Policy"
+          grep -qi '^x-content-type-options: nosniff' headers.txt || fail "no X-Content-Type-Options"
+          script=$(grep -o '/assets/index-[^"]*\.js' page.html | head -1)
+          curl -s -D headers.txt -o /dev/null -H 'Accept-Encoding: br' "$base$script"
+          grep -qi '^content-encoding: br' headers.txt || fail "assets are not compressed"
+
+          # A clean stop stores a snapshot; the next start restores it instead of replaying.
+          stop; start
+          grep -Eq '"snapshotSeq":[1-9]' health.json || fail "restart did not use a snapshot"
+
+          # When the log cannot be written, requests get 503 and the process exits for a restart.
+          psql "$DATABASE_URL" -qc 'ALTER TABLE log_entries RENAME TO log_entries_gone'
+          [ "$(curl -s -o body.json -w '%{http_code}' -X POST "$base/api/session")" = "503" ] || fail "an unwritable log did not answer 503"
+          for _ in $(seq 1 20); do pgrep -f "dist/server.js" > /dev/null || break; sleep 0.5; done
+          pgrep -f "dist/server.js" > /dev/null && fail "server kept running with an unwritable log"
+          echo "Smoke test passed"
+
   e2e:
     name: End-to-end (Playwright)
     runs-on: ubuntu-latest

@@ -14,7 +14,7 @@
  *   resting order, the resting order is cancelled and matching continues.
  */
 
-import { Accounts } from "./accounts.js";
+import { Accounts, type AccountsState } from "./accounts.js";
 import { OrderBook, type Depth } from "./book.js";
 import type {
   CancelCommand,
@@ -25,7 +25,8 @@ import type {
   RejectReason,
   UnsequencedEvent,
 } from "./events.js";
-import { MoneyError, notional, subtract, type Paise } from "./money.js";
+import { StateHasher } from "./hash.js";
+import { MoneyError, notional, paise, subtract, type Paise } from "./money.js";
 import { oppositeSide, type Order, type OrderId } from "./order.js";
 import { isOnTick, type Quantity } from "./price.js";
 
@@ -42,6 +43,22 @@ export interface OpenOrder {
   readonly order: Order;
   readonly remaining: number;
   readonly status: OrderStatus;
+}
+
+/**
+ * The whole engine state as plain JSON-compatible data: enough to rebuild an
+ * identical exchange with `load`. Orders are listed in arrival order.
+ */
+export interface ExchangeState {
+  readonly seq: number;
+  readonly accounts: AccountsState;
+  readonly markets: readonly {
+    readonly symbol: string;
+    readonly lastPrice: number;
+    /** Untriggered stops, in arrival order. */
+    readonly stops: readonly OrderId[];
+  }[];
+  readonly orders: readonly OpenOrder[];
 }
 
 interface OrderRecord {
@@ -116,6 +133,103 @@ export class Exchange {
       result.push({ order: record.order, remaining: record.remaining, status: record.status });
     }
     return result.sort((a, b) => a.order.seq - b.order.seq);
+  }
+
+  // Snapshots and hashing -------------------------------------------------
+
+  /** Captures the state between commands. `load` on a fresh exchange restores it exactly. */
+  serialize(): ExchangeState {
+    return {
+      seq: this.seq,
+      accounts: this.accounts.serialize(),
+      markets: [...this.markets.values()].map((m) => ({
+        symbol: m.config.symbol,
+        lastPrice: m.lastPrice,
+        stops: m.stops.map((r) => r.order.id),
+      })),
+      orders: [...this.orders.values()]
+        .filter((r): r is OrderRecord & { status: OrderStatus } => r.status !== "working")
+        .sort((a, b) => a.order.seq - b.order.seq)
+        .map((r) => ({ order: r.order, remaining: r.remaining, status: r.status })),
+    };
+  }
+
+  /**
+   * Restores a serialised state into this exchange, which must be new (same
+   * markets, no accounts, no commands yet). Resting orders re-enter the book in
+   * arrival order, which is exactly their time priority.
+   */
+  load(state: ExchangeState): void {
+    if (this.seq !== 0 || this.orders.size > 0 || this.accounts.ids().length > 0) {
+      throw new Error("An exchange can only be loaded before it has processed anything");
+    }
+    this.accounts.load(state.accounts);
+    this.seq = state.seq;
+
+    for (const { order, remaining, status } of state.orders) {
+      const record: OrderRecord = { order, remaining, status };
+      const market = this.marketOf(record);
+      this.orders.set(order.id, record);
+      if (status !== "resting") continue;
+      if (order.type !== "limit") throw new Error(`${order.id}: only limit orders can rest`);
+      market.book.add({
+        id: order.id,
+        accountId: order.accountId,
+        side: order.side,
+        price: order.limitPrice,
+        seq: order.seq,
+        remaining,
+      });
+    }
+
+    if (state.markets.length !== this.markets.size) throw new Error("Snapshot markets differ");
+    for (const saved of state.markets) {
+      const market = this.markets.get(saved.symbol);
+      if (!market) throw new Error(`Snapshot has unknown market ${saved.symbol}`);
+      market.lastPrice = paise(saved.lastPrice);
+      market.stops = saved.stops.map((id) => this.recordOf(id));
+    }
+  }
+
+  /**
+   * A hash of everything that decides what the engine does next: the sequence
+   * counter, every book (each level and its queue order), pending stops, last
+   * prices and all balances. Two exchanges with the same hash will produce the
+   * same events for the same commands. See `StateHasher` for its guarantees.
+   */
+  stateHash(): string {
+    const h = new StateHasher().int(this.seq);
+
+    const symbols = [...this.markets.keys()].sort();
+    for (const symbol of symbols) {
+      const market = this.markets.get(symbol);
+      if (!market) continue;
+      h.str(symbol).int(market.lastPrice);
+      for (const side of ["buy", "sell"] as const) {
+        const levels = market.book.levels(side);
+        h.int(levels.length);
+        for (const level of levels) {
+          h.int(level.price).int(level.orders.length);
+          for (const order of level.orders)
+            h.int(order.seq).str(order.accountId).int(order.remaining);
+        }
+      }
+      h.int(market.stops.length);
+      for (const { order, remaining } of market.stops) {
+        h.int(order.seq).str(order.accountId).str(order.side).int(remaining);
+        h.int(order.type === "stop" ? order.stopPrice : 0);
+      }
+    }
+
+    const { accounts } = this.accounts.serialize();
+    h.int(accounts.length);
+    for (const account of accounts) {
+      h.str(account.id).int(account.cash[0]).int(account.cash[1]).int(account.positions.length);
+      for (const [symbol, available, reserved] of account.positions) {
+        h.str(symbol).int(available).int(reserved);
+      }
+    }
+    return h.digest();
   }
 
   // Commands -------------------------------------------------------------

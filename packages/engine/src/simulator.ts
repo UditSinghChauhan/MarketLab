@@ -18,14 +18,31 @@ import { quantity } from "./price.js";
 
 /** mulberry32: a small, fast, well-distributed 32-bit PRNG. Returns floats in [0, 1). */
 export function mulberry32(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
+  const generator = new Mulberry32(seed);
+  return () => generator.next();
+}
+
+/** The generator with its one word of state in reach, so a simulator can be snapshotted. */
+class Mulberry32 {
+  state: number;
+
+  constructor(seed: number) {
+    this.state = seed >>> 0;
+  }
+
+  next(): number {
+    this.state = (this.state + 0x6d2b79f5) >>> 0;
+    let t = this.state;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  }
+}
+
+/** A simulator's position in its random sequence and its current fair value. */
+export interface SimulatorState {
+  readonly rng: number;
+  readonly fairTicks: number;
 }
 
 export interface SimulatorConfig {
@@ -52,7 +69,7 @@ export interface SimulatorConfig {
 }
 
 export class MarketSimulator {
-  private readonly random: () => number;
+  private readonly rng: Mulberry32;
   private readonly tick: number;
   private fairTicks: number;
   private readonly cfg: Required<SimulatorConfig>;
@@ -74,7 +91,7 @@ export class MarketSimulator {
       maxTakerQty: 40,
       ...config,
     };
-    this.random = mulberry32(config.seed);
+    this.rng = new Mulberry32(config.seed);
     this.tick = market.tickSize;
     this.fairTicks = market.referencePrice / market.tickSize;
   }
@@ -82,6 +99,20 @@ export class MarketSimulator {
   /** Current fair value the maker quotes around. */
   fairValue(): number {
     return this.fairTicks * this.tick;
+  }
+
+  /** Captures where the simulation is; `load` on a new simulator continues from there. */
+  serialize(): SimulatorState {
+    return { rng: this.rng.state, fairTicks: this.fairTicks };
+  }
+
+  load(state: SimulatorState): void {
+    this.rng.state = state.rng >>> 0;
+    this.fairTicks = state.fairTicks;
+  }
+
+  private random(): number {
+    return this.rng.next();
   }
 
   private int(min: number, max: number): number {

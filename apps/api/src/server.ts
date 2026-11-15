@@ -11,6 +11,7 @@ import { loadConfig } from "./config.js";
 import { EngineHost } from "./host.js";
 import { INSTRUMENTS } from "./instruments.js";
 import { MemoryLog } from "./log/memory.js";
+import { connectionOptions } from "./log/connection.js";
 import { PostgresLog } from "./log/postgres.js";
 import type { CommandLog } from "./log/types.js";
 import { StreamHub } from "./stream.js";
@@ -24,10 +25,14 @@ const config = {
   WEB_DIST: loaded.WEB_DIST ?? (existsSync(bundledWeb) ? bundledWeb : undefined),
 };
 
-function fatal(error: unknown): never {
+/**
+ * The log can no longer be written. The host already refuses new work and
+ * /api/health answers 503; give requests in flight a moment to receive their
+ * 503, then exit so the platform restarts the process and replays the log.
+ */
+function fatal(error: unknown): void {
   console.error("fatal:", error);
-  // Exit so the platform restarts the process; startup replays the log.
-  process.exit(1);
+  setTimeout(() => process.exit(1), 500);
 }
 
 async function openLog(): Promise<CommandLog> {
@@ -36,7 +41,7 @@ async function openLog(): Promise<CommandLog> {
     console.warn("DATABASE_URL not set: using an in-memory command log (state is lost on restart)");
     return new MemoryLog();
   }
-  const client = new pg.Client({ connectionString: config.DATABASE_URL });
+  const client = new pg.Client(connectionOptions(config.DATABASE_URL));
   client.on("error", fatal);
   await client.connect();
   return PostgresLog.open(client, () => client.end());
@@ -49,13 +54,22 @@ const host = await EngineHost.start({
   tickMs: config.TICK_MS,
   sessionMaxAgeMs: config.SESSION_HOURS * 60 * 60 * 1000,
   warmupTicks: Math.round((config.WARMUP_MINUTES * 60_000) / config.TICK_MS),
+  snapshotMs: config.SNAPSHOT_MINUTES * 60_000,
   onFatal: fatal,
+  onWarning: (message, error) => {
+    console.warn(`${message}:`, error instanceof Error ? error.message : error);
+  },
 });
 const hub = new StreamHub(host, INSTRUMENTS);
 const app = await buildApp({ config, host, hub, instruments: INSTRUMENTS, persistence: log.kind });
 
 app.log.info(
-  { session: host.session.id, replayed: host.replay.entries, replayMs: host.replay.ms },
+  {
+    session: host.session.id,
+    replayed: host.replay.entries,
+    replayMs: host.replay.ms,
+    snapshotSeq: host.replay.snapshotSeq,
+  },
   "engine ready",
 );
 

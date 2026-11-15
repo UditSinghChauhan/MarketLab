@@ -30,6 +30,20 @@ interface AccountState {
   positions: Map<string, Balance<number>>;
 }
 
+/** Every balance, as plain data. Accounts and positions are sorted, so equal states serialise equally. */
+export interface AccountsState {
+  readonly depositedCash: number;
+  readonly depositedShares: readonly (readonly [symbol: string, qty: number])[];
+  readonly accounts: readonly {
+    readonly id: string;
+    readonly cash: readonly [available: number, reserved: number];
+    readonly positions: readonly (readonly [symbol: string, available: number, reserved: number])[];
+  }[];
+}
+
+const byKey = <T extends readonly [string, ...unknown[]]>(a: T, b: T): number =>
+  a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
+
 export class InvariantError extends Error {
   override name = "InvariantError";
 }
@@ -165,6 +179,42 @@ export class Accounts {
       if (balance.available + balance.reserved > 0) positions[symbol] = { ...balance };
     }
     return { id, cash: { ...account.cash }, positions };
+  }
+
+  /** All balances as plain data, for snapshots and state hashing. Empty positions are left out. */
+  serialize(): AccountsState {
+    const accounts = [...this.accounts.values()]
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .map((account) => ({
+        id: account.id,
+        cash: [account.cash.available, account.cash.reserved] as const,
+        positions: [...account.positions]
+          .filter(([, p]) => p.available + p.reserved > 0)
+          .map(([symbol, p]) => [symbol, p.available, p.reserved] as const)
+          .sort(byKey),
+      }));
+    return {
+      depositedCash: this.depositedCash,
+      depositedShares: [...this.depositedShares].sort(byKey),
+      accounts,
+    };
+  }
+
+  /** Replaces every balance with a serialised state. Only valid on an empty instance. */
+  load(state: AccountsState): void {
+    if (this.accounts.size > 0) throw new Error("Accounts can only be loaded when empty");
+    this.depositedCash = paise(state.depositedCash);
+    for (const [symbol, qty] of state.depositedShares) this.depositedShares.set(symbol, qty);
+    for (const account of state.accounts) {
+      const [available, reserved] = account.cash;
+      this.accounts.set(account.id, {
+        id: account.id,
+        cash: { available: paise(available), reserved: paise(reserved) },
+        positions: new Map(
+          account.positions.map(([symbol, a, r]) => [symbol, { available: a, reserved: r }]),
+        ),
+      });
+    }
   }
 
   /** Conservation check: trades move value between accounts, never create or destroy it. */

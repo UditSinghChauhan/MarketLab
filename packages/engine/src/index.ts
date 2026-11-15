@@ -34,6 +34,24 @@ export type {
   RejectReason,
 } from "./events.js";
 export { OrderBook, type Depth, type DepthLevel, type RestingOrder } from "./book.js";
-export { Accounts, InvariantError, type AccountSnapshot, type Balance } from "./accounts.js";
-export { Exchange, type MarketConfig, type OpenOrder, type OrderStatus } from "./exchange.js";
-export { MarketSimulator, mulberry32, type SimulatorConfig } from "./simulator.js";
+export {
+  Accounts,
+  InvariantError,
+  type AccountSnapshot,
+  type AccountsState,
+  type Balance,
+} from "./accounts.js";
+export {
+  Exchange,
+  type ExchangeState,
+  type MarketConfig,
+  type OpenOrder,
+  type OrderStatus,
+} from "./exchange.js";
+export { StateHasher } from "./hash.js";
+export {
+  MarketSimulator,
+  mulberry32,
+  type SimulatorConfig,
+  type SimulatorState,
+} from "./simulator.js";

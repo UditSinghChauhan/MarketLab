@@ -205,6 +205,14 @@ export class OrderBook {
     return { bids: view(this.bids), asks: view(this.asks) };
   }
 
+  /** Levels best → worst, each with its live orders in queue order. */
+  levels(side: Side): { price: Paise; orders: RestingOrder[] }[] {
+    return this.sideOf(side)
+      .bestFirst()
+      .map((level) => ({ price: level.price, orders: level.live() }))
+      .filter((level) => level.orders.length > 0);
+  }
+
   /** Every live resting order, best price first, then arrival order. */
   restingOrders(side: Side): RestingOrder[] {
     return this.sideOf(side)

@@ -16,13 +16,35 @@ Browser ──HTTPS──▶ Render web service (Node 22)
 
 1. Create a project. Pick the region closest to your Render region
    (`AWS Asia Pacific (Singapore)` matches the blueprint's `singapore`).
-2. Open **Connection details**, turn **Connection pooling off**, and copy the
-   connection string. It looks like
-   `postgresql://user:password@ep-xxx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require`.
+2. Open **Connect**, turn **Connection pooling off**, and copy the connection
+   string. It has exactly this shape:
 
-Use the **direct** (non-pooled) string. The engine holds a session-level
-advisory lock to guarantee a single writer, which a transaction-mode pooler
-cannot keep. The schema is created automatically on first start.
+   ```
+   postgresql://<user>:<password>@ep-<name>-<id>.<region>.aws.neon.tech/<database>?sslmode=require&channel_binding=require
+   ```
+
+   Check two things before pasting it into Render:
+
+   - The host must **not** contain `-pooler`. `ep-cool-name-a1b2c3d4.ap-southeast-1.aws.neon.tech`
+     is the direct endpoint; `ep-cool-name-a1b2c3d4-pooler...` is the pooled one.
+     The engine holds a session-level advisory lock to guarantee a single
+     writer, which a transaction-mode pooler cannot keep.
+   - Keep both query parameters. `sslmode=require` makes the server connect over
+     TLS and verify Neon's certificate and host name. `channel_binding=require`
+     ties the password exchange to that TLS connection.
+
+The schema is created automatically on first start.
+
+How the parameters are read ([`connection.ts`](apps/api/src/log/connection.ts)):
+
+| Parameter                                     | Effect                                                   |
+| --------------------------------------------- | -------------------------------------------------------- |
+| `sslmode=require`, `verify-ca`, `verify-full` | TLS; certificate and host name are verified              |
+| `sslmode=no-verify`                           | TLS without verification (self-signed test servers only) |
+| `sslmode=disable`, or no `sslmode`            | No TLS. For localhost only                               |
+| `sslmode=prefer`, `allow`                     | Refused at startup, with a message saying what to use    |
+| `channel_binding=require`                     | SCRAM channel binding; needs TLS, refused without it     |
+| `channel_binding=prefer` (default), `disable` | Used when TLS is on and the server offers it; or never   |
 
 ## 2. Web service (Render)
 
@@ -71,5 +93,13 @@ cannot keep. The schema is created automatically on first start.
 - **Restarts and deploys** replay the log the same way. Guests keep their
   accounts until the session rolls over.
 - **Data retention.** Sessions older than seven days are deleted at startup.
+- **Snapshots.** Every ten minutes and on shutdown the engine stores a
+  hash-checked snapshot, so a restart replays only the last few log entries:
+  about half a second instead of up to a minute for a day-old session
+  ([ADR 0006](docs/adr/0006-startup-budget-and-snapshots.md)). `SNAPSHOT_MINUTES`
+  changes the interval; `0` turns snapshots off.
 - **If the database becomes unreachable**, the engine stops accepting orders,
-  `/api/health` returns `503`, and the process exits so Render restarts it.
+  requests in flight and `/api/health` get `503`, and half a second later the
+  process exits so Render restarts it.
+- **If startup fails with a TLS or `sslmode` message**, the connection string
+  is wrong; the message says which parameter to change.
