@@ -61,6 +61,8 @@ How the parameters are read ([`connection.ts`](apps/api/src/log/connection.ts)):
   `"persistence":"postgres"` and `"invariantViolations":0`.
 - The landing page shows a live order book; **Buy 5 shares at market** returns
   a trace with a "Logged to Postgres" time.
+- `https://<your-service>.onrender.com/replay` ends with "Your browser replayed
+  N engine commands and matched the server exactly".
 
 ## Configuration
 
@@ -71,6 +73,7 @@ How the parameters are read ([`connection.ts`](apps/api/src/log/connection.ts)):
 | `TICK_MS`          | `600`   | Milliseconds between simulated market ticks.                                                                                                                     |
 | `WARMUP_MINUTES`   | `30`    | Minutes of history simulated when a new session starts.                                                                                                          |
 | `SESSION_HOURS`    | `24`    | A fresh market session starts after this long.                                                                                                                   |
+| `SNAPSHOT_MINUTES` | `10`    | Minutes between engine snapshots, which keep restarts fast. `0` turns them off.                                                                                  |
 | `LOG_LEVEL`        | `info`  | Fastify/pino log level.                                                                                                                                          |
 | `PUBLIC_URL`       | none    | The site's address, used for absolute URLs in link previews. On Render it defaults to the service's `onrender.com` address; set it when you add a custom domain. |
 | `RATE_LIMIT_SCALE` | `1`     | Multiplies every rate limit. Only the test suite raises it.                                                                                                      |
@@ -96,8 +99,7 @@ How the parameters are read ([`connection.ts`](apps/api/src/log/connection.ts)):
 - **Snapshots.** Every ten minutes and on shutdown the engine stores a
   hash-checked snapshot, so a restart replays only the last few log entries:
   about half a second instead of up to a minute for a day-old session
-  ([ADR 0006](docs/adr/0006-startup-budget-and-snapshots.md)). `SNAPSHOT_MINUTES`
-  changes the interval; `0` turns snapshots off.
+  ([ADR 0006](docs/adr/0006-startup-budget-and-snapshots.md)).
 - **If the database becomes unreachable**, the engine stops accepting orders,
   requests in flight and `/api/health` get `503`, and half a second later the
   process exits so Render restarts it.

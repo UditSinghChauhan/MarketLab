@@ -79,10 +79,17 @@ chart, so a phone user never scrolls past the whole book to trade.
 one-click order), how price-time priority works with a worked example, the
 engineering, an architecture diagram, and an honest list of what is simulated.
 
+**Replay (`/replay`):** the terminal's graphite theme and components. The
+verdict sits directly under the header in one plain sentence, because it is the
+point of the page. Below it: chart, order book, what was checked, trades, and a
+timeline along the bottom (play, speed, scrubber). On a phone the timeline
+comes right after the chart.
+
 ## Motion
 
 - A trade briefly tints its row in the tape; nothing else moves on its own.
-- Motion otherwise answers an action: opening the inspector, switching tabs.
+- Motion otherwise answers an action: opening the inspector, switching tabs,
+  pressing play on the replay timeline.
 - `prefers-reduced-motion` turns animation off.
 
 ## Loading and first run

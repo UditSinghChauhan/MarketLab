@@ -25,6 +25,9 @@ table, `log_entries (session_id, seq, entry jsonb)`:
 | `command` | A user's place or cancel command, exactly as submitted              |
 | `ticks`   | The bot market advanced `count` ticks between times `from` and `at` |
 
+Every entry also records `h`, the engine's state hash before the entry was
+applied, so a replay can be checked entry by entry (ADR 0005).
+
 Bot orders are never stored; replaying the same ticks with the same seed
 regenerates them. A busy session is thousands of rows, not millions.
 
