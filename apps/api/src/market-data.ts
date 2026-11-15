@@ -55,6 +55,16 @@ interface TrackedOrder {
   events: EventView[];
 }
 
+/** Every read model as plain data, in the order it was built. */
+export interface MarketDataState {
+  readonly symbols: readonly (readonly [string, SymbolStats])[];
+  readonly humans: readonly string[];
+  readonly orders: readonly TrackedOrder[];
+  readonly ordersByAccount: readonly (readonly [string, readonly string[]])[];
+  readonly basis: readonly (readonly [string, readonly (readonly [string, CostBasis])[]])[];
+  readonly tradeCount: number;
+}
+
 export class MarketData {
   private readonly symbols = new Map<string, SymbolStats>();
   private readonly humans = new Set<string>();
@@ -77,6 +87,35 @@ export class MarketData {
         candles: [],
       });
     }
+  }
+
+  /** The read models as they are now. The caller must serialise the result before the next event. */
+  serialize(): MarketDataState {
+    return {
+      symbols: [...this.symbols],
+      humans: [...this.humans],
+      // Request timings are measurements, not state: a full replay cannot recover
+      // them, so a snapshot does not carry them either and both paths agree.
+      orders: [...this.orders.values()].map((order) => ({ ...order, timing: null })),
+      ordersByAccount: [...this.ordersByAccount],
+      basis: [...this.basis].map(([account, positions]) => [account, [...positions]] as const),
+      tradeCount: this.tradeCount,
+    };
+  }
+
+  /** Replaces the read models with a serialised state (already parsed from JSON, so not shared). */
+  load(state: MarketDataState): void {
+    for (const [symbol, stats] of state.symbols) {
+      if (!this.symbols.has(symbol)) throw new Error(`Snapshot has unknown market ${symbol}`);
+      this.symbols.set(symbol, stats);
+    }
+    for (const id of state.humans) this.humans.add(id);
+    for (const order of state.orders) this.orders.set(order.view.id, order);
+    for (const [account, ids] of state.ordersByAccount) {
+      this.ordersByAccount.set(account, [...ids]);
+    }
+    for (const [account, positions] of state.basis) this.basis.set(account, new Map(positions));
+    this.tradeCount = state.tradeCount;
   }
 
   /** Marks an account as a person, whose orders, costs and traces are tracked. */

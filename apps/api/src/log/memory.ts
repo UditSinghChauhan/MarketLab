@@ -1,4 +1,4 @@
-import type { CommandLog, LogEntry, Session } from "./types.js";
+import type { CommandLog, LogEntry, Session, StoredSnapshot } from "./types.js";
 
 /** In-memory log for local development and tests. Lost on restart. */
 export class MemoryLog implements CommandLog {
@@ -22,6 +22,17 @@ export class MemoryLog implements CommandLog {
       return Promise.reject(new Error(`Out-of-order append: ${String(seq)}`));
     }
     session.entries.push(structuredClone(entry));
+    return Promise.resolve();
+  }
+
+  private readonly snapshots = new Map<number, StoredSnapshot>();
+
+  loadSnapshot(sessionId: number): Promise<StoredSnapshot | null> {
+    return Promise.resolve(this.snapshots.get(sessionId) ?? null);
+  }
+
+  saveSnapshot(sessionId: number, snapshot: StoredSnapshot): Promise<void> {
+    this.snapshots.set(sessionId, snapshot);
     return Promise.resolve();
   }
 

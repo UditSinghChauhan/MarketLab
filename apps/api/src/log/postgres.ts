@@ -7,11 +7,19 @@
  * - (session_id, seq) is the primary key: the engine assigns gap-free sequence
  *   numbers, so a duplicate or out-of-order write is rejected by the database.
  * - Sessions older than seven days are pruned at startup.
+ * - Each session keeps at most one engine snapshot, so startup replays only the
+ *   entries written after it (docs/adr/0006-startup-budget-and-snapshots.md).
  */
 
 import { z } from "zod";
 
-import { parseEntry, type CommandLog, type LogEntry, type Session } from "./types.js";
+import {
+  parseEntry,
+  type CommandLog,
+  type LogEntry,
+  type Session,
+  type StoredSnapshot,
+} from "./types.js";
 
 /** The subset of `pg.Client` (and PGlite) this module uses. */
 export interface Queryable {
@@ -26,6 +34,7 @@ const SessionRow = z.object({
 });
 const IdRow = z.object({ id: z.coerce.number() });
 const EntryRow = z.object({ entry: z.unknown() });
+const SnapshotRow = z.object({ seq: z.number(), state_hash: z.string(), state: z.string() });
 
 /** Runs a query and validates each row, so driver differences fail loudly. */
 async function select<T>(db: Queryable, schema: z.ZodType<T>, text: string, params?: unknown[]) {
@@ -48,6 +57,14 @@ const MIGRATION = [
      entry       JSONB       NOT NULL,
      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
      PRIMARY KEY (session_id, seq)
+   )`,
+  // TEXT, not JSONB: the state is read back whole and never queried.
+  `CREATE TABLE IF NOT EXISTS snapshots (
+     session_id  BIGINT      PRIMARY KEY REFERENCES sessions (id) ON DELETE CASCADE,
+     seq         INTEGER     NOT NULL CHECK (seq > 0),
+     state_hash  TEXT        NOT NULL,
+     state       TEXT        NOT NULL,
+     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
    )`,
 ];
 
@@ -110,6 +127,26 @@ export class PostgresLog implements CommandLog {
       seq,
       JSON.stringify(entry),
     ]);
+  }
+
+  async loadSnapshot(sessionId: number): Promise<StoredSnapshot | null> {
+    const [row] = await select(
+      this.db,
+      SnapshotRow,
+      "SELECT seq, state_hash, state FROM snapshots WHERE session_id = $1",
+      [sessionId],
+    );
+    return row ? { seq: row.seq, stateHash: row.state_hash, state: row.state } : null;
+  }
+
+  async saveSnapshot(sessionId: number, snapshot: StoredSnapshot): Promise<void> {
+    await this.db.query(
+      `INSERT INTO snapshots (session_id, seq, state_hash, state) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (session_id) DO UPDATE
+         SET seq = EXCLUDED.seq, state_hash = EXCLUDED.state_hash,
+             state = EXCLUDED.state, created_at = now()`,
+      [sessionId, snapshot.seq, snapshot.stateHash, snapshot.state],
+    );
   }
 
   async close(): Promise<void> {

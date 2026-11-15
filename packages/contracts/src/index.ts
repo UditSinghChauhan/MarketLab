@@ -239,7 +239,15 @@ export interface HealthResponse {
   readonly uptimeS: number;
   readonly persistence: "postgres" | "memory";
   readonly invariantViolations: number;
-  readonly replay: { readonly entries: number; readonly ms: number };
+  /**
+   * How the last start rebuilt state: log entries replayed, milliseconds taken,
+   * and the snapshot it started from (the log sequence it covers; 0 if none).
+   */
+  readonly replay: {
+    readonly entries: number;
+    readonly ms: number;
+    readonly snapshotSeq: number;
+  };
   readonly engine: EngineStats;
 }
 
