@@ -55,3 +55,24 @@ export {
   type SimulatorConfig,
   type SimulatorState,
 } from "./simulator.js";
+export {
+  CountingExchange,
+  FLOW_IDS,
+  MAKER_PREFIX,
+  SessionEngine,
+  stepTime,
+  stepsIn,
+  type LogEntry,
+  type SessionConfig,
+  type SessionInstrument,
+  type SessionState,
+} from "./session.js";
+export {
+  CANDLE_MS,
+  Replayer,
+  type ReplayCandle,
+  type ReplayFrame,
+  type ReplayLog,
+  type ReplayTrade,
+  type Verdict,
+} from "./replay.js";
