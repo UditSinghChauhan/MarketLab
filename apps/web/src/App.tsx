@@ -11,6 +11,8 @@ const TerminalRoute = lazy(() =>
   import("./terminal/Terminal").then((m) => ({ default: m.TerminalRoute })),
 );
 
+const Replay = lazy(() => import("./replay/Replay").then((m) => ({ default: m.Replay })));
+
 export function App() {
   return (
     <BrowserRouter>
@@ -28,6 +30,7 @@ function Pages() {
           <Route path="/" element={<Landing />} />
           <Route path="/terminal" element={<Navigate to="/terminal/ORBT" replace />} />
           <Route path="/terminal/:symbol" element={<TerminalRoute />} />
+          <Route path="/replay" element={<Replay />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>

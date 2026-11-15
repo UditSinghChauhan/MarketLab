@@ -119,6 +119,31 @@
   }
 }
 
+/* The replay timeline: native controls, drawn in the product's colours. */
+.scrubber {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.scrubber:disabled {
+  cursor: default;
+}
+.replay-progress {
+  appearance: none;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line);
+}
+.replay-progress::-webkit-progress-bar {
+  background: var(--line);
+}
+.replay-progress::-webkit-progress-value {
+  background: var(--accent);
+}
+.replay-progress::-moz-progress-bar {
+  background: var(--accent);
+}
+
 /* A traded price briefly tints its row; nothing else animates on its own. */
 @keyframes tick-up {
   from {

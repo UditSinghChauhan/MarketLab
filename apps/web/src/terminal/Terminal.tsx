@@ -282,6 +282,12 @@ function Terminal({ symbol }: { symbol: string }) {
             </div>
           )}
         </div>
+        <Link
+          to="/replay"
+          className="hidden h-8 items-center rounded-md px-2.5 text-xs font-medium text-muted hover:bg-raised hover:text-text lg:flex"
+        >
+          Replay
+        </Link>
         <button
           type="button"
           onClick={() => {
