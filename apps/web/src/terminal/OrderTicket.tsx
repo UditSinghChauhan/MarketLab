@@ -21,6 +21,7 @@ import { ApiRequestError, api } from "../lib/api";
 import { price as fmtPrice, qty as fmtQty, rupees, stepPrice } from "../lib/format";
 import { confirmation, rejectMessage } from "../lib/orders";
 import { Kbd } from "../ui/Panel";
+import { SkeletonText } from "../ui/Skeleton";
 
 export interface Prefill {
   readonly price: string;
@@ -299,9 +300,15 @@ export function OrderTicket({
         <span className="mb-1 flex justify-between text-xs text-muted">
           Shares
           <span className="num">
-            {side === "buy"
-              ? `Cash ${rupees(account?.cash.available)}`
-              : `You can sell ${fmtQty(sellable)}`}
+            {side === "sell" ? (
+              `You can sell ${fmtQty(sellable)}`
+            ) : account ? (
+              `Cash ${rupees(account.cash.available)}`
+            ) : (
+              <>
+                Cash <SkeletonText sample="₹10,00,000.00" />
+              </>
+            )}
           </span>
         </span>
         <input
@@ -344,7 +351,6 @@ export function OrderTicket({
               setLimit(value);
               setErrors({});
             }}
-            aria-label={`${label} ${value ?? "unavailable"}. Use this price to ${forSide}.`}
             className="rounded-md border border-line px-3 py-2 text-left hover:border-muted disabled:opacity-50"
           >
             <span className="block text-muted">{label}</span>
@@ -353,6 +359,7 @@ export function OrderTicket({
             >
               {fmtPrice(value)}
             </span>
+            <span className="sr-only">. Use this price to {forSide}.</span>
           </button>
         ))}
       </div>
@@ -369,7 +376,11 @@ export function OrderTicket({
       <div className="mt-auto space-y-2">
         <div className="flex justify-between text-sm">
           <span className="text-muted">Estimated {side === "buy" ? "cost" : "proceeds"}</span>
-          <span className="num font-medium">{rupees(estimate)}</span>
+          {market ? (
+            <span className="num font-medium">{rupees(estimate)}</span>
+          ) : (
+            <SkeletonText sample="₹12,500.00" className="font-medium" />
+          )}
         </div>
         <button
           type="submit"

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test.describe("landing page", () => {
   test("shows the live book and traces a real order from the hero", async ({ page }) => {
@@ -37,10 +37,11 @@ test.describe("terminal", () => {
     await expect(row.getByText("In the book")).toBeVisible();
 
     await row.getByRole("button", { name: "Trace" }).click();
-    const inspector = page.getByRole("complementary", { name: "Engine inspector" });
+    const inspector = page.getByRole("dialog", { name: "Engine inspector" });
     await expect(inspector.getByText("Written to the command log")).toBeVisible();
     await expect(inspector.getByText("Resting in the book")).toBeVisible();
     await inspector.getByRole("button", { name: /Close/ }).click();
+    await expect(row.getByRole("button", { name: "Trace" })).toBeFocused();
 
     await row.getByRole("button", { name: "Cancel" }).click();
     await expect(row.getByText("Cancelled")).toBeVisible();

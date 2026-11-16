@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 
 export function Panel({
   title,
@@ -6,15 +6,17 @@ export function Panel({
   children,
   className = "",
   bodyClassName = "",
-  id,
+  scrollable = false,
 }: {
   title: ReactNode;
   aside?: ReactNode;
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
-  id?: string;
+  /** The body scrolls and has no controls of its own, so it must be reachable by keyboard. */
+  scrollable?: boolean;
 }) {
+  const id = useId();
   return (
     <section
       aria-labelledby={id}
@@ -26,7 +28,12 @@ export function Panel({
         </h2>
         {aside}
       </header>
-      <div className={`min-h-0 flex-1 ${bodyClassName}`}>{children}</div>
+      <div
+        className={`min-h-0 flex-1 ${bodyClassName}`}
+        {...(scrollable ? { tabIndex: 0, role: "group", "aria-labelledby": id } : {})}
+      >
+        {children}
+      </div>
     </section>
   );
 }

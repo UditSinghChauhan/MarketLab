@@ -75,12 +75,12 @@ Design system and references: [docs/DESIGN-DIRECTION.md](docs/DESIGN-DIRECTION.m
 
 ## Quality
 
-| Layer                        | What is tested                                                                                                                                                  |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Engine (Vitest + fast-check) | Every matching rule; invariants after every random command; determinism; deliberately broken code fails the suite                                               |
-| API                          | Exact state after replay (in memory and Postgres), write-ahead failure, single-writer lock (real Postgres in CI), HTTP contract, auth, rate limits, live stream |
-| Web (Testing Library)        | Order ticket keyboard, validation, results; stream reducer; formatting                                                                                          |
-| End to end (Playwright)      | Hero order trace, place/trace/cancel in the terminal, rejection message, routing, phone layout                                                                  |
+| Layer                        | What is tested                                                                                                                                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Engine (Vitest + fast-check) | Every matching rule; invariants after every random command; determinism; deliberately broken code fails the suite                                                                                       |
+| API                          | Exact state after replay (in memory and Postgres), write-ahead failure, single-writer lock (real Postgres in CI), HTTP contract, auth, rate limits, live stream                                         |
+| Web (Testing Library)        | Order ticket keyboard, validation, results; stream reducer; cold-start monitor; error boundary; formatting                                                                                              |
+| End to end (Playwright)      | Hero order trace, place/trace/cancel in the terminal, rejection message, routing, phone layout, cold start, keyboard focus, no layout shift, no console errors, axe (no serious or critical violations) |
 
 CI runs typecheck, lint (`typescript-eslint` strict), formatting, all tests
 against Postgres 16, the production build, and Playwright on every pull request.
@@ -92,24 +92,34 @@ the inspector shows both.
 
 ## Run it locally
 
-Requires Node 22. Postgres is optional: without `DATABASE_URL` the command log
-is kept in memory.
+Requires Node 22.
+
+**In memory** (no database; the market starts fresh on every restart):
 
 ```bash
 npm install
-npm run dev:api     # API and engine on :8080
-npm run dev:web     # web app on :5173, proxying /api to :8080
+npm run dev         # API and engine on :8080, web app on http://localhost:5173
 ```
 
-To run with Postgres, copy [`apps/api/.env.example`](apps/api/.env.example) to
-`apps/api/.env` and set `DATABASE_URL`.
+**With Postgres** (the command log survives restarts; needs Docker):
 
-| Command         | Does                                                          |
-| --------------- | ------------------------------------------------------------- |
-| `npm run check` | Typecheck, lint, format check, all unit and integration tests |
-| `npm run e2e`   | Builds the app and runs the Playwright suite against it       |
-| `npm run build` | Production build of every package                             |
-| `npm start`     | Runs the built API, serving the built web app                 |
+```bash
+npm install
+npm run db:up       # Postgres 16 in Docker, waits until it is healthy
+npm run dev:pg      # the same two servers, logging to that database
+```
+
+`npm run db:down` stops the database and keeps its data. To point at another
+database, set `DATABASE_URL` in the shell or in `apps/api/.env` (see
+[`apps/api/.env.example`](apps/api/.env.example)). `npm run dev:api` and
+`npm run dev:web` start the two servers separately.
+
+| Command         | Does                                                                                    |
+| --------------- | --------------------------------------------------------------------------------------- |
+| `npm run check` | Typecheck, lint, format check, all unit and integration tests                           |
+| `npm run e2e`   | Builds the app and runs the Playwright suite against it, including accessibility checks |
+| `npm run build` | Production build of every package                                                       |
+| `npm start`     | Runs the built API, serving the built web app                                           |
 
 Deployment: [DEPLOYMENT.md](DEPLOYMENT.md).
 

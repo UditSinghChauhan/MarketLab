@@ -42,15 +42,17 @@ cannot keep. The schema is created automatically on first start.
 
 ## Configuration
 
-| Variable         | Default | Notes                                                                      |
-| ---------------- | ------- | -------------------------------------------------------------------------- |
-| `DATABASE_URL`   | none    | Required in production. Direct Neon connection string.                     |
-| `TOKEN_SECRET`   | none    | Required in production, 32+ characters. Rotating it signs every guest out. |
-| `TICK_MS`        | `600`   | Milliseconds between simulated market ticks.                               |
-| `WARMUP_MINUTES` | `30`    | Minutes of history simulated when a new session starts.                    |
-| `SESSION_HOURS`  | `24`    | A fresh market session starts after this long.                             |
-| `LOG_LEVEL`      | `info`  | Fastify/pino log level.                                                    |
-| `PORT`           | `8080`  | Render sets this automatically.                                            |
+| Variable           | Default | Notes                                                                                                                                                            |
+| ------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`     | none    | Required in production. Direct Neon connection string.                                                                                                           |
+| `TOKEN_SECRET`     | none    | Required in production, 32+ characters. Rotating it signs every guest out.                                                                                       |
+| `TICK_MS`          | `600`   | Milliseconds between simulated market ticks.                                                                                                                     |
+| `WARMUP_MINUTES`   | `30`    | Minutes of history simulated when a new session starts.                                                                                                          |
+| `SESSION_HOURS`    | `24`    | A fresh market session starts after this long.                                                                                                                   |
+| `LOG_LEVEL`        | `info`  | Fastify/pino log level.                                                                                                                                          |
+| `PUBLIC_URL`       | none    | The site's address, used for absolute URLs in link previews. On Render it defaults to the service's `onrender.com` address; set it when you add a custom domain. |
+| `RATE_LIMIT_SCALE` | `1`     | Multiplies every rate limit. Only the test suite raises it.                                                                                                      |
+| `PORT`             | `8080`  | Render sets this automatically.                                                                                                                                  |
 
 ## Operating notes
 
@@ -60,7 +62,12 @@ cannot keep. The schema is created automatically on first start.
 - **Free-plan sleep.** Render's free plan stops the service after about 15
   minutes without traffic. The next visit wakes it (expect a cold start of
   roughly a minute), and startup replays the session's log, so no order or
-  balance is lost. A paid instance avoids the sleep.
+  balance is lost. While it wakes, the landing page and the terminal show
+  "Starting the exchange", keep retrying, and go live on their own. A paid
+  instance avoids the sleep.
+- **Link previews.** `apps/web/public/og.png` is a rendered screenshot. After a
+  visible change to the terminal, regenerate it with the app running:
+  `BASE_URL=http://localhost:8080 npm run assets -w @marketlab/web`.
 - **Restarts and deploys** replay the log the same way. Guests keep their
   accounts until the session rolls over.
 - **Data retention.** Sessions older than seven days are deleted at startup.

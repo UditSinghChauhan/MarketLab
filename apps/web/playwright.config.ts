@@ -37,6 +37,8 @@ export default defineConfig({
       TICK_MS: "300",
       WARMUP_MINUTES: "5",
       LOG_LEVEL: "warn",
+      // Every test opens its own guest account from one address; production limits stay as they are.
+      RATE_LIMIT_SCALE: "100",
     },
   },
 });

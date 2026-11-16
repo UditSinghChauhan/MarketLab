@@ -9,15 +9,20 @@ import { Link } from "react-router";
 
 import { ApiRequestError, api } from "../lib/api";
 import { changeTone, duration, pct, price } from "../lib/format";
+import { useExchange } from "../lib/health";
 import { describeEvent } from "../lib/orders";
 import { ensureSession } from "../lib/session";
 import { useMarketStream } from "../lib/stream";
 import { OrderBookLadder } from "../terminal/OrderBookLadder";
+import { SkeletonText } from "../ui/Skeleton";
+import { StartingNotice } from "../ui/StartingNotice";
 
 const SYMBOL = "ORBT";
 
 export function HeroDemo() {
-  const market = useMarketStream(SYMBOL, null);
+  const exchange = useExchange();
+  const starting = exchange.state === "starting";
+  const market = useMarketStream(SYMBOL, null, { enabled: exchange.state === "ready" });
   const summary = market.markets.find((m) => m.symbol === SYMBOL);
   const [result, setResult] = useState<CommandResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,21 +59,29 @@ export function HeroDemo() {
             <span className="text-xs text-muted">Orbit Aerospace</span>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="num text-xl font-semibold tracking-[-0.02em]">
-              {price(summary?.last)}
-            </span>
-            {summary && (
-              <span className={`num text-xs ${changeTone(summary.changePct)}`}>
-                {pct(summary.changePct)}
-              </span>
+            {summary ? (
+              <>
+                <span className="num text-xl font-semibold tracking-[-0.02em]">
+                  {price(summary.last)}
+                </span>
+                <span className={`num text-xs ${changeTone(summary.changePct)}`}>
+                  {pct(summary.changePct)}
+                </span>
+              </>
+            ) : (
+              <SkeletonText
+                sample="1,250.00"
+                className="text-xl font-semibold tracking-[-0.02em]"
+              />
             )}
           </div>
         </div>
-        <span className="flex items-center gap-1.5 text-xs text-muted">
+        <span className="flex items-center gap-1.5 text-xs text-muted" role="status">
           <span
+            aria-hidden="true"
             className={`size-1.5 rounded-full ${market.status === "live" ? "bg-bid" : "bg-pending"}`}
           />
-          {market.status === "live" ? "Live order book" : "Connecting"}
+          {market.status === "live" ? "Live order book" : starting ? "Starting" : "Connecting"}
         </span>
       </div>
 
@@ -80,8 +93,16 @@ export function HeroDemo() {
           }}
         />
       ) : (
-        <div className="h-[372px]">
+        <div className="relative h-[372px]">
           <OrderBookLadder book={market.book} compact />
+          {starting && !market.book && (
+            <div className="absolute inset-0 grid place-items-center p-4">
+              <StartingNotice
+                since={exchange.waitingSince}
+                className="rounded-lg border border-line bg-surface px-6 py-5"
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -98,9 +119,7 @@ export function HeroDemo() {
           </>
         ) : (
           <>
-            <span className="text-xs text-muted">
-              {error ?? "No signup. You get ₹10,00,000 of play money."}
-            </span>
+            <span className="text-xs text-muted">{error ?? "Play money, no signup."}</span>
             <button
               type="button"
               onClick={() => void tryOrder()}
