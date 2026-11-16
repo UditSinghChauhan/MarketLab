@@ -17,7 +17,8 @@ the microseconds each step took.
   never crosses. The live server runs the same audit on every health check.
 - **Durable by replay.** Every user command is written to a Postgres command
   log before it is applied. On restart the server replays the log and arrives at
-  exactly the same state. A database lock guarantees a single writer.
+  exactly the same state. A database lock guarantees a single writer, and
+  hash-checked snapshots keep a restart under a second however long the session.
 - **Live everywhere.** Prices, the book, trades and your own fills stream over
   server-sent events, with coalesced book updates and slow-client protection.
 - **An engine inspector.** For any order: when the API received it, how long it
@@ -62,14 +63,15 @@ An order's path:
 
 ## Design decisions
 
-| Decision                                           | Why                                                                                          | Record                                                                     |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| TypeScript workspaces, legacy app retired in steps | Every merge left a working app                                                               | [ADR 0001](docs/adr/0001-typescript-workspaces-and-strangler-migration.md) |
-| Money as integer paise                             | Floats can't represent ₹0.10 exactly; conservation must be exact                             | [ADR 0002](docs/adr/0002-integer-money.md)                                 |
-| Single-threaded, deterministic engine              | No locks, reproducible bugs, exact replay                                                    | [ADR 0003](docs/adr/0003-matching-engine.md)                               |
-| Log commands, not state                            | Thousands of rows per session instead of millions; bot activity is regenerated from the seed | [ADR 0004](docs/adr/0004-command-log.md)                                   |
-| Hand-drawn SVG chart, no chart library             | Small data, full control, and the drawing rules are worth showing                            | [PriceChart.tsx](apps/web/src/terminal/PriceChart.tsx)                     |
-| Server-sent events over WebSockets                 | Market data flows one way; commands are plain HTTP                                           | [stream.ts](apps/api/src/stream.ts)                                        |
+| Decision                                           | Why                                                                                                      | Record                                                                     |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| TypeScript workspaces, legacy app retired in steps | Every merge left a working app                                                                           | [ADR 0001](docs/adr/0001-typescript-workspaces-and-strangler-migration.md) |
+| Money as integer paise                             | Floats can't represent ₹0.10 exactly; conservation must be exact                                         | [ADR 0002](docs/adr/0002-integer-money.md)                                 |
+| Single-threaded, deterministic engine              | No locks, reproducible bugs, exact replay                                                                | [ADR 0003](docs/adr/0003-matching-engine.md)                               |
+| Log commands, not state                            | Thousands of rows per session instead of millions; bot activity is regenerated from the seed             | [ADR 0004](docs/adr/0004-command-log.md)                                   |
+| Snapshots bound startup time                       | Replaying a day of ticks takes about a minute; a hashed snapshot plus the log's tail takes half a second | [ADR 0006](docs/adr/0006-startup-budget-and-snapshots.md)                  |
+| Hand-drawn SVG chart, no chart library             | Small data, full control, and the drawing rules are worth showing                                        | [PriceChart.tsx](apps/web/src/terminal/PriceChart.tsx)                     |
+| Server-sent events over WebSockets                 | Market data flows one way; commands are plain HTTP                                                       | [stream.ts](apps/api/src/stream.ts)                                        |
 
 Design system and references: [docs/DESIGN-DIRECTION.md](docs/DESIGN-DIRECTION.md).
 
@@ -83,7 +85,10 @@ Design system and references: [docs/DESIGN-DIRECTION.md](docs/DESIGN-DIRECTION.m
 | End to end (Playwright)      | Hero order trace, place/trace/cancel in the terminal, rejection message, routing, phone layout, cold start, keyboard focus, no layout shift, no console errors, axe (no serious or critical violations) |
 
 CI runs typecheck, lint (`typescript-eslint` strict), formatting, all tests
-against Postgres 16, the production build, and Playwright on every pull request.
+against Postgres 16, the production build, a smoke test of the built server
+against Postgres (health, JSON 404, deep links, headers, compression, restart
+from a snapshot, exit when the log is unwritable), and Playwright on every pull
+request.
 
 **Engine benchmark** (`npm run bench -w @marketlab/engine`, one core): about
 700,000 commands per second; per-command latency p50 0.6 µs, p99 about 3 µs.

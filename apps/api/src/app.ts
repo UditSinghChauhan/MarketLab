@@ -337,11 +337,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       }
       return sendPage(request, reply);
     });
-  } else {
-    app.setNotFoundHandler((_request, reply) =>
-      reply.status(404).send(errorBody("not_found", "No such endpoint")),
-    );
   }
+
+  // Anything no route claimed (any method, with or without the web app) is a JSON 404.
+  app.setNotFoundHandler((_request, reply) =>
+    reply.status(404).send(errorBody("not_found", "No such endpoint")),
+  );
 
   return app;
 }

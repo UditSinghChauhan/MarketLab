@@ -10,6 +10,8 @@ import { buy, clock, hostOptions, pgliteLog, sell, startHost } from "./test/fixt
 function fingerprint(host: EngineHost, guests: string[]) {
   return {
     seq: host.sequence,
+    hash: host.exchange.stateHash(),
+    stats: host.stats().commands,
     audit: host.exchange.audit(),
     markets: INSTRUMENTS.map((i) => ({
       depth: host.exchange.depth(i.symbol, 50),
@@ -21,6 +23,8 @@ function fingerprint(host: EngineHost, guests: string[]) {
       account: host.exchange.accounts.snapshot(g),
       open: host.exchange.openOrders(g),
       orders: host.data.ordersOf(g),
+      // Request timings live only in the process that served the request.
+      traces: host.data.ordersOf(g).map((o) => ({ ...host.data.trace(o.id), timing: null })),
     })),
   };
 }
@@ -149,5 +153,154 @@ describe("engine host", () => {
     const seqs = results.map((r) => r.events[0]?.seq ?? 0);
     expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
     expect(host.exchange.audit()).toEqual([]);
+  });
+});
+
+const MINUTE = 60_000;
+
+/** A session long enough to cross snapshot intervals: guests trade before and after each one. */
+async function playLongSession(host: EngineHost, advance: (ms: number) => void) {
+  const alice = await host.openGuest();
+  const bob = await host.openGuest();
+  for (let minute = 0; minute < 25; minute++) {
+    for (let i = 0; i < 20; i++) {
+      advance(MINUTE / 20);
+      host.tick();
+    }
+    if (minute === 2) await host.submit(buy(alice, "ORBT", 30));
+    if (minute === 4) await host.submit(buy(bob, "SOLR", 100, "300.00"));
+    if (minute === 12) await host.submit(sell(alice, "ORBT", 10, "1300.00"));
+    if (minute === 13) await host.submit(buy(bob, "QNTA", 15));
+    if (minute === 22) await host.submit(buy(alice, "HLXB", 2));
+    if (minute === 23) {
+      const open = host.data.ordersOf(bob).find((o) => o.status === "resting");
+      if (open) await host.submit({ kind: "cancel", accountId: bob, orderId: open.id as never });
+    }
+  }
+  return [alice, bob];
+}
+
+describe.each(logs)("engine snapshots (%s log)", (_name, makeLog) => {
+  it("restoring a snapshot and replaying the tail equals replaying the whole log", async () => {
+    const log = await makeLog();
+    const time = clock();
+    const withSnapshots = { ...hostOptions(log, time.now), snapshotMs: 10 * MINUTE };
+    const original = await EngineHost.start(withSnapshots);
+    const guests = await playLongSession(original, time.advance);
+    await original.serial(() => original.flush()); // log everything, without a final snapshot
+    const expected = fingerprint(original, guests);
+
+    const fromSnapshot = await EngineHost.start(withSnapshots);
+    const fullReplay = await EngineHost.start({ ...withSnapshots, snapshotMs: 0 });
+
+    // The snapshot was really used, and it shortened the replay.
+    expect(fromSnapshot.replay.snapshotSeq).toBeGreaterThan(0);
+    expect(fromSnapshot.replay.entries).toBeLessThan(fullReplay.replay.entries);
+    expect(fullReplay.replay).toMatchObject({ snapshotSeq: 0, entries: original.sequence });
+
+    expect(fingerprint(fullReplay, guests)).toEqual(expected);
+    expect(fingerprint(fromSnapshot, guests)).toEqual(fingerprint(fullReplay, guests));
+    expect(expected.audit).toEqual([]);
+
+    // And both copies go on to produce the same market.
+    for (let i = 0; i < 30; i++) {
+      expect(fromSnapshot.tick(time.now())).toEqual(fullReplay.tick(time.now()));
+    }
+    expect(fromSnapshot.exchange.stateHash()).toBe(fullReplay.exchange.stateHash());
+  });
+
+  it("stores a snapshot on shutdown, so the next start replays nothing", async () => {
+    const log = await makeLog();
+    const time = clock();
+    const options = { ...hostOptions(log, time.now), snapshotMs: 10 * MINUTE };
+    const first = await EngineHost.start(options);
+    const guests = await playSession(first, time.advance); // ends with stop()
+
+    const second = await EngineHost.start(options);
+    expect(second.replay).toMatchObject({ entries: 0, snapshotSeq: first.sequence });
+    expect(second.exchange.stateHash()).toBe(first.exchange.stateHash());
+    expect(second.data.ordersOf(guests[0] ?? "")).toHaveLength(2);
+  });
+});
+
+describe("engine snapshots", () => {
+  async function sessionWithSnapshot() {
+    const log = new MemoryLog();
+    const time = clock();
+    const onWarning = vi.fn();
+    const options = { ...hostOptions(log, time.now), snapshotMs: 10 * MINUTE, onWarning };
+    const first = await EngineHost.start(options);
+    const guests = await playSession(first, time.advance);
+    const stored = await log.loadSnapshot(first.session.id);
+    if (!stored) throw new Error("No snapshot was stored");
+    return { log, options, first, guests, stored, onWarning, time };
+  }
+
+  it.each([
+    [
+      "a hash that does not match",
+      (s: { stateHash: string }) => ({ ...s, stateHash: "0".repeat(16) }),
+    ],
+    ["unreadable state", (s: { state: string }) => ({ ...s, state: "{not json" })],
+    ["a sequence ahead of the log", (s: { seq: number }) => ({ ...s, seq: s.seq + 5 })],
+    [
+      "tampered balances",
+      (s: { state: string }) => ({
+        ...s,
+        state: s.state.replace(/"cash":\[(\d+),/, '"cash":[1$1,'),
+      }),
+    ],
+  ])("ignores a snapshot with %s and replays the whole log", async (_name, corrupt) => {
+    const { log, options, first, guests, stored, onWarning } = await sessionWithSnapshot();
+    await log.saveSnapshot(first.session.id, { ...stored, ...corrupt(stored) });
+
+    const restarted = await EngineHost.start(options);
+    expect(onWarning).toHaveBeenCalledOnce();
+    expect(restarted.replay).toMatchObject({ snapshotSeq: 0, entries: first.sequence });
+    expect(restarted.exchange.stateHash()).toBe(first.exchange.stateHash());
+    expect(restarted.data.ordersOf(guests[0] ?? "")).toHaveLength(2);
+  });
+
+  it("keeps running when a snapshot cannot be stored", async () => {
+    const log = new MemoryLog();
+    const time = clock();
+    const onWarning = vi.fn();
+    const onFatal = vi.fn();
+    vi.spyOn(log, "saveSnapshot").mockRejectedValue(new Error("disk full"));
+    const host = await EngineHost.start({
+      ...hostOptions(log, time.now),
+      snapshotMs: MINUTE,
+      onWarning,
+      onFatal,
+    });
+    const guest = await host.openGuest();
+    time.advance(2 * MINUTE);
+    host.tick();
+    const result = await host.submit(buy(guest, "ORBT", 1));
+
+    expect(result.ok).toBe(true);
+    expect(host.healthy).toBe(true);
+    expect(onFatal).not.toHaveBeenCalled();
+    expect(onWarning).toHaveBeenCalledWith(expect.stringContaining("snapshot"), expect.any(Error));
+  });
+
+  it("takes snapshots on the configured interval, and none when turned off", async () => {
+    const log = new MemoryLog();
+    const time = clock();
+    const save = vi.spyOn(log, "saveSnapshot");
+    const host = await EngineHost.start({ ...hostOptions(log, time.now), snapshotMs: 5 * MINUTE });
+    const guest = await host.openGuest();
+    for (let minute = 1; minute <= 12; minute++) {
+      time.advance(MINUTE);
+      host.tick();
+      await host.submit(buy(guest, "SOLR", 1));
+    }
+    expect(save).toHaveBeenCalledTimes(2); // at minutes 5 and 10
+
+    const off = new MemoryLog();
+    const quiet = vi.spyOn(off, "saveSnapshot");
+    const other = await startHost(off, time.now);
+    await playSession(other, time.advance);
+    expect(quiet).not.toHaveBeenCalled();
   });
 });

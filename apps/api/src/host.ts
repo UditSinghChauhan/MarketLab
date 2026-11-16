@@ -12,6 +12,11 @@
  * - Market ticks are cheap and frequent, so they are counted, not logged one by
  *   one: the count is flushed as a single `ticks` entry before the next user
  *   command, or every 30 seconds.
+ * - Snapshots. Replaying a full day of ticks takes about a minute, so every
+ *   few minutes (and on shutdown) the host stores a snapshot of its state.
+ *   Startup restores the latest one, checks its hash, and replays only the
+ *   entries after it. A snapshot that fails any check is ignored and the whole
+ *   log is replayed instead. See docs/adr/0006-startup-budget-and-snapshots.md.
  */
 
 import { randomInt, randomUUID } from "node:crypto";
@@ -23,7 +28,9 @@ import {
   paise,
   type Command,
   type EngineEvent,
+  type ExchangeState,
   type MarketConfig,
+  type SimulatorState,
 } from "@marketlab/engine";
 
 import {
@@ -33,12 +40,26 @@ import {
   MAKER_PREFIX,
   type InstrumentConfig,
 } from "./instruments.js";
-import type { CommandLog, LogEntry, Session } from "./log/types.js";
-import { MarketData } from "./market-data.js";
+import type { CommandLog, LogEntry, Session, StoredSnapshot } from "./log/types.js";
+import { MarketData, type MarketDataState } from "./market-data.js";
 import { toEventView } from "./serialize.js";
 
 const TICK_FLUSH_MS = 30_000;
 const LATENCY_SAMPLES = 4_096;
+const SNAPSHOT_VERSION = 1;
+export const DEFAULT_SNAPSHOT_MS = 10 * 60_000;
+
+/** What a snapshot holds: the engine, the bots' positions in their random sequences, and the read models. */
+interface HostState {
+  readonly version: number;
+  /** The instruments the state was built for; a changed configuration invalidates it. */
+  readonly instruments: string;
+  readonly exchange: ExchangeState;
+  readonly simulators: readonly SimulatorState[];
+  readonly data: MarketDataState;
+  /** Engine commands processed so far in the session, for the statistics. */
+  readonly commands: number;
+}
 
 /** One batch of engine output, pushed to stream subscribers. */
 export interface HostUpdate {
@@ -64,6 +85,13 @@ export interface HostOptions {
   readonly warmupTicks?: number;
   /** Called when the log can no longer be written; the process should restart. */
   readonly onFatal?: (error: unknown) => void;
+  /**
+   * Milliseconds between snapshots; 0 turns them off, for saving and for
+   * restoring. Default ten minutes.
+   */
+  readonly snapshotMs?: number;
+  /** Called for problems the host recovers from (an unusable or unsaved snapshot). */
+  readonly onWarning?: (message: string, error?: unknown) => void;
 }
 
 export class HostUnavailableError extends Error {
@@ -100,7 +128,8 @@ export class EngineHost {
   readonly data: MarketData;
   readonly session: Session;
   readonly startedAt: number;
-  replay = { entries: 0, ms: 0 };
+  /** How the last start rebuilt state: entries replayed, time taken, and the snapshot it began from (0: none). */
+  replay = { entries: 0, ms: 0, snapshotSeq: 0 };
 
   private readonly sims: MarketSimulator[];
   private readonly now: () => number;
@@ -109,6 +138,8 @@ export class EngineHost {
   private firstPendingTickAt = 0;
   private lastTickAt = 0;
   private lastFlushAt: number;
+  private lastSnapshotAt: number;
+  private lastSnapshotSeq = 0;
   private queue: Promise<unknown> = Promise.resolve();
   private timer: NodeJS.Timeout | undefined;
   private failure: unknown;
@@ -117,24 +148,32 @@ export class EngineHost {
   private constructor(
     private readonly options: HostOptions,
     session: Session,
+    restored?: HostState,
   ) {
     this.now = options.now ?? Date.now;
     this.session = session;
     this.startedAt = this.now();
     this.lastFlushAt = this.startedAt;
+    this.lastSnapshotAt = this.startedAt;
 
     const markets: MarketConfig[] = [...options.instruments];
     this.exchange = new InstrumentedExchange(markets);
     this.data = new MarketData(options.instruments);
 
-    // Bot accounts are derived from configuration, never logged.
-    for (const i of options.instruments) {
-      this.exchange.accounts.open(`${MAKER_PREFIX}${i.symbol}`, paise(GUEST_CASH * 1_000), {
-        [i.symbol]: 10_000_000,
-      });
+    if (restored) {
+      this.exchange.load(restored.exchange);
+      this.exchange.commands = restored.commands;
+      this.data.load(restored.data);
+    } else {
+      // Bot accounts are derived from configuration, never logged.
+      for (const i of options.instruments) {
+        this.exchange.accounts.open(`${MAKER_PREFIX}${i.symbol}`, paise(GUEST_CASH * 1_000), {
+          [i.symbol]: 10_000_000,
+        });
+      }
+      const holdings = Object.fromEntries(options.instruments.map((i) => [i.symbol, 50_000]));
+      for (const id of FLOW_IDS) this.exchange.accounts.open(id, paise(GUEST_CASH * 100), holdings);
     }
-    const holdings = Object.fromEntries(options.instruments.map((i) => [i.symbol, 50_000]));
-    for (const id of FLOW_IDS) this.exchange.accounts.open(id, paise(GUEST_CASH * 100), holdings);
 
     this.sims = options.instruments.map(
       (i, index) =>
@@ -152,6 +191,46 @@ export class EngineHost {
           maxTakerQty: Math.max(5, Math.round(i.levelSize * 0.8)),
         }),
     );
+    if (restored) {
+      if (restored.simulators.length !== this.sims.length) throw new Error("Simulators differ");
+      this.sims.forEach((sim, index) => {
+        const state = restored.simulators[index];
+        if (state) sim.load(state);
+      });
+    }
+  }
+
+  /**
+   * Builds a host from a stored snapshot, or returns undefined (with a warning)
+   * if the snapshot cannot be trusted: wrong version, different instruments,
+   * newer than the log, a hash that does not match, or a failed audit.
+   */
+  private static fromSnapshot(
+    options: HostOptions,
+    session: Session,
+    stored: StoredSnapshot,
+  ): EngineHost | undefined {
+    try {
+      if (stored.seq > session.entries.length) throw new Error("it is ahead of the log");
+      const state = JSON.parse(stored.state) as HostState;
+      if (state.version !== SNAPSHOT_VERSION) throw new Error("it has another format version");
+      if (state.instruments !== instrumentsKey(options.instruments)) {
+        throw new Error("the instruments have changed");
+      }
+      const host = new EngineHost(options, session, state);
+      if (host.exchange.stateHash() !== stored.stateHash)
+        throw new Error("its hash does not match");
+      const problems = host.exchange.audit();
+      if (problems.length > 0) throw new Error(`it fails the audit (${problems[0] ?? ""})`);
+      host.lastSnapshotSeq = stored.seq;
+      return host;
+    } catch (error) {
+      options.onWarning?.(
+        `Ignoring the snapshot at entry ${String(stored.seq)}; replaying the whole log instead`,
+        error,
+      );
+      return undefined;
+    }
   }
 
   /** Opens (or resumes) the session and replays its log. */
@@ -162,11 +241,23 @@ export class EngineHost {
       options.sessionMaxAgeMs,
       options.seed ?? randomInt(1, 2 ** 31 - 1),
     );
-    const host = new EngineHost(options, session);
     const started = performance.now();
-    for (const entry of session.entries) host.apply(entry);
+    const stored =
+      (options.snapshotMs ?? DEFAULT_SNAPSHOT_MS) > 0
+        ? await options.log.loadSnapshot(session.id)
+        : null;
+    const restored = stored ? EngineHost.fromSnapshot(options, session, stored) : undefined;
+    const host = restored ?? new EngineHost(options, session);
+    const snapshotSeq = restored && stored ? stored.seq : 0;
+
+    const tail = session.entries.slice(snapshotSeq);
+    for (const entry of tail) host.apply(entry);
     host.seq = session.entries.length;
-    host.replay = { entries: session.entries.length, ms: Math.round(performance.now() - started) };
+    host.replay = {
+      entries: tail.length,
+      ms: Math.round(performance.now() - started),
+      snapshotSeq,
+    };
 
     const warmup = options.warmupTicks ?? 0;
     if (session.entries.length === 0 && warmup > 0) {
@@ -191,7 +282,10 @@ export class EngineHost {
   async stop(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
-    await this.serial(() => this.maybeFlushTicks(true)).catch(() => undefined);
+    await this.serial(async () => {
+      await this.maybeFlushTicks(true);
+      await this.maybeSnapshot(true); // so the next start has almost nothing to replay
+    }).catch(() => undefined);
   }
 
   subscribe(listener: (update: HostUpdate) => void): () => void {
@@ -318,6 +412,15 @@ export class EngineHost {
     for (const listener of this.listeners) listener(update);
   }
 
+  /** Logs any ticks not yet in the log. Must run inside `serial`. */
+  flush(): Promise<void> {
+    const snapshotMs = this.lastSnapshotAt;
+    this.lastSnapshotAt = Infinity; // a plain flush never takes a snapshot
+    return this.maybeFlushTicks(true).finally(() => {
+      this.lastSnapshotAt = snapshotMs;
+    });
+  }
+
   private async maybeFlushTicks(force: boolean): Promise<void> {
     if (this.pendingTicks === 0) return;
     if (!force && this.now() - this.lastFlushAt < TICK_FLUSH_MS) return;
@@ -330,6 +433,40 @@ export class EngineHost {
     });
     this.pendingTicks -= count;
     this.lastFlushAt = this.now();
+    await this.maybeSnapshot(false);
+  }
+
+  /**
+   * Stores a snapshot if one is due. Only called inside the write queue with no
+   * unlogged ticks, so the state is exactly "the log up to `seq`, applied".
+   * Failing to store one is not fatal: the log is still complete.
+   */
+  private async maybeSnapshot(force: boolean): Promise<void> {
+    const every = this.options.snapshotMs ?? DEFAULT_SNAPSHOT_MS;
+    if (every <= 0 || this.failure !== undefined || this.pendingTicks > 0) return;
+    if (this.seq === 0 || this.seq === this.lastSnapshotSeq) return;
+    if (!force && this.now() - this.lastSnapshotAt < every) return;
+    try {
+      await this.options.log.saveSnapshot(this.session.id, this.snapshot());
+      this.lastSnapshotAt = this.now();
+      this.lastSnapshotSeq = this.seq;
+    } catch (error) {
+      this.lastSnapshotAt = this.now(); // try again after the usual interval, not every tick
+      this.options.onWarning?.("Could not store a snapshot; the log is unaffected", error);
+    }
+  }
+
+  /** The state after log entry `seq`, ready to store. */
+  snapshot(): StoredSnapshot {
+    const state: HostState = {
+      version: SNAPSHOT_VERSION,
+      instruments: instrumentsKey(this.options.instruments),
+      exchange: this.exchange.serialize(),
+      simulators: this.sims.map((sim) => sim.serialize()),
+      data: this.data.serialize(),
+      commands: this.exchange.commands,
+    };
+    return { seq: this.seq, stateHash: this.exchange.stateHash(), state: JSON.stringify(state) };
   }
 
   private async persist(entry: LogEntry): Promise<void> {
@@ -348,7 +485,8 @@ export class EngineHost {
     }
   }
 
-  private serial<T>(work: () => Promise<T>): Promise<T> {
+  /** Runs work in the single-writer queue, after everything already queued. */
+  serial<T>(work: () => Promise<T>): Promise<T> {
     const result = this.queue.then(work);
     this.queue = result.catch(() => undefined);
     return result;
@@ -371,3 +509,6 @@ export class EngineHost {
     };
   }
 }
+
+const instrumentsKey = (instruments: readonly InstrumentConfig[]): string =>
+  JSON.stringify(instruments);

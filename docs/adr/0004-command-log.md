@@ -78,9 +78,9 @@ are deleted at startup.
 
 ## Consequences and limits
 
-- Startup time grows with the session's length (about 60 ms for a short
-  session; a full day of ticks replays in seconds). Periodic snapshots would
-  cap this; they are not needed at demo scale.
+- Startup time grows with the session's length. Measured later: about 2 seconds
+  per simulated hour, close to a minute for a full day. Periodic snapshots now
+  cap it; see [ADR 0006](0006-startup-budget-and-snapshots.md).
 - Neon must be reached through its **direct** connection string; a
   transaction-mode pooler cannot hold a session-level advisory lock.
 - One engine process serves all symbols. Scaling out means sharding by symbol,

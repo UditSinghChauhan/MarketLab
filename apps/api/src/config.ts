@@ -14,6 +14,12 @@ const Env = z.object({
   WARMUP_MINUTES: z.coerce.number().min(0).max(240).default(30),
   /** A session (one simulated trading day) is replaced after this many hours. */
   SESSION_HOURS: z.coerce.number().positive().default(24),
+  /** Minutes between engine snapshots, which bound startup time. 0 turns them off. */
+  SNAPSHOT_MINUTES: z.coerce
+    .number()
+    .min(0)
+    .max(24 * 60)
+    .default(10),
   /** Directory of the built web app to serve, if any. */
   WEB_DIST: z.string().optional(),
   /**

@@ -55,6 +55,20 @@ export interface Session {
   readonly entries: readonly LogEntry[];
 }
 
+/**
+ * A point-in-time copy of the engine and its read models, taken right after
+ * log entry `seq` was applied. It is an optimisation only: startup restores it
+ * and replays the entries after `seq` instead of the whole log. The log remains
+ * the source of truth, and a snapshot that fails its checks is ignored.
+ */
+export interface StoredSnapshot {
+  readonly seq: number;
+  /** `Exchange.stateHash()` at that point; checked again after restoring. */
+  readonly stateHash: string;
+  /** The serialised state, as JSON text. */
+  readonly state: string;
+}
+
 export interface CommandLog {
   readonly kind: "postgres" | "memory";
   /**
@@ -64,6 +78,10 @@ export interface CommandLog {
   openSession(now: number, maxAgeMs: number, newSeed: number): Promise<Session>;
   /** Appends entry number `seq` (1-based, gap-free) to the session. */
   append(sessionId: number, seq: number, entry: LogEntry): Promise<void>;
+  /** The session's latest snapshot, if it has one. */
+  loadSnapshot(sessionId: number): Promise<StoredSnapshot | null>;
+  /** Stores a snapshot, replacing the session's previous one. */
+  saveSnapshot(sessionId: number, snapshot: StoredSnapshot): Promise<void>;
   close(): Promise<void>;
 }
 

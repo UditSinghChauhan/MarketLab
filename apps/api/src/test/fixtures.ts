@@ -22,8 +22,17 @@ export function clock(start = Date.UTC(2026, 10, 14, 9, 15)) {
   };
 }
 
+/** Snapshots are off by default, so tests of replay really replay the whole log. */
 export function hostOptions(log: CommandLog, now: () => number): HostOptions {
-  return { log, instruments: INSTRUMENTS, tickMs: 600, sessionMaxAgeMs: DAY_MS, now, seed: 42 };
+  return {
+    log,
+    instruments: INSTRUMENTS,
+    tickMs: 600,
+    sessionMaxAgeMs: DAY_MS,
+    now,
+    seed: 42,
+    snapshotMs: 0,
+  };
 }
 
 export async function startHost(log: CommandLog, now: () => number): Promise<EngineHost> {
