@@ -14,6 +14,8 @@ import {
   PlaceOrderRequest,
   type ApiError,
   type HealthResponse,
+  type ReplayEntries,
+  type ReplayHead,
   type SessionResponse,
 } from "@marketlab/contracts";
 import { MoneyError, parseRupees, quantity, type Command, type OrderId } from "@marketlab/engine";
@@ -28,6 +30,7 @@ import type { StreamHub } from "./stream.js";
 import { accountView, marketSummary, orderBook } from "./views.js";
 
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+const REPLAY_PAGE = 1_000;
 
 export interface AppDeps {
   readonly config: Config;
@@ -279,6 +282,57 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     if (!trace) throw new HttpError(404, "unknown_order", "No order with that id");
     return trace;
   });
+
+  // Verified replay --------------------------------------------------------
+  // Public by design: the log holds the session's inputs (who is known only by
+  // an opaque guest id) so anyone can re-run the engine and check the result.
+
+  // Flushes pending ticks to the log to fix a point to verify, so it is the
+  // more tightly limited of the two.
+  app.get("/api/replay", limit(6, "1 minute"), async (): Promise<ReplayHead> => {
+    const { seq, stateHash, commands } = await host.checkpoint();
+    return {
+      session: host.session.id,
+      startedAt: host.session.startedAt,
+      config: host.sessionConfig,
+      instruments: instruments
+        .map((i) => marketSummary(host, i))
+        .map((m) => ({
+          symbol: m.symbol,
+          name: m.name,
+          sector: m.sector,
+          tick: m.tick,
+        })),
+      seq,
+      stateHash,
+      commands,
+      pageSize: REPLAY_PAGE,
+    };
+  });
+
+  app.get<{ Querystring: { session?: string; after?: string; upto?: string } }>(
+    "/api/replay/entries",
+    limit(120, "1 minute"),
+    async (request): Promise<ReplayEntries> => {
+      const number = (value: string | undefined, name: string) => {
+        const n = Number(value);
+        if (value === undefined || !Number.isInteger(n) || n < 0) {
+          throw new HttpError(400, "invalid_request", `${name} must be a whole number`);
+        }
+        return n;
+      };
+      const after = number(request.query.after, "after");
+      const upto = number(request.query.upto, "upto");
+      if (number(request.query.session, "session") !== host.session.id) {
+        throw new HttpError(409, "session_ended", "That session has ended; start the replay again");
+      }
+      if (upto > host.sequence || after > upto) {
+        throw new HttpError(400, "invalid_request", "after and upto must lie within the log");
+      }
+      const entries = await host.readEntries(after, Math.min(REPLAY_PAGE, upto - after));
+      return { session: host.session.id, after, entries };
+    },
+  );
 
   // Streaming --------------------------------------------------------------
 

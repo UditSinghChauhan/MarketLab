@@ -129,6 +129,16 @@ export class PostgresLog implements CommandLog {
     ]);
   }
 
+  async readEntries(sessionId: number, after: number, limit: number): Promise<LogEntry[]> {
+    const rows = await select(
+      this.db,
+      EntryRow,
+      "SELECT entry FROM log_entries WHERE session_id = $1 AND seq > $2 ORDER BY seq LIMIT $3",
+      [sessionId, after, limit],
+    );
+    return rows.map((r) => parseEntry(r.entry));
+  }
+
   async loadSnapshot(sessionId: number): Promise<StoredSnapshot | null> {
     const [row] = await select(
       this.db,

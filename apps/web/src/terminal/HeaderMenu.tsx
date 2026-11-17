@@ -100,6 +100,9 @@ export function HeaderMenu({ onStartOver }: { onStartOver: () => void }) {
           <Link role="menuitem" tabIndex={-1} to="/" className={ITEM}>
             How it works
           </Link>
+          <Link role="menuitem" tabIndex={-1} to="/replay" className={ITEM}>
+            Replay this session
+          </Link>
           <a
             role="menuitem"
             tabIndex={-1}

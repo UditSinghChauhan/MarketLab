@@ -19,6 +19,10 @@ the microseconds each step took.
   log before it is applied. On restart the server replays the log and arrives at
   exactly the same state. A database lock guarantees a single writer, and
   hash-checked snapshots keep a restart under a second however long the session.
+- **Verifiable in your browser.** The [replay page](apps/web/src/replay/Replay.tsx)
+  downloads the session's seed and command log, re-runs the same engine in a Web
+  Worker, and compares state hashes with the server after every log entry. Then
+  it scrubs through the session.
 - **Live everywhere.** Prices, the book, trades and your own fills stream over
   server-sent events, with coalesced book updates and slow-client protection.
 - **An engine inspector.** For any order: when the API received it, how long it
@@ -33,6 +37,10 @@ the microseconds each step took.
 | Trading terminal                                                                        | Engine inspector                                                                 |
 | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | ![Terminal with chart, order book, ticket and positions](docs/screenshots/terminal.png) | ![Inspector tracing an order through the system](docs/screenshots/inspector.png) |
+
+| Verified replay                                                                                                 |
+| --------------------------------------------------------------------------------------------------------------- |
+| ![Replay page: the browser re-ran the session and matched the server's state hash](docs/screenshots/replay.png) |
 
 | Landing page                                                                     | Phone                                                                           |
 | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
@@ -63,26 +71,27 @@ An order's path:
 
 ## Design decisions
 
-| Decision                                           | Why                                                                                                      | Record                                                                     |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| TypeScript workspaces, legacy app retired in steps | Every merge left a working app                                                                           | [ADR 0001](docs/adr/0001-typescript-workspaces-and-strangler-migration.md) |
-| Money as integer paise                             | Floats can't represent ₹0.10 exactly; conservation must be exact                                         | [ADR 0002](docs/adr/0002-integer-money.md)                                 |
-| Single-threaded, deterministic engine              | No locks, reproducible bugs, exact replay                                                                | [ADR 0003](docs/adr/0003-matching-engine.md)                               |
-| Log commands, not state                            | Thousands of rows per session instead of millions; bot activity is regenerated from the seed             | [ADR 0004](docs/adr/0004-command-log.md)                                   |
-| Snapshots bound startup time                       | Replaying a day of ticks takes about a minute; a hashed snapshot plus the log's tail takes half a second | [ADR 0006](docs/adr/0006-startup-budget-and-snapshots.md)                  |
-| Hand-drawn SVG chart, no chart library             | Small data, full control, and the drawing rules are worth showing                                        | [PriceChart.tsx](apps/web/src/terminal/PriceChart.tsx)                     |
-| Server-sent events over WebSockets                 | Market data flows one way; commands are plain HTTP                                                       | [stream.ts](apps/api/src/stream.ts)                                        |
+| Decision                                           | Why                                                                                                               | Record                                                                     |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| TypeScript workspaces, legacy app retired in steps | Every merge left a working app                                                                                    | [ADR 0001](docs/adr/0001-typescript-workspaces-and-strangler-migration.md) |
+| Money as integer paise                             | Floats can't represent ₹0.10 exactly; conservation must be exact                                                  | [ADR 0002](docs/adr/0002-integer-money.md)                                 |
+| Single-threaded, deterministic engine              | No locks, reproducible bugs, exact replay                                                                         | [ADR 0003](docs/adr/0003-matching-engine.md)                               |
+| Log commands, not state                            | Thousands of rows per session instead of millions; bot activity is regenerated from the seed                      | [ADR 0004](docs/adr/0004-command-log.md)                                   |
+| Snapshots bound startup time                       | Replaying a day of ticks takes about a minute; a hashed snapshot plus the log's tail takes half a second          | [ADR 0006](docs/adr/0006-startup-budget-and-snapshots.md)                  |
+| Hand-drawn SVG chart, no chart library             | Small data, full control, and the drawing rules are worth showing                                                 | [PriceChart.tsx](apps/web/src/terminal/PriceChart.tsx)                     |
+| Server-sent events over WebSockets                 | Market data flows one way; commands are plain HTTP                                                                | [stream.ts](apps/api/src/stream.ts)                                        |
+| The browser can check the server                   | The inputs are public and the engine is pure, so the claim "state is a function of the log" is testable by anyone | [ADR 0005](docs/adr/0005-verified-replay.md)                               |
 
 Design system and references: [docs/DESIGN-DIRECTION.md](docs/DESIGN-DIRECTION.md).
 
 ## Quality
 
-| Layer                        | What is tested                                                                                                                                                                                          |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Engine (Vitest + fast-check) | Every matching rule; invariants after every random command; determinism; deliberately broken code fails the suite                                                                                       |
-| API                          | Exact state after replay (in memory and Postgres), write-ahead failure, single-writer lock (real Postgres in CI), HTTP contract, auth, rate limits, live stream                                         |
-| Web (Testing Library)        | Order ticket keyboard, validation, results; stream reducer; cold-start monitor; error boundary; formatting                                                                                              |
-| End to end (Playwright)      | Hero order trace, place/trace/cancel in the terminal, rejection message, routing, phone layout, cold start, keyboard focus, no layout shift, no console errors, axe (no serious or critical violations) |
+| Layer                        | What is tested                                                                                                                                                                                                                                                                                                             |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Engine (Vitest + fast-check) | Every matching rule; invariants after every random command; determinism; state hash and snapshot properties; replayer scrubbing and divergence detection; deliberately broken code fails the suite                                                                                                                         |
+| API                          | Exact state after replay (in memory and Postgres), snapshot restore equal to full replay, corrupt snapshots ignored, an independent replayer over HTTP reaching the server's hash, write-ahead failure, single-writer lock (real Postgres in CI), connection-string parsing, HTTP contract, auth, rate limits, live stream |
+| Web (Testing Library)        | Order ticket keyboard, validation, results; stream reducer; cold-start monitor; error boundary; formatting                                                                                                                                                                                                                 |
+| End to end (Playwright)      | Hero order trace, place/trace/cancel in the terminal, rejection message, routing, phone layout, cold start, keyboard focus, no layout shift, no console errors, axe (no serious or critical violations), verified replay (match, scrub, play, tampered log)                                                                |
 
 CI runs typecheck, lint (`typescript-eslint` strict), formatting, all tests
 against Postgres 16, the production build, a smoke test of the built server
@@ -132,11 +141,12 @@ Deployment: [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ```
 packages/
-  engine/      Matching engine, order book, accounts, market simulator (pure)
+  engine/      Matching engine, order book, accounts, market simulator, session
+               engine and replayer (pure: no I/O, no clock)
   contracts/   API request schemas and response types, shared by API and web
 apps/
   api/         Engine host, command log, read models, REST, SSE, auth
-  web/         Landing page, trading terminal, engine inspector
+  web/         Landing page, trading terminal, engine inspector, verified replay
 docs/          Design direction, architecture decision records, screenshots
 ```
 

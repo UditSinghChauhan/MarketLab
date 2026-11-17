@@ -7,6 +7,7 @@
  * the boundary.
  */
 
+import type { LogEntry, SessionConfig } from "@marketlab/engine";
 import { z } from "zod";
 
 export const SIDES = ["buy", "sell"] as const;
@@ -249,6 +250,37 @@ export interface HealthResponse {
     readonly snapshotSeq: number;
   };
   readonly engine: EngineStats;
+}
+
+// Verified replay -----------------------------------------------------------
+
+/**
+ * Everything needed to rebuild the current session somewhere else: its seed
+ * and rules, and the point a replay must reach. Unlike the rest of the API,
+ * this carries the engine's own inputs unchanged (prices as integer paise),
+ * because the browser feeds them to the same engine code.
+ */
+export interface ReplayHead {
+  readonly session: number;
+  readonly startedAt: number;
+  readonly config: SessionConfig;
+  /** Names for display; the engine does not read them. */
+  readonly instruments: readonly Instrument[];
+  /** The log sequence the replay covers and the server's state hash right after it. */
+  readonly seq: number;
+  readonly stateHash: string;
+  /** Engine commands the server has processed in this session, bots included. */
+  readonly commands: number;
+  /** Largest number of entries one page returns. */
+  readonly pageSize: number;
+}
+
+/** One page of the command log. Account ids are the opaque guest ids the log stores; nothing else identifies a visitor. */
+export interface ReplayEntries {
+  readonly session: number;
+  /** The entries follow this sequence number. */
+  readonly after: number;
+  readonly entries: readonly LogEntry[];
 }
 
 export interface ApiError {

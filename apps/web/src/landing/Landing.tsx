@@ -26,6 +26,9 @@ export function Landing() {
           <a href="#engineering" className="hidden text-muted hover:text-text sm:inline">
             Engineering
           </a>
+          <Link to="/replay" className="hidden text-muted hover:text-text md:inline">
+            Replay
+          </Link>
           <a href={REPO} className="hidden text-muted hover:text-text sm:inline">
             Source
           </a>
@@ -149,6 +152,23 @@ export function Landing() {
               activity are merged into single book snapshots, and a viewer that falls behind is
               disconnected rather than allowed to grow the server's memory.
             </Feature>
+            <article className="flex flex-col gap-5 bg-surface p-7 md:col-span-2 md:flex-row md:items-center md:justify-between md:gap-10">
+              <div>
+                <h3 className="font-semibold">Check it yourself</h3>
+                <p className="mt-3 max-w-[70ch] text-sm leading-relaxed text-muted">
+                  The server keeps a seed and a log of inputs, not the market. The replay page
+                  downloads both, runs the same engine in a Web Worker in your browser, and compares
+                  its state hash with the server's after every log entry. Then you can scrub through
+                  the session.
+                </p>
+              </div>
+              <Link
+                to="/replay"
+                className="inline-flex h-10 shrink-0 items-center self-start rounded-md border border-line bg-surface px-4 text-sm font-medium hover:border-muted md:self-center"
+              >
+                Replay this session
+              </Link>
+            </article>
           </div>
 
           <Architecture />
