@@ -31,6 +31,9 @@ Thumbs.db
 # TypeScript incremental build info
 *.tsbuildinfo
 
+# Throwaway certificates from scripts/postgres-tls.sh
+.tls/
+
 # Playwright
 playwright-report/
 test-results/
