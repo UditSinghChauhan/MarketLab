@@ -70,6 +70,9 @@ const SECURITY_HEADERS = {
   ].join("; "),
 };
 
+/** Production only: browsers then refuse plain HTTP to this host for a year. */
+const HSTS = "max-age=31536000; includeSubDomains";
+
 /**
  * The event stream carries the session token in its query string (EventSource
  * cannot send headers), so request URLs are logged without it. The path and
@@ -117,6 +120,10 @@ const errorBody = (code: string, message: string, details?: unknown): ApiError =
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const { config, host, hub, instruments, logStream } = deps;
   const bySymbol = new Map(instruments.map((i) => [i.symbol, i]));
+  const securityHeaders: Record<string, string> =
+    config.NODE_ENV === "production"
+      ? { ...SECURITY_HEADERS, "strict-transport-security": HSTS }
+      : SECURITY_HEADERS;
 
   const logger = {
     level: config.LOG_LEVEL,
@@ -154,7 +161,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   app.addHook("onSend", async (_request, reply) => {
-    void reply.headers(SECURITY_HEADERS);
+    void reply.headers(securityHeaders);
   });
 
   app.setErrorHandler((error, request, reply) => {
@@ -380,7 +387,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         ? requireAccount(request, request.query.token)
         : undefined;
       void reply.hijack();
-      reply.raw.setHeaders(new Map(Object.entries(SECURITY_HEADERS)));
+      reply.raw.setHeaders(new Map(Object.entries(securityHeaders)));
       hub.attach(reply.raw, symbol, accountId);
     },
   );

@@ -118,7 +118,7 @@ describe("event stream", () => {
   });
 });
 
-describe("request logging in production", () => {
+describe("in production", () => {
   let lines: string[];
   let logged: FastifyInstance;
   let loggedBase: string;
@@ -157,5 +157,14 @@ describe("request logging in production", () => {
     expect(log).toContain('"url":"/api/stream?symbol=QNTA"');
     expect(log).not.toContain(token);
     expect(log).not.toContain(forged);
+  });
+
+  it("sends Strict-Transport-Security on the event stream", async () => {
+    const controller = new AbortController();
+    const res = await fetch(`${loggedBase}/api/stream?symbol=ORBT`, { signal: controller.signal });
+    controller.abort();
+    expect(res.headers.get("strict-transport-security")).toBe(
+      "max-age=31536000; includeSubDomains",
+    );
   });
 });

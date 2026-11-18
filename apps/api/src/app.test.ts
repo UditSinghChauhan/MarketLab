@@ -8,6 +8,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { absoluteLinks, buildApp, redactUrl } from "./app.js";
+import { loadConfig } from "./config.js";
 import type { EngineHost } from "./host.js";
 import { INSTRUMENTS } from "./instruments.js";
 import { MemoryLog } from "./log/memory.js";
@@ -80,6 +81,30 @@ describe("public market data", () => {
     const res = await app.inject("/api/markets");
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
     expect(res.headers["content-security-policy"]).toContain("default-src 'self'");
+  });
+
+  it("sends Strict-Transport-Security in production only", async () => {
+    expect((await app.inject("/api/markets")).headers["strict-transport-security"]).toBeUndefined();
+    const production = await buildApp({
+      config: loadConfig({
+        NODE_ENV: "production",
+        TOKEN_SECRET: "x".repeat(40),
+        LOG_LEVEL: "silent",
+      }),
+      host,
+      hub: new StreamHub(host, INSTRUMENTS),
+      instruments: INSTRUMENTS,
+      persistence: "memory",
+    });
+    try {
+      for (const url of ["/api/markets", "/api/no-such-route"]) {
+        expect((await production.inject(url)).headers["strict-transport-security"]).toBe(
+          "max-age=31536000; includeSubDomains",
+        );
+      }
+    } finally {
+      await production.close();
+    }
   });
 });
 
