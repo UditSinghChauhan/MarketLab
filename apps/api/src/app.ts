@@ -38,6 +38,8 @@ export interface AppDeps {
   readonly hub: StreamHub;
   readonly instruments: readonly InstrumentConfig[];
   readonly persistence: "postgres" | "memory";
+  /** Where log lines go instead of stdout; given one, the app logs even in tests. */
+  readonly logStream?: { write(line: string): void };
 }
 
 export class HttpError extends Error {
@@ -69,6 +71,21 @@ const SECURITY_HEADERS = {
 };
 
 /**
+ * The event stream carries the session token in its query string (EventSource
+ * cannot send headers), so request URLs are logged without it. The path and
+ * every other parameter are kept.
+ */
+export function redactUrl(url: string): string {
+  const start = url.indexOf("?");
+  if (start === -1) return url;
+  const params = new URLSearchParams(url.slice(start + 1));
+  if (!params.has("token")) return url;
+  params.delete("token");
+  const rest = params.toString();
+  return rest ? `${url.slice(0, start)}?${rest}` : url.slice(0, start);
+}
+
+/**
  * Link previews (Open Graph) need absolute URLs, and the built page cannot
  * know its own address. Given the public origin, this rewrites the page's
  * root-relative preview image, page URL and canonical link for one path.
@@ -98,11 +115,28 @@ const errorBody = (code: string, message: string, details?: unknown): ApiError =
 });
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
-  const { config, host, hub, instruments } = deps;
+  const { config, host, hub, instruments, logStream } = deps;
   const bySymbol = new Map(instruments.map((i) => [i.symbol, i]));
 
+  const logger = {
+    level: config.LOG_LEVEL,
+    // The request fields Fastify logs by default, with the token taken out of the URL.
+    serializers: {
+      req: (request: FastifyRequest) => {
+        const port = request.socket.remotePort;
+        return {
+          method: request.method,
+          url: redactUrl(request.url),
+          host: request.host,
+          remoteAddress: request.ip,
+          ...(port === undefined ? {} : { remotePort: port }),
+        };
+      },
+    },
+    ...(logStream ? { stream: logStream } : {}),
+  };
   const app = Fastify({
-    logger: config.NODE_ENV === "test" ? false : { level: config.LOG_LEVEL },
+    logger: config.NODE_ENV === "test" && !logStream ? false : logger,
     trustProxy: true,
     bodyLimit: 16 * 1024,
   });

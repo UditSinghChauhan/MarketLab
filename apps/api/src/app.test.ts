@@ -7,7 +7,7 @@ import type {
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { absoluteLinks, buildApp } from "./app.js";
+import { absoluteLinks, buildApp, redactUrl } from "./app.js";
 import type { EngineHost } from "./host.js";
 import { INSTRUMENTS } from "./instruments.js";
 import { MemoryLog } from "./log/memory.js";
@@ -80,6 +80,19 @@ describe("public market data", () => {
     const res = await app.inject("/api/markets");
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
     expect(res.headers["content-security-policy"]).toContain("default-src 'self'");
+  });
+});
+
+describe("redactUrl", () => {
+  it.each([
+    ["/api/stream", "/api/stream"],
+    ["/api/stream?symbol=ORBT", "/api/stream?symbol=ORBT"],
+    ["/api/stream?token=abc.def", "/api/stream"],
+    ["/api/stream?symbol=ORBT&token=abc.def", "/api/stream?symbol=ORBT"],
+    ["/api/stream?token=abc&symbol=ORBT&after=7", "/api/stream?symbol=ORBT&after=7"],
+    ["/api/stream?token=a&symbol=ORBT&token=b", "/api/stream?symbol=ORBT"],
+  ])("%s is logged as %s", (url, logged) => {
+    expect(redactUrl(url)).toBe(logged);
   });
 });
 

@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { buildApp } from "./app.js";
+import { loadConfig } from "./config.js";
 import type { EngineHost } from "./host.js";
 import { INSTRUMENTS } from "./instruments.js";
 import { MemoryLog } from "./log/memory.js";
@@ -26,14 +27,18 @@ beforeAll(async () => {
     instruments: INSTRUMENTS,
     persistence: "memory",
   });
-  await app.listen({ port: 0, host: "127.0.0.1" });
-  const address = app.server.address();
-  base = `http://127.0.0.1:${String(typeof address === "object" && address ? address.port : 0)}`;
+  base = await listen(app);
 });
 afterAll(async () => {
   hub.stop();
   await app.close();
 });
+
+async function listen(server: FastifyInstance): Promise<string> {
+  await server.listen({ port: 0, host: "127.0.0.1" });
+  const address = server.server.address();
+  return `http://127.0.0.1:${String(typeof address === "object" && address ? address.port : 0)}`;
+}
 
 /** Reads server-sent events until `until` returns true or time runs out. */
 async function collect(
@@ -110,5 +115,47 @@ describe("event stream", () => {
   it("rejects an invalid token", async () => {
     const res = await fetch(`${base}/api/stream?symbol=ORBT&token=nope`);
     expect(res.status).toBe(401);
+  });
+});
+
+describe("request logging in production", () => {
+  let lines: string[];
+  let logged: FastifyInstance;
+  let loggedBase: string;
+
+  beforeAll(async () => {
+    lines = [];
+    logged = await buildApp({
+      config: loadConfig({ NODE_ENV: "production", TOKEN_SECRET: "y".repeat(40) }),
+      host,
+      hub,
+      instruments: INSTRUMENTS,
+      persistence: "memory",
+      logStream: {
+        write: (line) => {
+          lines.push(line);
+        },
+      },
+    });
+    loggedBase = await listen(logged);
+  });
+  afterAll(() => logged.close());
+
+  it("never writes the session token to the log", async () => {
+    const res = await logged.inject({ method: "POST", url: "/api/session" });
+    const { token } = res.json<{ token: string }>();
+    const messages = await collect(`${loggedBase}/api/stream?symbol=ORBT&token=${token}`, (m) =>
+      m.some((x) => x.type === "hello"),
+    );
+    expect(messages[0]?.type).toBe("hello");
+    // A token that fails verification takes the error path, which logs too.
+    const forged = "forged-token-0123456789";
+    expect((await fetch(`${loggedBase}/api/stream?token=${forged}&symbol=QNTA`)).status).toBe(401);
+
+    const log = lines.join("");
+    expect(log).toContain('"url":"/api/stream?symbol=ORBT"');
+    expect(log).toContain('"url":"/api/stream?symbol=QNTA"');
+    expect(log).not.toContain(token);
+    expect(log).not.toContain(forged);
   });
 });
