@@ -1,5 +1,7 @@
 # MarketLab
 
+[![CI](https://github.com/UditSinghChauhan/MarketLab/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/UditSinghChauhan/MarketLab/actions/workflows/ci.yml)
+
 **A stock exchange you can watch work.** Place an order against a live order
 book of simulated traders, then follow it through the system — validated,
 written to Postgres, matched by a price-time priority engine, settled — down to
@@ -160,3 +162,11 @@ short selling, order amendment or time-in-force options yet.
 ## Author
 
 Designed and built by Udit Singh Chauhan.
+
+- GitHub: [UditSinghChauhan](https://github.com/UditSinghChauhan)
+- LinkedIn: [Udit Singh](https://www.linkedin.com/in/udit-singh-31382137a/)
+- Email: [uditsinghchauhan720@gmail.com](mailto:uditsinghchauhan720@gmail.com)
+
+## License
+
+[MIT](LICENSE)
