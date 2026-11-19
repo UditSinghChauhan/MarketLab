@@ -41,10 +41,19 @@ async function openLog(): Promise<CommandLog> {
     console.warn("DATABASE_URL not set: using an in-memory command log (state is lost on restart)");
     return new MemoryLog();
   }
-  const client = new pg.Client(connectionOptions(config.DATABASE_URL));
-  client.on("error", fatal);
-  await client.connect();
-  return PostgresLog.open(client, () => client.end());
+  const options = connectionOptions(config.DATABASE_URL);
+  // The log closes its connection while the exchange is idle and opens a new
+  // one when it is used again. A connection lost while open is fatal: the
+  // engine may hold ticks the log does not, so the process restarts and replays.
+  return PostgresLog.connect({
+    connect: async () => {
+      const client = new pg.Client(options);
+      client.on("error", fatal);
+      await client.connect();
+      return client;
+    },
+    disconnect: (client) => client.end(),
+  });
 }
 
 const log = await openLog();

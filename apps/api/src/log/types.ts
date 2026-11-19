@@ -76,6 +76,20 @@ export interface StoredSnapshot {
 export interface CommandLog {
   readonly kind: "postgres" | "memory";
   /**
+   * False while the log is suspended: it holds no connection (and no writer
+   * lock). Any other call reconnects first.
+   */
+  readonly connected: boolean;
+  /** Releases the writer lock and the connection, so the database can idle. */
+  suspend(): Promise<void>;
+  /**
+   * Reconnects if suspended, retaking the writer lock without waiting, and
+   * checks that the session still has exactly `expectedSeq` entries. Throws if
+   * another process holds the lock or wrote to the session. A no-op when
+   * connected and already checked.
+   */
+  resume(sessionId: number, expectedSeq: number): Promise<void>;
+  /**
    * Returns the current session with its entries, or starts a new one when the
    * latest session is older than `maxAgeMs`.
    */
