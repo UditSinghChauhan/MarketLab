@@ -11,6 +11,7 @@ import { Blotter } from "./Blotter";
 import { ChartPanel } from "./ChartPanel";
 import { Guide, useGuide } from "./Guide";
 import { Inspector } from "./Inspector";
+import { MarketStrip } from "./MarketStrip";
 import { SYMBOLS } from "./markets";
 import { OrderBookLadder } from "./OrderBookLadder";
 import { OrderTicket, type Prefill } from "./OrderTicket";
@@ -139,6 +140,7 @@ function Terminal({ symbol }: { symbol: string }) {
   return (
     <div className="dark-ui flex min-h-dvh flex-col bg-bg text-text xl:h-dvh">
       <TerminalHeader
+        symbol={symbol}
         markets={market.markets}
         status={market.status}
         exchange={exchange.state}
@@ -150,6 +152,8 @@ function Terminal({ symbol }: { symbol: string }) {
           setConfirmStartOver(true);
         }}
       />
+
+      <MarketStrip markets={market.markets} />
 
       {guide.visible && <Guide done={guide.done} onDismiss={guide.dismiss} />}
 

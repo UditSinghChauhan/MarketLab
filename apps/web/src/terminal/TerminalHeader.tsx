@@ -7,10 +7,12 @@ import type { ConnectionStatus } from "../lib/stream";
 import { LogoMark } from "../ui/Logo";
 import { Kbd } from "../ui/Panel";
 import { SkeletonText } from "../ui/Skeleton";
+import { useScrollFade } from "../ui/useScrollFade";
 import { HeaderMenu } from "./HeaderMenu";
 import { SAMPLE_PRICE, SYMBOLS } from "./markets";
 
 export function TerminalHeader({
+  symbol,
   markets,
   status,
   exchange,
@@ -20,6 +22,7 @@ export function TerminalHeader({
   onShowShortcuts,
   onStartOver,
 }: {
+  symbol: string;
   markets: readonly MarketSummary[];
   status: ConnectionStatus;
   exchange: ExchangeState;
@@ -29,6 +32,7 @@ export function TerminalHeader({
   onShowShortcuts: () => void;
   onStartOver: () => void;
 }) {
+  const { attach: attachTabs, style: tabsFade } = useScrollFade(symbol);
   return (
     <header className="flex h-12 shrink-0 items-center gap-4 border-b border-line bg-surface px-3">
       <Link
@@ -39,7 +43,13 @@ export function TerminalHeader({
         <LogoMark className="size-5 text-muted" />
         <span className="hidden sm:inline">MarketLab</span>
       </Link>
-      <nav aria-label="Markets" className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
+      {/* Below 1024 px the markets sit in their own strip under the header (MarketStrip). */}
+      <nav
+        ref={attachTabs}
+        style={tabsFade}
+        aria-label="Markets"
+        className="hidden min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] lg:flex"
+      >
         {SYMBOLS.map((s) => {
           const m = markets.find((x) => x.symbol === s);
           return (
@@ -53,14 +63,17 @@ export function TerminalHeader({
               }
             >
               <span className="font-medium">{s}</span>
+              {/* Until 1280 px a tab shows the change; the chart heading shows this market's price. */}
               {m ? (
                 <>
-                  <span className="num">{price(m.last)}</span>
+                  <span className="num hidden xl:inline">{price(m.last)}</span>
                   <span className={`num ${changeTone(m.changePct)}`}>{pct(m.changePct)}</span>
                 </>
               ) : (
                 <>
-                  <SkeletonText sample={SAMPLE_PRICE[s] ?? "000.00"} />
+                  <span className="hidden xl:inline">
+                    <SkeletonText sample={SAMPLE_PRICE[s] ?? "000.00"} />
+                  </span>
                   <SkeletonText sample="+0.00%" />
                 </>
               )}
@@ -68,6 +81,7 @@ export function TerminalHeader({
           );
         })}
       </nav>
+      <div aria-hidden="true" className="flex-1 lg:hidden" />
       <div className="hidden items-center gap-5 text-xs md:flex">
         <Status status={status} exchange={exchange} />
         {account ? (
@@ -86,7 +100,7 @@ export function TerminalHeader({
       </div>
       <Link
         to="/replay"
-        className="hidden h-8 items-center rounded-md px-2.5 text-xs font-medium text-muted hover:bg-raised hover:text-text lg:flex"
+        className="hidden h-8 items-center rounded-md px-2.5 text-xs font-medium text-muted hover:bg-raised hover:text-text xl:flex"
       >
         Replay
       </Link>
@@ -102,7 +116,7 @@ export function TerminalHeader({
         type="button"
         onClick={onShowShortcuts}
         aria-label="Keyboard shortcuts"
-        className="hidden h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-text sm:flex"
+        className="hidden h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-text sm:flex touch:hidden"
       >
         <Kbd>?</Kbd>
       </button>

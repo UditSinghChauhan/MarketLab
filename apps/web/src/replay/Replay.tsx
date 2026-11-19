@@ -13,10 +13,12 @@ import { qty, time } from "../lib/format";
 import { useExchange } from "../lib/health";
 import { OrderBookLadder } from "../terminal/OrderBookLadder";
 import { PriceChart } from "../terminal/PriceChart";
+import { SYMBOLS } from "../terminal/markets";
 import { TradeTape } from "../terminal/TradeTape";
 import { LogoMark } from "../ui/Logo";
 import { Kbd, Panel } from "../ui/Panel";
 import { StartingNotice } from "../ui/StartingNotice";
+import { useScrollFade } from "../ui/useScrollFade";
 import type { ReplaySnapshot } from "./protocol";
 import { useReplay, type ReplayState } from "./useReplay";
 
@@ -150,6 +152,7 @@ export function Replay() {
   const head = state.phase === "error" ? null : state.head;
   const instruments = head?.instruments ?? [];
   const name = instruments.find((i) => i.symbol === symbol)?.name;
+  const { attach: attachTabs, style: tabsFade } = useScrollFade(symbol);
 
   return (
     <div className="dark-ui flex min-h-dvh flex-col bg-bg text-text xl:h-dvh">
@@ -162,32 +165,36 @@ export function Replay() {
           <LogoMark className="size-5 text-muted" />
           <span className="hidden sm:inline">MarketLab</span>
         </Link>
-        <nav aria-label="Markets" className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
-          {(instruments.length > 0 ? instruments.map((i) => i.symbol) : [DEFAULT_SYMBOL]).map(
-            (s) => (
-              <button
-                key={s}
-                type="button"
-                aria-pressed={s === symbol}
-                onClick={() => {
-                  setSymbol(s);
-                }}
-                className={`flex h-8 shrink-0 items-center rounded-md px-2.5 text-xs font-medium ${
-                  s === symbol
-                    ? "bg-raised text-text"
-                    : "text-muted hover:bg-raised hover:text-text"
-                }`}
-              >
-                {s}
-              </button>
-            ),
-          )}
+        <nav
+          ref={attachTabs}
+          style={tabsFade}
+          aria-label="Markets"
+          className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none]"
+        >
+          {/* The listed markets are known up front, so the row never grows as the log loads. */}
+          {(instruments.length > 0 ? instruments.map((i) => i.symbol) : SYMBOLS).map((s) => (
+            <button
+              key={s}
+              type="button"
+              aria-pressed={s === symbol}
+              onClick={() => {
+                setSymbol(s);
+              }}
+              className={`flex h-8 shrink-0 items-center rounded-md px-2.5 text-xs font-medium ${
+                s === symbol ? "bg-raised text-text" : "text-muted hover:bg-raised hover:text-text"
+              }`}
+            >
+              {s}
+            </button>
+          ))}
         </nav>
         <Link
           to={`/terminal/${symbol}`}
+          aria-label="Open the terminal"
           className="flex h-8 shrink-0 items-center rounded-md border border-line px-2.5 text-xs font-medium hover:bg-raised"
         >
-          Open the terminal
+          <span className="sm:hidden">Terminal</span>
+          <span className="hidden sm:inline">Open the terminal</span>
         </Link>
       </header>
 
