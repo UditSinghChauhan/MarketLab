@@ -82,6 +82,7 @@ jobs:
           curl -s -D headers.txt -o /dev/null -H 'Accept-Encoding: br' "$base/"
           grep -qi '^content-security-policy:' headers.txt || fail "no Content-Security-Policy"
           grep -qi '^x-content-type-options: nosniff' headers.txt || fail "no X-Content-Type-Options"
+          grep -qi '^strict-transport-security: max-age=31536000; includeSubDomains' headers.txt || fail "no Strict-Transport-Security"
           script=$(grep -o '/assets/index-[^"]*\.js' page.html | head -1)
           curl -s -D headers.txt -o /dev/null -H 'Accept-Encoding: br' "$base$script"
           grep -qi '^content-encoding: br' headers.txt || fail "assets are not compressed"

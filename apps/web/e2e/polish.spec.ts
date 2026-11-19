@@ -69,6 +69,28 @@ test.describe("first run", () => {
   });
 });
 
+test("the landing page footer links to the author and the source", async ({ page }) => {
+  await page.goto("/");
+  const footer = page.getByRole("contentinfo");
+  const author = footer.getByRole("list", { name: "Contact the author" });
+  await expect(author.getByRole("link", { name: "GitHub" })).toHaveAttribute(
+    "href",
+    "https://github.com/UditSinghChauhan",
+  );
+  await expect(author.getByRole("link", { name: "LinkedIn" })).toHaveAttribute(
+    "href",
+    "https://www.linkedin.com/in/udit-singh-31382137a/",
+  );
+  await expect(author.getByRole("link", { name: "uditsinghchauhan720@gmail.com" })).toHaveAttribute(
+    "href",
+    "mailto:uditsinghchauhan720@gmail.com",
+  );
+  await expect(footer.getByRole("link", { name: "Source code" })).toHaveAttribute(
+    "href",
+    "https://github.com/UditSinghChauhan/MarketLab",
+  );
+});
+
 test.describe("terminal header menu", () => {
   test("links to the explanation, the source and the design decisions", async ({ page }) => {
     await page.goto("/terminal/ORBT");
