@@ -40,6 +40,12 @@ test.describe("terminal", () => {
     const inspector = page.getByRole("dialog", { name: "Engine inspector" });
     await expect(inspector.getByText("Written to the command log")).toBeVisible();
     await expect(inspector.getByText("Resting in the book")).toBeVisible();
+    // This order's numbers, beside the engine's median, and which step set its latency.
+    await expect(
+      inspector.getByText(
+        /^Matching this order took .+; the engine's median over recent commands is .+\. .+ was the slowest step \(.+\), so it set this order's latency\.$/,
+      ),
+    ).toBeVisible();
     await inspector.getByRole("button", { name: /Close/ }).click();
     await expect(row.getByRole("button", { name: "Trace" })).toBeFocused();
 
