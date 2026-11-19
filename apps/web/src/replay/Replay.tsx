@@ -334,8 +334,10 @@ function Status({
   since: number | null;
   onRetry: () => void;
 }) {
+  // As tall as the tallest state (the verdict, which wraps more on a phone), so
+  // the page below doesn't move when the replay finishes.
   const shell =
-    "flex min-h-[4.25rem] shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-raised px-3 py-3";
+    "flex min-h-[5.875rem] shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-raised px-3 py-3 sm:min-h-[4.25rem]";
   if (state.phase === "error") {
     return (
       <div role="alert" className={shell}>
