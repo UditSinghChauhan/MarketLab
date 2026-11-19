@@ -85,6 +85,7 @@ An order's path:
 | Hand-drawn SVG chart, no chart library             | Small data, full control, and the drawing rules are worth showing                                                 | [PriceChart.tsx](apps/web/src/terminal/PriceChart.tsx)                     |
 | Server-sent events over WebSockets                 | Market data flows one way; commands are plain HTTP                                                                | [stream.ts](apps/api/src/stream.ts)                                        |
 | The browser can check the server                   | The inputs are public and the engine is pure, so the claim "state is a function of the log" is testable by anyone | [ADR 0005](docs/adr/0005-verified-replay.md)                               |
+| Scaling beyond one server (design only)            | The log append, not matching, is the first limit; partition by symbol, one writer each, and fan out separately    | [ADR 0008](docs/adr/0008-scaling-beyond-one-server.md)                     |
 
 Design system and references: [docs/DESIGN-DIRECTION.md](docs/DESIGN-DIRECTION.md).
 
