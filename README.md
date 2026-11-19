@@ -52,12 +52,14 @@ the microseconds each step took.
 
 ```mermaid
 flowchart LR
-    B[Browser<br/>landing · terminal · inspector] -- "HTTP: orders" --> A[API<br/>Fastify · zod · HMAC tokens]
-    A -- command --> H[Engine host<br/>single-writer queue]
-    H -- "1 append" --> L[(Command log<br/>PostgreSQL)]
-    H -- "2 apply" --> E[Matching engine<br/>in memory]
-    L -. "replay on start" .-> E
-    H -- "events: book, trades, fills (SSE)" --> B
+    B[Browser<br/>landing · terminal · inspector<br/>replay in a Web Worker] -- "1 order (HTTP)" --> A[API<br/>Fastify · zod · HMAC tokens<br/>rate limits · CSP]
+    A -- "2 command" --> H[Engine host<br/>single-writer queue<br/>market clock · read models]
+    H -- "3 write" --> L[(Command log<br/>PostgreSQL<br/>append-only, hashed)]
+    H -- "snapshot" --> S[(Snapshot store<br/>PostgreSQL<br/>engine state + hash)]
+    H -- "4 match" --> E[Matching engine<br/>in memory<br/>price-time priority<br/>seeded bot market]
+    S -. "restore + replay the log's tail on start" .-> E
+    H -- "live updates: book, trades, your fills (SSE)" --> B
+    L -. "verified replay: the browser downloads the log,<br/>replays it in a Web Worker and compares the state hash" .-> B
 ```
 
 An order's path:
