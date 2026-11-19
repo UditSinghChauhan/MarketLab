@@ -203,6 +203,7 @@ function Terminal({ symbol }: { symbol: string }) {
           bodyClassName="overflow-y-auto"
         >
           <OrderTicket
+            key={symbol}
             market={summary}
             account={account}
             token={token}

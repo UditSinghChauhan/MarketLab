@@ -63,6 +63,28 @@ test.describe("terminal", () => {
     await expect(page.getByText("Quanta Compute")).toBeVisible();
   });
 
+  test("fits all four market tabs at 1024 px without sideways scrolling", async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto("/terminal/ORBT");
+    const tabs = page.getByRole("navigation", { name: "Markets" }).getByRole("link");
+    await expect(tabs).toHaveCount(4);
+    for (const tab of await tabs.all()) await expect(tab).toBeInViewport({ ratio: 1 });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+  });
+
+  test("starts a clean ticket in another market", async ({ page }) => {
+    await page.goto("/terminal/ORBT");
+    await expect(page.getByRole("button", { name: /Buy 10 ORBT/ })).toBeEnabled();
+    await page.keyboard.press("s");
+    await page.getByRole("textbox", { name: "Shares" }).fill("25");
+    await expect(page.getByRole("button", { name: /Sell 25 ORBT/ })).toBeVisible();
+
+    await page.getByRole("link", { name: /QNTA/ }).click();
+    await expect(page.getByRole("button", { name: /Buy 10 QNTA/ })).toBeEnabled();
+  });
+
   test("redirects an unknown market and serves a 404 page for unknown routes", async ({ page }) => {
     await page.goto("/terminal/NOPE");
     await expect(page).toHaveURL(/\/terminal\/ORBT$/);
