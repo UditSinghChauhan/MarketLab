@@ -6,6 +6,7 @@ import { Navigate, useParams } from "react-router";
 import { ApiRequestError, api } from "../lib/api";
 import { useExchange } from "../lib/health";
 import { useMarketStream } from "../lib/stream";
+import { useTouch } from "../lib/useTouch";
 import { Panel } from "../ui/Panel";
 import { Blotter } from "./Blotter";
 import { ChartPanel } from "./ChartPanel";
@@ -43,6 +44,7 @@ export function TerminalRoute() {
 function Terminal({ symbol }: { symbol: string }) {
   const queryClient = useQueryClient();
   const exchange = useExchange();
+  const touch = useTouch();
   const ready = exchange.state === "ready";
   const { token, sessionError, startSession, renewSession } = useGuestSession(ready);
 
@@ -180,7 +182,9 @@ function Terminal({ symbol }: { symbol: string }) {
 
         <Panel
           title="Order book"
-          aside={<span className="text-2xs text-muted">Click a price to use it</span>}
+          aside={
+            <span className="text-2xs text-muted">{touch ? "Tap" : "Click"} a price to use it</span>
+          }
           className="order-3 md:row-span-2 xl:order-none"
         >
           <OrderBookLadder

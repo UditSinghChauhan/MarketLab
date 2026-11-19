@@ -5,6 +5,7 @@ import { useId, useState } from "react";
 
 import { direction, price, qty, rupees, signedRupees, time } from "../lib/format";
 import { cancelMessage, sideLabel, statusLabel, typeLabel } from "../lib/orders";
+import { useTouch } from "../lib/useTouch";
 import { Skeleton } from "../ui/Skeleton";
 
 type Tab = "positions" | "orders";
@@ -115,11 +116,12 @@ function RowsSkeleton({ label }: { label: string }) {
 
 function Positions({ account }: { account: AccountView }) {
   const rows = account.positions;
+  const touch = useTouch();
   if (rows.length === 0) {
     return (
       <p className="p-4 text-sm text-muted">
-        You don't hold anything yet. Buy from the ticket, or click a price in the book to start a
-        limit order.
+        You don't hold anything yet. Buy from the ticket, or {touch ? "tap" : "click"} a price in
+        the book to start a limit order.
       </p>
     );
   }

@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { useTouch } from "../lib/useTouch";
 import { Kbd } from "../ui/Panel";
 
 export type GuideStep = "order" | "price" | "inspector";
@@ -66,6 +67,7 @@ export function Guide({
   done: ReadonlySet<GuideStep>;
   onDismiss: () => void;
 }) {
+  const touch = useTouch();
   const step = (id: GuideStep, number: number, children: React.ReactNode) => {
     const complete = done.has(id);
     return (
@@ -101,13 +103,17 @@ export function Guide({
       <h2 className="font-medium text-muted">New here? Three things to try</h2>
       <ol className="col-span-2 row-start-2 flex flex-col gap-x-6 gap-y-1.5 sm:flex-row sm:flex-wrap sm:items-center lg:col-span-1 lg:col-start-2 lg:row-start-1">
         {step("order", 1, "Place an order from the ticket")}
-        {step("price", 2, "Click a price in the order book")}
+        {step("price", 2, `${touch ? "Tap" : "Click"} a price in the order book`)}
         {step(
           "inspector",
           3,
-          <>
-            Open the inspector <Kbd>I</Kbd> to trace your order
-          </>,
+          touch ? (
+            "Open the inspector to trace your order"
+          ) : (
+            <>
+              Open the inspector <Kbd>I</Kbd> to trace your order
+            </>
+          ),
         )}
       </ol>
       <button

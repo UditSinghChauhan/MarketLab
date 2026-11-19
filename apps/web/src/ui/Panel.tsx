@@ -38,9 +38,10 @@ export function Panel({
   );
 }
 
+/** A keyboard hint. Hidden on touch screens, where there is no keyboard to press it on. */
 export function Kbd({ children }: { children: ReactNode }) {
   return (
-    <kbd className="inline-flex h-[1.15rem] min-w-[1.15rem] items-center justify-center rounded border border-line bg-raised px-1 font-sans text-2xs leading-none text-muted">
+    <kbd className="inline-flex h-[1.15rem] min-w-[1.15rem] items-center justify-center rounded border border-line bg-raised px-1 font-sans text-2xs leading-none text-muted touch:hidden">
       {children}
     </kbd>
   );
