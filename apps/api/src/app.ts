@@ -14,6 +14,7 @@ import {
   PlaceOrderRequest,
   type ApiError,
   type HealthResponse,
+  type MarketSummary,
   type ReplayEntries,
   type ReplayHead,
   type SessionResponse,
@@ -111,6 +112,56 @@ export function absoluteLinks(html: string, origin: string, pathname: string): s
       /(<link rel="canonical" href=")[^"]*(")/,
       (_match, open: string, close: string) => `${open}${here}${close}`,
     );
+}
+
+/**
+ * Puts the current market summaries in the page as an inert JSON block, so the
+ * terminal's first render shows live prices instead of placeholders while its
+ * stream connects. `<` is escaped, so no value can close the script element.
+ */
+export function withInitialMarkets(html: string, markets: readonly MarketSummary[]): string {
+  const json = JSON.stringify(markets).replaceAll("<", "\\u003c");
+  return html.replace(
+    "</head>",
+    `<script type="application/json" id="initial-markets">${json}</script></head>`,
+  );
+}
+
+/** The parts of Vite's build manifest (`.vite/manifest.json`) this server reads. */
+export type ViteManifest = Record<
+  string,
+  { readonly file: string; readonly imports?: readonly string[]; readonly isEntry?: boolean }
+>;
+
+/** Pages that ship as their own chunk, and that chunk's source module. */
+const PAGE_CHUNKS: readonly {
+  readonly matches: (pathname: string) => boolean;
+  readonly source: string;
+}[] = [
+  { matches: (p) => p.startsWith("/terminal/"), source: "src/terminal/Terminal.tsx" },
+  { matches: (p) => p === "/replay", source: "src/replay/Replay.tsx" },
+];
+
+/**
+ * Module-preload links for a page's own chunk and every chunk it imports, so
+ * the browser fetches the page's code alongside the main bundle instead of
+ * only once the main bundle has run. The entry chunk is skipped: the page's
+ * own script tag already loads it.
+ */
+export function routePreloads(manifest: ViteManifest): (pathname: string) => string {
+  const links = PAGE_CHUNKS.map(({ matches, source }) => {
+    const files = new Set<string>();
+    const visit = (key: string) => {
+      const chunk = manifest[key];
+      if (!chunk || chunk.isEntry || files.has(chunk.file)) return;
+      files.add(chunk.file);
+      for (const dependency of chunk.imports ?? []) visit(dependency);
+    };
+    visit(source);
+    const tags = [...files].map((file) => `<link rel="modulepreload" crossorigin href="/${file}">`);
+    return { matches, tags: tags.join("") };
+  });
+  return (pathname) => links.find((l) => l.matches(pathname))?.tags ?? "";
 }
 
 const errorBody = (code: string, message: string, details?: unknown): ApiError => ({
@@ -410,6 +461,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       },
     });
     const indexHtml = readFileSync(path.join(webRoot, "index.html"), "utf8");
+    const manifestFile = path.join(webRoot, ".vite", "manifest.json");
+    const preloadsFor = existsSync(manifestFile)
+      ? routePreloads(JSON.parse(readFileSync(manifestFile, "utf8")) as ViteManifest)
+      : () => "";
     // The configured origin wins. Without one (local runs), the request's own
     // host is used, so the canonical link and preview image are always absolute.
     const configured = (config.PUBLIC_URL ?? config.RENDER_EXTERNAL_URL)?.replace(/\/+$/, "");
@@ -419,10 +474,18 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     const sendPage = (request: FastifyRequest, reply: FastifyReply) => {
       const origin = originOf(request);
       const { pathname } = new URL(request.url, "http://localhost");
-      return reply
-        .header("cache-control", "no-cache")
-        .type("text/html; charset=utf-8")
-        .send(origin ? absoluteLinks(indexHtml, origin, pathname) : indexHtml);
+      let html = origin ? absoluteLinks(indexHtml, origin, pathname) : indexHtml;
+      const preload = preloadsFor(pathname);
+      if (preload) html = html.replace("</head>", `${preload}</head>`);
+      // The terminal's price heading is its largest paint; with the prices in
+      // the page it paints on the first render, not after the stream connects.
+      if (pathname.startsWith("/terminal/") && host.healthy) {
+        html = withInitialMarkets(
+          html,
+          instruments.map((i) => marketSummary(host, i)),
+        );
+      }
+      return reply.header("cache-control", "no-cache").type("text/html; charset=utf-8").send(html);
     };
 
     app.get("/", sendPage);

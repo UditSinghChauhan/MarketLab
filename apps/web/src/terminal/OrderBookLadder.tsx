@@ -35,9 +35,10 @@ export function OrderBookLadder({
   const rows = compact ? 6 : ROWS;
   // In the terminal, rows share the panel's height (up to a comfortable maximum)
   // so the ladder fills its column instead of leaving a gap above and below.
+  // Below md the rows are tap targets, so they get the 24 px WCAG 2.2 asks for.
   const rowH = compact
     ? "h-[26px] shrink-0"
-    : "h-[1.4rem] shrink-0 md:h-auto md:max-h-7 md:min-h-[1.4rem] md:flex-1";
+    : "h-6 shrink-0 md:h-auto md:max-h-7 md:min-h-[1.4rem] md:flex-1";
   if (!book) return <LadderSkeleton rows={rows} rowH={rowH} />;
   const asks = withCumulative(book.asks, rows);
   const bids = withCumulative(book.bids, rows);

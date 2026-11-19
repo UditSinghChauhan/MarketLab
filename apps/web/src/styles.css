@@ -4,6 +4,9 @@
 @import "@fontsource/ibm-plex-mono/400.css";
 @import "tailwindcss";
 
+/* Phones and tablets: no hover, a finger for a pointer. Keyboard hints hide here. */
+@custom-variant touch (@media (hover: none) and (pointer: coarse));
+
 /*
  * Design tokens. The landing page is light; the terminal is dark.
  * Every text colour passes WCAG AA on its surfaces. `--faint` is for

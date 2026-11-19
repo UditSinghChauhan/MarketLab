@@ -263,7 +263,7 @@ export function OrderTicket({
             }`}
           >
             {s === "buy" ? "Buy" : "Sell"}
-            <span className={`text-2xs ${side === s ? "opacity-70" : "opacity-60"}`}>
+            <span className={`text-2xs touch:hidden ${side === s ? "opacity-70" : "opacity-60"}`}>
               {s === "buy" ? "B" : "S"}
             </span>
           </button>
@@ -291,7 +291,7 @@ export function OrderTicket({
             }`}
           >
             {t.label}
-            <span className="text-2xs opacity-60">{t.key}</span>
+            <span className="text-2xs opacity-60 touch:hidden">{t.key}</span>
           </button>
         ))}
       </div>

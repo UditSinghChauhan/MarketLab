@@ -6,11 +6,14 @@ import { Navigate, useParams } from "react-router";
 import { ApiRequestError, api } from "../lib/api";
 import { useExchange } from "../lib/health";
 import { useMarketStream } from "../lib/stream";
+import { useTouch } from "../lib/useTouch";
 import { Panel } from "../ui/Panel";
+import { useAfterFirstPaint } from "../ui/useAfterFirstPaint";
 import { Blotter } from "./Blotter";
 import { ChartPanel } from "./ChartPanel";
 import { Guide, useGuide } from "./Guide";
 import { Inspector } from "./Inspector";
+import { MarketStrip } from "./MarketStrip";
 import { SYMBOLS } from "./markets";
 import { OrderBookLadder } from "./OrderBookLadder";
 import { OrderTicket, type Prefill } from "./OrderTicket";
@@ -42,7 +45,11 @@ export function TerminalRoute() {
 function Terminal({ symbol }: { symbol: string }) {
   const queryClient = useQueryClient();
   const exchange = useExchange();
-  const ready = exchange.state === "ready";
+  const touch = useTouch();
+  // The first frame already shows prices (sent with the page); the session and
+  // the stream start right after it, so they never hold back that paint.
+  const painted = useAfterFirstPaint();
+  const ready = exchange.state === "ready" && painted;
   const { token, sessionError, startSession, renewSession } = useGuestSession(ready);
 
   // The browser tab and its toolbar follow the page: graphite here, light on the landing page.
@@ -139,6 +146,7 @@ function Terminal({ symbol }: { symbol: string }) {
   return (
     <div className="dark-ui flex min-h-dvh flex-col bg-bg text-text xl:h-dvh">
       <TerminalHeader
+        symbol={symbol}
         markets={market.markets}
         status={market.status}
         exchange={exchange.state}
@@ -150,6 +158,8 @@ function Terminal({ symbol }: { symbol: string }) {
           setConfirmStartOver(true);
         }}
       />
+
+      <MarketStrip markets={market.markets} />
 
       {guide.visible && <Guide done={guide.done} onDismiss={guide.dismiss} />}
 
@@ -176,7 +186,9 @@ function Terminal({ symbol }: { symbol: string }) {
 
         <Panel
           title="Order book"
-          aside={<span className="text-2xs text-muted">Click a price to use it</span>}
+          aside={
+            <span className="text-2xs text-muted">{touch ? "Tap" : "Click"} a price to use it</span>
+          }
           className="order-3 md:row-span-2 xl:order-none"
         >
           <OrderBookLadder
@@ -195,6 +207,7 @@ function Terminal({ symbol }: { symbol: string }) {
           bodyClassName="overflow-y-auto"
         >
           <OrderTicket
+            key={symbol}
             market={summary}
             account={account}
             token={token}

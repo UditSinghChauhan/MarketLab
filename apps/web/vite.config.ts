@@ -3,9 +3,9 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
 /**
- * Preloads the two font files every page needs for its first paint (body text
- * and headings), so text renders in IBM Plex straight away instead of swapping
- * in after the stylesheet has been parsed.
+ * Preloads the font files every page needs for its first paint (body text,
+ * labels and headings), so text renders in IBM Plex straight away instead of
+ * waiting for the stylesheet to be parsed before the fonts are even requested.
  */
 function preloadFonts(pattern: RegExp): Plugin {
   return {
@@ -37,12 +37,14 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    preloadFonts(/ibm-plex-sans-latin-(400|600)-normal-[\w-]+\.woff2$/),
+    preloadFonts(/ibm-plex-sans-latin-(400|500|600)-normal-[\w-]+\.woff2$/),
   ],
   server: {
     port: 5173,
     // In development the API runs separately; in production it serves this build.
     proxy: { "/api": { target: "http://localhost:8080", changeOrigin: true } },
   },
-  build: { target: "es2022", sourcemap: true },
+  // The manifest lets the server preload a page's own chunk from its HTML
+  // (see routePreloads in the API), instead of after the main bundle has run.
+  build: { target: "es2022", sourcemap: true, manifest: true },
 });

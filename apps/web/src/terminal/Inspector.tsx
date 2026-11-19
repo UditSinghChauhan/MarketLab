@@ -3,12 +3,13 @@
  * with the time each step took and every engine event it produced.
  */
 
-import type { OrderTrace, OrderView } from "@marketlab/contracts";
+import type { CommandTiming, OrderTrace, OrderView } from "@marketlab/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
 import { api } from "../lib/api";
 import { duration, time } from "../lib/format";
+import { useExchange } from "../lib/health";
 import { describeEvent, sideLabel, typeLabel } from "../lib/orders";
 import { useFocusScope } from "../ui/Dialog";
 import { Kbd } from "../ui/Panel";
@@ -133,8 +134,48 @@ function TraceSkeleton() {
   );
 }
 
+/** The step that took longest for this order, in the words of the request path above. */
+export function slowestStep(timing: CommandTiming): { step: string; us: number } {
+  const steps = [
+    { step: "Waiting for its turn", us: timing.queueMs * 1000 },
+    { step: "The write to the command log", us: timing.persistMs * 1000 },
+    { step: "Matching", us: timing.engineUs },
+  ];
+  return steps.reduce((slowest, s) => (s.us > slowest.us ? s : slowest));
+}
+
+/**
+ * This order's engine time beside the engine's recent median, and which step
+ * set its latency. Every clause stays true for an unusually slow or fast order.
+ */
+export function LatencySummary({
+  timing,
+  medianUs,
+}: {
+  timing: CommandTiming;
+  /** The engine's rolling median from /api/health; undefined until health has loaded. */
+  medianUs: number | undefined;
+}) {
+  const slowest = slowestStep(timing);
+  return (
+    <p className="mt-4 rounded-md bg-raised px-3 py-2 text-xs leading-relaxed text-muted">
+      Matching this order took <span className="num text-text">{duration(timing.engineUs)}</span>
+      {medianUs !== undefined && (
+        <>
+          ; the engine's median over recent commands is{" "}
+          <span className="num text-text">{duration(medianUs)}</span>
+        </>
+      )}
+      . {slowest.step} was the slowest step (
+      <span className="num text-text">{duration(slowest.us)}</span>), so it set this order's
+      latency.
+    </p>
+  );
+}
+
 function TraceView({ trace }: { trace: OrderTrace }) {
   const [raw, setRaw] = useState(false);
+  const median = useExchange().health?.engine.p50Us;
   const t = trace.timing;
   const persistUs = t ? t.persistMs * 1000 : 0;
 
@@ -175,16 +216,7 @@ function TraceView({ trace }: { trace: OrderTrace }) {
               </li>
             ))}
           </ol>
-          {persistUs > 0 && t.engineUs > 0 && (
-            <p className="mt-4 rounded-md bg-raised px-3 py-2 text-xs leading-relaxed text-muted">
-              Matching took {duration(t.engineUs)}; the durable write took {duration(persistUs)}.
-              The engine is about{" "}
-              <span className="text-text">
-                {Math.max(1, Math.round(persistUs / t.engineUs)).toLocaleString("en-IN")}×
-              </span>{" "}
-              faster than the disk, which is why the log, not the engine, sets the latency.
-            </p>
-          )}
+          <LatencySummary timing={t} medianUs={median} />
         </section>
       )}
 

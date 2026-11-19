@@ -19,6 +19,8 @@ import type {
 } from "@marketlab/contracts";
 import { useEffect, useReducer, useRef, useState } from "react";
 
+import { initialMarkets } from "./initialMarkets";
+
 const MAX_TRADES = 60;
 const RECONNECT_MS = 3_000;
 
@@ -42,6 +44,7 @@ export interface MarketState {
 
 type Action =
   | { type: "reset"; symbol: string }
+  | { type: "session" }
   | { type: "status"; status: ConnectionStatus }
   | { type: "candles"; symbol: string; candles: Candle[] }
   | { type: "message"; message: StreamMessage };
@@ -49,7 +52,7 @@ type Action =
 const initial = (symbol: string): MarketState => ({
   status: "connecting",
   symbol,
-  markets: [],
+  markets: initialMarkets(),
   book: null,
   trades: [],
   candles: [],
@@ -71,6 +74,9 @@ export function reducer(state: MarketState, action: Action): MarketState {
   switch (action.type) {
     case "reset":
       return initial(action.symbol);
+    case "session":
+      // Another account: its own data goes; the market on screen stays.
+      return { ...state, account: null, lastOrderEvents: [] };
     case "status":
       return { ...state, status: action.status };
     case "candles":
@@ -126,10 +132,15 @@ export function useMarketStream(
     onSessionEndedRef.current = onSessionEnded;
   }, [onSessionEnded]);
 
-  // A different market or account starts from empty; a reconnect keeps what is on screen.
+  // A different market starts from empty. A different session (a visitor's
+  // first, or a fresh account) only clears that account's data: the public
+  // market stays on screen rather than flashing back to placeholders.
   useEffect(() => {
     dispatch({ type: "reset", symbol });
-  }, [symbol, token]);
+  }, [symbol]);
+  useEffect(() => {
+    dispatch({ type: "session" });
+  }, [token]);
 
   useEffect(() => {
     if (!enabled) {
