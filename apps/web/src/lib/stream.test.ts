@@ -358,6 +358,33 @@ describe("useMarketStream", () => {
     expect(accountChecks(fetch)).toBe(0);
   });
 
+  it("keeps the market on screen when a session starts, and drops an old account's data", () => {
+    stubFetch();
+    const { result, rerender } = renderHook(({ token }) => useMarketStream("ORBT", token), {
+      initialProps: { token: null as string | null },
+    });
+    act(() => {
+      latest().emit({ type: "markets", markets: [summary] });
+    });
+
+    rerender({ token: "first" });
+    expect(latest().url).toBe("/api/stream?symbol=ORBT&token=first");
+    expect(result.current.markets).toEqual([summary]);
+    act(() => {
+      latest().emit({ type: "account", account });
+      latest().emit({
+        type: "orders",
+        events: [{ seq: 1, at: 0, type: "order.filled", orderId: "o1" }],
+      });
+    });
+    expect(result.current.account).toEqual(account);
+
+    rerender({ token: "second" });
+    expect(result.current.markets).toEqual([summary]);
+    expect(result.current.account).toBeNull();
+    expect(result.current.lastOrderEvents).toEqual([]);
+  });
+
   it("starts from empty on another market and closes the old stream", () => {
     stubFetch();
     const { result, rerender } = renderHook(({ symbol }) => useMarketStream(symbol, "tok"), {
