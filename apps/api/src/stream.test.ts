@@ -112,6 +112,29 @@ describe("event stream", () => {
     expect(messages.some((m) => m.type === "account")).toBe(true);
   });
 
+  it("sends every client on a symbol each trade batch newest-first", async () => {
+    const accountId = await host.openGuest();
+    let connected = 0;
+    // A market order large enough to sweep several ask levels: one batch, many prints.
+    const sweep = async () => {
+      connected += 1;
+      if (connected === 3) await host.submit(buy(accountId, "SOLR", 400));
+    };
+    const liveBatch = (m: StreamMessage[]) =>
+      m.filter((x) => x.type === "trades").some((x, i) => i > 0 && x.trades.length >= 2);
+    const clients = await Promise.all(
+      [0, 1, 2].map(() => collect(`${base}/api/stream?symbol=SOLR`, liveBatch, sweep)),
+    );
+
+    for (const messages of clients) {
+      expect(liveBatch(messages)).toBe(true);
+      for (const batch of messages.filter((x) => x.type === "trades")) {
+        const seqs = batch.trades.map((t) => t.seq);
+        expect(seqs).toEqual([...seqs].sort((a, b) => b - a));
+      }
+    }
+  });
+
   it("rejects an invalid token", async () => {
     const res = await fetch(`${base}/api/stream?symbol=ORBT&token=nope`);
     expect(res.status).toBe(401);

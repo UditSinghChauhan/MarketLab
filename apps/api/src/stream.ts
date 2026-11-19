@@ -120,11 +120,14 @@ export class StreamHub {
       });
       trades.set(e.symbol, list);
     }
+    // Newest first, like the tape snapshot. Reversed once per symbol: every
+    // client on that symbol shares the same array.
+    for (const list of trades.values()) list.reverse();
 
     for (const client of this.clients) {
       const prints = trades.get(client.symbol);
       if (prints) {
-        this.send(client, { type: "trades", symbol: client.symbol, trades: prints.reverse() });
+        this.send(client, { type: "trades", symbol: client.symbol, trades: prints });
         const candle = this.host.data.lastCandle(client.symbol);
         if (candle) this.send(client, { type: "candle", symbol: client.symbol, candle });
       }
