@@ -113,7 +113,7 @@ the inspector shows both.
 
 ## Run it locally
 
-Requires Node 22.
+Requires Node 22+ (`nvm use` reads [`.nvmrc`](.nvmrc)).
 
 **In memory** (no database; the market starts fresh on every restart):
 
