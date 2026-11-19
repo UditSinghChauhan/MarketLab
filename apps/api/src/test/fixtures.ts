@@ -6,6 +6,7 @@ import { paise, quantity, type Command } from "@marketlab/engine";
 import { loadConfig } from "../config.js";
 import { EngineHost, type HostOptions } from "../host.js";
 import { INSTRUMENTS } from "../instruments.js";
+import { MemoryLog } from "../log/memory.js";
 import { PostgresLog } from "../log/postgres.js";
 import type { CommandLog } from "../log/types.js";
 
@@ -39,7 +40,27 @@ export async function startHost(log: CommandLog, now: () => number): Promise<Eng
   return EngineHost.start(hostOptions(log, now));
 }
 
-export async function pgliteLog(): Promise<{ log: PostgresLog; db: PGlite }> {
+/** A memory log that counts what is written to it, to show when the host writes nothing. */
+export class CountingLog extends MemoryLog {
+  appends = 0;
+  snapshotsSaved = 0;
+
+  override append(...args: Parameters<MemoryLog["append"]>): Promise<void> {
+    this.appends += 1;
+    return super.append(...args);
+  }
+
+  override saveSnapshot(...args: Parameters<MemoryLog["saveSnapshot"]>): Promise<void> {
+    this.snapshotsSaved += 1;
+    return super.saveSnapshot(...args);
+  }
+
+  writes() {
+    return { appends: this.appends, snapshots: this.snapshotsSaved };
+  }
+}
+
+export async function pgliteLog(): Promise<{ log: PostgresLog<PGlite>; db: PGlite }> {
   const db = new PGlite();
   const log = await PostgresLog.open(db);
   return { log, db };

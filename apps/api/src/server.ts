@@ -70,6 +70,7 @@ const host = await EngineHost.start({
   },
 });
 const hub = new StreamHub(host, INSTRUMENTS);
+host.watch(() => hub.size); // periodic log writes pause while nobody watches (ADR 0007)
 const app = await buildApp({ config, host, hub, instruments: INSTRUMENTS, persistence: log.kind });
 
 app.log.info(
