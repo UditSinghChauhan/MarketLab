@@ -1,4 +1,6 @@
-/** System diagram: how a request and the market stream move through MarketLab. */
+/** System diagram: how a request, the market stream and a verified replay move through MarketLab. */
+
+import { useScrollFade } from "../ui/useScrollFade";
 
 const BOX = "fill-[var(--surface)] stroke-[var(--line)]";
 
@@ -74,86 +76,119 @@ function Arrow({
 }
 
 export function Architecture() {
+  const { attach: attachScroller, style: scrollerFade } = useScrollFade();
   return (
     <figure className="mt-16">
       <figcaption className="mb-4 text-sm text-muted">
         How an order moves through the system. Numbers show the order of steps for one command.
+        <span className="md:hidden"> Scroll sideways to see all of it.</span>
       </figcaption>
-      <div className="overflow-x-auto rounded-lg border border-line bg-surface p-4">
-        <svg
-          viewBox="0 0 960 300"
-          className="min-w-[680px]"
-          role="img"
-          aria-label="Architecture: the browser sends orders over HTTP and receives market data over server-sent events. The API validates and authenticates, then the engine host's single writer first appends the command to the Postgres command log and then applies it to the in-memory matching engine. On startup the log is replayed into the engine."
+      <div className="rounded-lg border border-line bg-surface p-4">
+        <div
+          ref={attachScroller}
+          style={scrollerFade}
+          // Scrollable on small screens, so it must be reachable by keyboard.
+          tabIndex={0}
+          role="region"
+          aria-label="Architecture diagram"
+          className="overflow-x-auto"
         >
-          <defs>
-            <marker
-              id="arrow"
-              viewBox="0 0 10 10"
-              refX="9"
-              refY="5"
-              markerWidth="7"
-              markerHeight="7"
-              orient="auto-start-reverse"
-            >
-              <path d="M0 0L10 5L0 10z" fill="var(--muted)" />
-            </marker>
-          </defs>
+          <svg
+            viewBox="0 0 1060 400"
+            className="w-full min-w-[960px]"
+            role="img"
+            aria-label="Architecture: the browser sends orders over HTTP and receives market data over server-sent events. The API validates and authenticates, then the engine host's single writer first appends the command to the PostgreSQL command log and then applies it to the in-memory matching engine. The host also stores hashed engine snapshots in PostgreSQL; on startup it restores the latest snapshot and replays the rest of the log. For verified replay, the browser downloads the command log, replays it in a Web Worker and compares its state hash with the server's."
+          >
+            <defs>
+              <marker
+                id="arrow"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
+              >
+                <path d="M0 0L10 5L0 10z" fill="var(--muted)" />
+              </marker>
+            </defs>
 
-          <Box
-            x={10}
-            y={90}
-            w={170}
-            h={110}
-            title="Browser"
-            lines={["Landing page", "Trading terminal", "Engine inspector"]}
-          />
-          <Box
-            x={260}
-            y={90}
-            w={190}
-            h={110}
-            title="API (Fastify)"
-            lines={["Validation (zod)", "Guest tokens (HMAC)", "Rate limits, CSP"]}
-          />
-          <Box
-            x={530}
-            y={90}
-            w={190}
-            h={110}
-            title="Engine host"
-            lines={["Single-writer queue", "Market clock", "Read models"]}
-            emphasis
-          />
-          <Box
-            x={790}
-            y={20}
-            w={160}
-            h={100}
-            title="Command log"
-            lines={["PostgreSQL", "Append-only"]}
-          />
-          <Box
-            x={790}
-            y={170}
-            w={160}
-            h={110}
-            title="Matching engine"
-            lines={["In memory", "Price-time priority", "Seeded bot market"]}
-          />
+            <Box
+              x={10}
+              y={110}
+              w={190}
+              h={130}
+              title="Browser"
+              lines={[
+                "Landing page",
+                "Trading terminal",
+                "Engine inspector",
+                "Replay in a Web Worker",
+              ]}
+            />
+            <Box
+              x={280}
+              y={115}
+              w={200}
+              h={120}
+              title="API (Fastify)"
+              lines={["Validation (zod)", "Guest tokens (HMAC)", "Rate limits, CSP"]}
+            />
+            <Box
+              x={560}
+              y={115}
+              w={200}
+              h={120}
+              title="Engine host"
+              lines={["Single-writer queue", "Market clock", "Read models"]}
+              emphasis
+            />
+            <Box
+              x={870}
+              y={30}
+              w={180}
+              h={86}
+              title="Command log"
+              lines={["PostgreSQL", "Append-only, hashed"]}
+            />
+            <Box
+              x={870}
+              y={136}
+              w={180}
+              h={90}
+              title="Snapshot store"
+              lines={["PostgreSQL", "Engine state + hash"]}
+            />
+            <Box
+              x={870}
+              y={280}
+              w={180}
+              h={110}
+              title="Matching engine"
+              lines={["In memory", "Price-time priority", "Seeded bot market"]}
+            />
 
-          <Arrow d="M180 125 H256" label="1  order (HTTP)" lx={186} ly={117} />
-          <Arrow d="M450 125 H526" label="2  command" lx={462} ly={117} />
-          <Arrow d="M720 112 C 750 112, 760 70, 786 70" label="3  write" lx={732} ly={84} />
-          <Arrow d="M720 165 C 750 165, 760 222, 786 222" label="4  match" lx={712} ly={238} />
-          <Arrow
-            d="M625 200 V250 H95 V204"
-            label="Live updates: book, trades, your fills (server-sent events)"
-            lx={210}
-            ly={268}
-          />
-          <Arrow d="M870 120 V166" dashed label="replay on start" lx={878} ly={148} />
-        </svg>
+            <Arrow d="M200 165 H276" label="1  order" lx={210} ly={157} />
+            <Arrow d="M480 165 H556" label="2  command" lx={488} ly={157} />
+            <Arrow d="M760 140 H810 V73 H866" label="3  write" lx={816} ly={65} />
+            <Arrow d="M760 180 H866" label="snapshot" lx={816} ly={172} />
+            <Arrow d="M760 215 H810 V335 H866" label="4  match" lx={816} ly={327} />
+            <Arrow d="M900 226 V276" dashed label="restore + replay on start" lx={908} ly={256} />
+            <Arrow
+              d="M660 235 V262 H105 V244"
+              label="Live updates: book, trades, your fills (server-sent events)"
+              lx={230}
+              ly={280}
+            />
+            <Arrow
+              d="M960 30 V14 H105 V106"
+              dashed
+              label="Verified replay: the browser downloads the log, replays it in a Web Worker and compares the state hash"
+              lx={120}
+              ly={36}
+            />
+          </svg>
+        </div>
       </div>
     </figure>
   );
