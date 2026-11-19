@@ -109,10 +109,23 @@ smoke test of the built server against Postgres (health, JSON 404, deep links,
 headers, compression, restart from a snapshot, exit when the log is
 unwritable), and Playwright on every pull request.
 
-**Engine benchmark** (`npm run bench -w @marketlab/engine`, one core): about
-700,000 commands per second; per-command latency p50 0.6 µs, p99 about 3 µs.
-In the running system the Postgres write, not matching, sets the latency, and
-the inspector shows both.
+**Engine time, and what each number measures.** All of these time
+`Exchange.submit` alone, the matching engine's work for one command.
+
+| Measured                                                                          | Median     | Where                                                              |
+| --------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------ |
+| Bot flow in a tight loop: about 700,000 commands per second, one core             | 0.6 µs     | `npm run bench -w @marketlab/engine`                               |
+| A bot command in the running server (98 % are quotes or cancels that never trade) | 0.6–1 µs   | `/api/health` `engine.bots`, landing page                          |
+| A visitor's 5-share market order, run hot, back to back                           | 1.1–1.3 µs | `npm run bench:latency -w @marketlab/api`                          |
+| The same order right after a 5 ms log write, as in the running server             | 19–23 µs   | the same benchmark; the inspector; `/api/health` `engine.visitors` |
+
+The same order takes about 20 times longer after the write, with the same
+engine code: only what happened before it differs. That points to the CPU
+having gone cold while the thread waited (caches and branch predictors
+refilled by other work, a sleeping core clocking down), not to extra work in
+the engine; spinning instead of sleeping for those 5 ms still leaves it at
+about 13 µs. A visitor's order in the running system spends milliseconds in
+the Postgres write and microseconds in matching, and the inspector shows both.
 
 ## Run it locally
 
