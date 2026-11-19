@@ -11,6 +11,12 @@ import { price, time } from "../lib/format";
 
 const AXIS_W = 68;
 const AXIS_H = 22;
+/**
+ * Pixels kept free above the highest price. The range pad is a share of the
+ * range, so on a short chart it can be only a few pixels; a gridline label or
+ * the last-price badge (both centred on their line) would then be cut off.
+ */
+const TOP_PAD = 10;
 const STEP = 9; // horizontal pixels per candle
 const BODY = 6;
 
@@ -133,7 +139,7 @@ export function PriceChart({
   }
 
   const { data, lo, hi, maxVolume, offset, lastPrice } = view;
-  const y = (p: number) => ((hi - p) / (hi - lo)) * priceH;
+  const y = (p: number) => TOP_PAD + ((hi - p) / (hi - lo)) * (priceH - TOP_PAD);
   const x = (i: number) => offset + i * STEP + STEP / 2;
   const step = niceStep(hi - lo, Math.max(2, Math.floor(priceH / 56)));
   const gridLines: number[] = [];
@@ -282,7 +288,7 @@ export function PriceChart({
                   fill="var(--raised)"
                 />
                 <text x={plotW + 8} y={hover.y + 4} className="num fill-text text-2xs">
-                  {price((hi - (hover.y / priceH) * (hi - lo)).toFixed(2))}
+                  {price((hi - ((hover.y - TOP_PAD) / (priceH - TOP_PAD)) * (hi - lo)).toFixed(2))}
                 </text>
               </>
             )}

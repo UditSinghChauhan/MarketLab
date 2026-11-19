@@ -52,12 +52,14 @@ the microseconds each step took.
 
 ```mermaid
 flowchart LR
-    B[Browser<br/>landing · terminal · inspector] -- "HTTP: orders" --> A[API<br/>Fastify · zod · HMAC tokens]
-    A -- command --> H[Engine host<br/>single-writer queue]
-    H -- "1 append" --> L[(Command log<br/>PostgreSQL)]
-    H -- "2 apply" --> E[Matching engine<br/>in memory]
-    L -. "replay on start" .-> E
-    H -- "events: book, trades, fills (SSE)" --> B
+    B[Browser<br/>landing · terminal · inspector<br/>replay in a Web Worker] -- "1 order (HTTP)" --> A[API<br/>Fastify · zod · HMAC tokens<br/>rate limits · CSP]
+    A -- "2 command" --> H[Engine host<br/>single-writer queue<br/>market clock · read models]
+    H -- "3 write" --> L[(Command log<br/>PostgreSQL<br/>append-only, hashed)]
+    H -- "snapshot" --> S[(Snapshot store<br/>PostgreSQL<br/>engine state + hash)]
+    H -- "4 match" --> E[Matching engine<br/>in memory<br/>price-time priority<br/>seeded bot market]
+    S -. "restore + replay the log's tail on start" .-> E
+    H -- "live updates: book, trades, your fills (SSE)" --> B
+    L -. "verified replay: the browser downloads the log,<br/>replays it in a Web Worker and compares the state hash" .-> B
 ```
 
 An order's path:
@@ -83,6 +85,7 @@ An order's path:
 | Hand-drawn SVG chart, no chart library             | Small data, full control, and the drawing rules are worth showing                                                 | [PriceChart.tsx](apps/web/src/terminal/PriceChart.tsx)                     |
 | Server-sent events over WebSockets                 | Market data flows one way; commands are plain HTTP                                                                | [stream.ts](apps/api/src/stream.ts)                                        |
 | The browser can check the server                   | The inputs are public and the engine is pure, so the claim "state is a function of the log" is testable by anyone | [ADR 0005](docs/adr/0005-verified-replay.md)                               |
+| Scaling beyond one server (design only)            | The log append, not matching, is the first limit; partition by symbol, one writer each, and fan out separately    | [ADR 0008](docs/adr/0008-scaling-beyond-one-server.md)                     |
 
 Design system and references: [docs/DESIGN-DIRECTION.md](docs/DESIGN-DIRECTION.md).
 
@@ -113,7 +116,7 @@ the inspector shows both.
 
 ## Run it locally
 
-Requires Node 22.
+Requires Node 22+ (`nvm use` reads [`.nvmrc`](.nvmrc)).
 
 **In memory** (no database; the market starts fresh on every restart):
 
