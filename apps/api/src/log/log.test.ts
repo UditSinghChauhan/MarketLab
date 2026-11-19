@@ -180,10 +180,20 @@ describe.skipIf(!url)("postgres single-writer lock", () => {
 
     // Suspended, the first process holds no lock, so another one can start...
     const second = await PostgresLog.open(await connect());
-    // ...and the first one, waking, must not wait for the lock or write.
-    const started = performance.now();
-    await expect(first.resume(session.id, 0)).rejects.toThrow(/lock/);
-    expect(performance.now() - started).toBeLessThan(2_000);
+    // ...and the first one, waking, must fail rather than wait: the second
+    // never lets go, so waiting for the lock would hang until the timer below.
+    // (The bound is generous because reconnecting to a remote server, such as
+    // Neon over TLS, takes seconds on its own.)
+    let timer: NodeJS.Timeout | undefined;
+    const waited = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error("resume waited for the lock"));
+      }, 10_000);
+    });
+    await expect(Promise.race([first.resume(session.id, 0), waited])).rejects.toThrow(
+      /Another engine process holds the command-log lock/,
+    );
+    clearTimeout(timer);
     expect(first.connected).toBe(false);
     await second.close();
   });
