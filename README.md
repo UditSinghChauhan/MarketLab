@@ -86,18 +86,23 @@ Design system and references: [docs/DESIGN-DIRECTION.md](docs/DESIGN-DIRECTION.m
 
 ## Quality
 
-| Layer                        | What is tested                                                                                                                                                                                                                                                                                                             |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Engine (Vitest + fast-check) | Every matching rule; invariants after every random command; determinism; state hash and snapshot properties; replayer scrubbing and divergence detection; deliberately broken code fails the suite                                                                                                                         |
-| API                          | Exact state after replay (in memory and Postgres), snapshot restore equal to full replay, corrupt snapshots ignored, an independent replayer over HTTP reaching the server's hash, write-ahead failure, single-writer lock (real Postgres in CI), connection-string parsing, HTTP contract, auth, rate limits, live stream |
-| Web (Testing Library)        | Order ticket keyboard, validation, results; stream reducer; cold-start monitor; error boundary; formatting                                                                                                                                                                                                                 |
-| End to end (Playwright)      | Hero order trace, place/trace/cancel in the terminal, rejection message, routing, phone layout, cold start, keyboard focus, no layout shift, no console errors, axe (no serious or critical violations), verified replay (match, scrub, play, tampered log)                                                                |
+| Layer                        | What is tested                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Engine (Vitest + fast-check) | Every matching rule; invariants after every random command; determinism; state hash and snapshot properties; replayer scrubbing and divergence detection; deliberately broken code fails the suite                                                                                                                                                                                         |
+| API                          | Exact state after replay (in memory and Postgres), snapshot restore equal to full replay, corrupt snapshots ignored, an independent replayer over HTTP reaching the server's hash, write-ahead failure, single-writer lock (real Postgres in CI), connection-string parsing, TLS verification and channel binding (Postgres with TLS in CI), HTTP contract, auth, rate limits, live stream |
+| Web (Testing Library)        | Order ticket keyboard, validation, results; market stream (reducer, reconnect, session expiry); terminal session, toasts and shortcuts; order wording; cold-start monitor; error boundary; formatting                                                                                                                                                                                      |
+| End to end (Playwright)      | Hero order trace, place/trace/cancel in the terminal, rejection message, routing, phone layout, cold start, keyboard focus, no layout shift, no console errors, axe (no serious or critical violations), verified replay (match, scrub, play, tampered log)                                                                                                                                |
+
+**Unit line coverage: 87%** of TypeScript modules (`npm run coverage`; React
+components are covered end to end by Playwright). CI publishes the full report
+as a build artifact.
 
 CI runs typecheck, lint (`typescript-eslint` strict), formatting, all tests
-against Postgres 16, the production build, a smoke test of the built server
-against Postgres (health, JSON 404, deep links, headers, compression, restart
-from a snapshot, exit when the log is unwritable), and Playwright on every pull
-request.
+with coverage against Postgres 16, the TLS tests against a Postgres with TLS
+and a throwaway CA (failing if they are skipped), the production build, a
+smoke test of the built server against Postgres (health, JSON 404, deep links,
+headers, compression, restart from a snapshot, exit when the log is
+unwritable), and Playwright on every pull request.
 
 **Engine benchmark** (`npm run bench -w @marketlab/engine`, one core): about
 700,000 commands per second; per-command latency p50 0.6 µs, p99 about 3 µs.
