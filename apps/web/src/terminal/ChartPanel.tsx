@@ -1,5 +1,5 @@
 import type { Candle, MarketSummary } from "@marketlab/contracts";
-import { useState } from "react";
+import { useDeferredValue, useState } from "react";
 
 import { changeTone, pct, price, qty, signedRupees } from "../lib/format";
 import type { ExchangeStatus } from "../lib/health";
@@ -25,6 +25,9 @@ export function ChartPanel({
 }) {
   const [hovered, setHovered] = useState<Candle | null>(null);
   const shown = hovered ?? null;
+  // The price heading is the first thing to read (and the page's largest
+  // paint); the chart redraws in a deferred pass so it never holds that back.
+  const deferredCandles = useDeferredValue(candles);
 
   return (
     <Panel
@@ -77,7 +80,7 @@ export function ChartPanel({
       </div>
       <div className="relative min-h-0 flex-1 px-1 pb-1">
         <PriceChart
-          candles={candles}
+          candles={deferredCandles}
           last={summary?.last ?? null}
           onHover={setHovered}
           loading={!candlesLoaded}

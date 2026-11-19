@@ -8,6 +8,7 @@ import { useExchange } from "../lib/health";
 import { useMarketStream } from "../lib/stream";
 import { useTouch } from "../lib/useTouch";
 import { Panel } from "../ui/Panel";
+import { useAfterFirstPaint } from "../ui/useAfterFirstPaint";
 import { Blotter } from "./Blotter";
 import { ChartPanel } from "./ChartPanel";
 import { Guide, useGuide } from "./Guide";
@@ -45,7 +46,10 @@ function Terminal({ symbol }: { symbol: string }) {
   const queryClient = useQueryClient();
   const exchange = useExchange();
   const touch = useTouch();
-  const ready = exchange.state === "ready";
+  // The first frame already shows prices (sent with the page); the session and
+  // the stream start right after it, so they never hold back that paint.
+  const painted = useAfterFirstPaint();
+  const ready = exchange.state === "ready" && painted;
   const { token, sessionError, startSession, renewSession } = useGuestSession(ready);
 
   // The browser tab and its toolbar follow the page: graphite here, light on the landing page.

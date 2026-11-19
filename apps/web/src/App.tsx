@@ -2,16 +2,17 @@ import { Suspense, lazy } from "react";
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react-router";
 
 import { Landing } from "./landing/Landing";
+import { loadReplay, loadTerminal } from "./lib/routes";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { Logo } from "./ui/Logo";
 
 // The landing page is the first thing most visitors see, so it ships in the
-// main bundle. The terminal, with its data layer, loads when it is opened.
-const TerminalRoute = lazy(() =>
-  import("./terminal/Terminal").then((m) => ({ default: m.TerminalRoute })),
-);
+// main bundle. The terminal and the replay are their own chunks: the server
+// preloads the right one from the page's HTML, main.tsx starts it before the
+// first render, and the landing page prefetches the terminal (see lib/routes).
+const TerminalRoute = lazy(() => loadTerminal().then((m) => ({ default: m.TerminalRoute })));
 
-const Replay = lazy(() => import("./replay/Replay").then((m) => ({ default: m.Replay })));
+const Replay = lazy(() => loadReplay().then((m) => ({ default: m.Replay })));
 
 export function App() {
   return (

@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { duration, qty } from "../lib/format";
 import { useExchange } from "../lib/health";
 import { DECISIONS, REPO } from "../lib/links";
+import { prefetchOnIntent, prefetchWhenIdle } from "../lib/routes";
 import { Logo } from "../ui/Logo";
 import { Architecture } from "./Architecture";
 import { HeroDemo } from "./HeroDemo";
@@ -12,6 +13,8 @@ import { MatchingDiagram } from "./MatchingDiagram";
 export function Landing() {
   // Everything on this page except the live numbers renders without the API.
   const h = useExchange().health;
+  // Most visitors open the terminal next; fetch its code while they read.
+  useEffect(() => prefetchWhenIdle("/terminal"), []);
 
   return (
     <div className="min-h-dvh bg-bg text-text">
@@ -34,6 +37,7 @@ export function Landing() {
           </a>
           <Link
             to="/terminal"
+            {...prefetchOnIntent("/terminal")}
             className="inline-flex h-9 items-center rounded-md bg-text px-3.5 text-sm font-medium text-bg hover:opacity-90"
           >
             Open the terminal
@@ -55,6 +59,7 @@ export function Landing() {
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
                 to="/terminal"
+                {...prefetchOnIntent("/terminal")}
                 className="inline-flex h-11 items-center rounded-md bg-accent px-5 text-sm font-semibold text-accent-ink hover:opacity-90"
               >
                 Open the terminal

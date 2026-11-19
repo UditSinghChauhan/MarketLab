@@ -114,6 +114,17 @@ export function useExchange(): ExchangeStatus {
   return useSyncExternalStore(monitor.subscribe, monitor.get);
 }
 
+/**
+ * Asks whether the exchange is up while the page's code and fonts are still
+ * loading, instead of after the first render. The check is held for a few
+ * seconds, by when the page has subscribed if it needs it; otherwise polling
+ * stops as usual.
+ */
+export function checkHealthEarly(holdMs = 10_000): void {
+  const release = monitor.subscribe(() => undefined);
+  setTimeout(release, holdMs);
+}
+
 /** Whole seconds since `since`, updated once a second; 0 when there is nothing to wait for. */
 export function useElapsedSeconds(since: number | null): number {
   const [now, setNow] = useState(Date.now);
