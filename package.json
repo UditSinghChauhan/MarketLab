@@ -2,6 +2,7 @@
   "name": "marketlab",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "A simulated stock exchange you can watch work: price-time matching engine, command-log persistence, live order book and engine inspector.",
   "workspaces": [

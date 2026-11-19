@@ -3,7 +3,7 @@ import { Link } from "react-router";
 
 import { duration, qty } from "../lib/format";
 import { useExchange } from "../lib/health";
-import { DECISIONS, REPO } from "../lib/links";
+import { DECISIONS, EMAIL, GITHUB, LINKEDIN, REPO } from "../lib/links";
 import { prefetchOnIntent, prefetchWhenIdle } from "../lib/routes";
 import { Logo } from "../ui/Logo";
 import { Architecture } from "./Architecture";
@@ -198,16 +198,39 @@ export function Landing() {
         </section>
       </main>
 
-      <footer className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-10 text-sm text-muted">
-        <span>Designed and built by Udit Singh Chauhan.</span>
-        <span className="flex gap-6">
-          <a href={DECISIONS} className="hover:text-text">
-            Design decisions
-          </a>
-          <a href={REPO} className="hover:text-text">
-            GitHub
-          </a>
-        </span>
+      <footer className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-4 px-6 py-10 text-sm text-muted">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <span>Designed and built by Udit Singh Chauhan.</span>
+          <ul aria-label="Contact the author" className="flex flex-wrap gap-x-6 gap-y-2">
+            <li>
+              <a href={GITHUB} className="hover:text-text">
+                GitHub
+              </a>
+            </li>
+            <li>
+              <a href={LINKEDIN} className="hover:text-text">
+                LinkedIn
+              </a>
+            </li>
+            <li>
+              <a href={`mailto:${EMAIL}`} className="hover:text-text">
+                {EMAIL}
+              </a>
+            </li>
+          </ul>
+        </div>
+        <ul aria-label="About this project" className="flex gap-6">
+          <li>
+            <a href={DECISIONS} className="hover:text-text">
+              Design decisions
+            </a>
+          </li>
+          <li>
+            <a href={REPO} className="hover:text-text">
+              Source code
+            </a>
+          </li>
+        </ul>
       </footer>
     </div>
   );
