@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type { HealthResponse, SessionResponse } from "@marketlab/contracts";
+import type { HealthResponse, MarketSummary, SessionResponse } from "@marketlab/contracts";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -23,8 +23,24 @@ describe("production shape: the API serving the built web app", () => {
   beforeAll(async () => {
     const dist = mkdtempSync(path.join(tmpdir(), "marketlab-web-"));
     mkdirSync(path.join(dist, "assets"));
-    writeFileSync(path.join(dist, "index.html"), '<!doctype html><div id="root"></div>');
+    writeFileSync(
+      path.join(dist, "index.html"),
+      '<!doctype html><html><head><title>MarketLab</title></head><body><div id="root"></div></body></html>',
+    );
     writeFileSync(path.join(dist, "assets", "app.js"), `console.log("${"x".repeat(4_000)}")`);
+    mkdirSync(path.join(dist, ".vite"));
+    writeFileSync(
+      path.join(dist, ".vite", "manifest.json"),
+      JSON.stringify({
+        "index.html": { file: "assets/index-a1.js", isEntry: true },
+        "src/terminal/Terminal.tsx": {
+          file: "assets/Terminal-b2.js",
+          imports: ["index.html", "_Panel-c3.js"],
+        },
+        "_Panel-c3.js": { file: "assets/Panel-c3.js", imports: ["index.html"] },
+        "src/replay/Replay.tsx": { file: "assets/Replay-d4.js", imports: ["_Panel-c3.js"] },
+      }),
+    );
 
     log = new MemoryLog();
     servedHost = await startHost(log, clock().now);
@@ -46,6 +62,35 @@ describe("production shape: the API serving the built web app", () => {
       expect(res.headers["cache-control"]).toBe("no-cache");
       expect(res.body).toContain('<div id="root">');
     }
+  });
+
+  it("puts live market summaries in terminal pages only", async () => {
+    const block = /<script type="application\/json" id="initial-markets">(.*?)<\/script><\/head>/;
+    const terminal = (await served.inject({ url: "/terminal/QNTA" })).body;
+    const markets = JSON.parse(block.exec(terminal)?.[1] ?? "null") as MarketSummary[];
+    expect(markets.map((m) => m.symbol)).toEqual(["ORBT", "QNTA", "SOLR", "HLXB"]);
+    expect(markets[0]?.last).toMatch(/^\d+\.\d{2}$/);
+
+    for (const url of ["/", "/replay", "/some/unknown/page"]) {
+      expect((await served.inject({ url })).body).not.toContain("initial-markets");
+    }
+  });
+
+  it("preloads a page's own chunks from its HTML, and never serves the manifest", async () => {
+    const preloads = async (url: string) =>
+      [
+        ...(await served.inject({ url })).body.matchAll(
+          /rel="modulepreload" crossorigin href="([^"]+)"/g,
+        ),
+      ].map((m) => m[1]);
+    expect(await preloads("/terminal/ORBT")).toEqual([
+      "/assets/Terminal-b2.js",
+      "/assets/Panel-c3.js",
+    ]);
+    expect(await preloads("/replay")).toEqual(["/assets/Replay-d4.js", "/assets/Panel-c3.js"]);
+    expect(await preloads("/")).toEqual([]);
+
+    expect((await served.inject({ url: "/.vite/manifest.json" })).body).not.toContain("isEntry");
   });
 
   it("answers unknown API routes with a JSON 404, whatever the method", async () => {

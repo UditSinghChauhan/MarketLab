@@ -44,5 +44,7 @@ export default defineConfig({
     // In development the API runs separately; in production it serves this build.
     proxy: { "/api": { target: "http://localhost:8080", changeOrigin: true } },
   },
-  build: { target: "es2022", sourcemap: true },
+  // The manifest lets the server preload a page's own chunk from its HTML
+  // (see routePreloads in the API), instead of after the main bundle has run.
+  build: { target: "es2022", sourcemap: true, manifest: true },
 });

@@ -19,6 +19,8 @@ import type {
 } from "@marketlab/contracts";
 import { useEffect, useReducer, useRef, useState } from "react";
 
+import { initialMarkets } from "./initialMarkets";
+
 const MAX_TRADES = 60;
 const RECONNECT_MS = 3_000;
 
@@ -50,7 +52,7 @@ type Action =
 const initial = (symbol: string): MarketState => ({
   status: "connecting",
   symbol,
-  markets: [],
+  markets: initialMarkets(),
   book: null,
   trades: [],
   candles: [],

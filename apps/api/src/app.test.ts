@@ -7,7 +7,7 @@ import type {
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { absoluteLinks, buildApp } from "./app.js";
+import { absoluteLinks, buildApp, withInitialMarkets } from "./app.js";
 import type { EngineHost } from "./host.js";
 import { INSTRUMENTS } from "./instruments.js";
 import { MemoryLog } from "./log/memory.js";
@@ -191,6 +191,19 @@ describe("trading", () => {
       );
     }
     expect(statuses.filter((s) => s === 429).length).toBeGreaterThan(0);
+  });
+});
+
+describe("withInitialMarkets", () => {
+  it("adds an inert JSON block that no value can break out of", () => {
+    const market = { symbol: "ORBT", name: "</script><script>alert(1)</script>" };
+    const html = withInitialMarkets("<html><head><title>x</title></head><body></body></html>", [
+      market,
+    ] as unknown as Parameters<typeof withInitialMarkets>[1]);
+    expect(html).toContain('<script type="application/json" id="initial-markets">');
+    expect(html.match(/<\/script>/g)).toHaveLength(1);
+    const json = /id="initial-markets">(.*?)<\/script>/.exec(html)?.[1] ?? "";
+    expect(JSON.parse(json)).toEqual([market]);
   });
 });
 
