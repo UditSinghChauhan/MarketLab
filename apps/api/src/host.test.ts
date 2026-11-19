@@ -129,6 +129,29 @@ describe("engine host", () => {
     expect(host.data.trace(result.orderId ?? "")?.timing).toEqual(result.timing);
   });
 
+  it("reports bot and visitor engine times apart, without replayed commands as visitors", async () => {
+    const log = new MemoryLog();
+    const time = clock();
+    const host = await startHost(log, time.now);
+    for (let i = 0; i < 3; i++) host.tick();
+    const ticksOnly = host.stats();
+    expect(ticksOnly.bots.samples).toBe(ticksOnly.commands);
+    expect(ticksOnly.visitors).toEqual({ p50Us: 0, p99Us: 0, samples: 0 });
+
+    const guest = await host.openGuest();
+    const result = await host.submit(buy(guest, "ORBT", 5));
+    const after = host.stats();
+    expect(after.visitors.samples).toBe(1);
+    expect(after.visitors.p50Us).toBe(result.timing.engineUs);
+    expect(after.bots.samples).toBe(ticksOnly.bots.samples); // the command was not counted twice
+
+    // After a restart the same command is replayed from the log: engine work,
+    // but not a visitor's order measured live.
+    const restarted = await startHost(log, time.now);
+    expect(restarted.stats().visitors.samples).toBe(0);
+    expect(restarted.stats().bots.samples).toBe(restarted.stats().commands);
+  });
+
   it("does not apply a command the log failed to store, and stops accepting work", async () => {
     const log = new MemoryLog();
     const time = clock();

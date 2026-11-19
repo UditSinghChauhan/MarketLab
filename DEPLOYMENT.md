@@ -73,7 +73,7 @@ How the parameters are read ([`connection.ts`](apps/api/src/log/connection.ts)):
 | `TICK_MS`          | `600`   | Milliseconds between simulated market ticks.                                                                                                                     |
 | `WARMUP_MINUTES`   | `30`    | Minutes of history simulated when a new session starts.                                                                                                          |
 | `SESSION_HOURS`    | `24`    | A fresh market session starts after this long.                                                                                                                   |
-| `SNAPSHOT_MINUTES` | `10`    | Minutes between engine snapshots, which keep restarts fast. `0` turns them off.                                                                                  |
+| `SNAPSHOT_MINUTES` | `10`    | Minutes between engine snapshots while the exchange is in use, which keep restarts fast. `0` turns them off.                                                     |
 | `LOG_LEVEL`        | `info`  | Fastify/pino log level.                                                                                                                                          |
 | `PUBLIC_URL`       | none    | The site's address, used for absolute URLs in link previews. On Render it defaults to the service's `onrender.com` address; set it when you add a custom domain. |
 | `RATE_LIMIT_SCALE` | `1`     | Multiplies every rate limit. Only the test suite raises it.                                                                                                      |
@@ -96,10 +96,21 @@ How the parameters are read ([`connection.ts`](apps/api/src/log/connection.ts)):
 - **Restarts and deploys** replay the log the same way. Guests keep their
   accounts until the session rolls over.
 - **Data retention.** Sessions older than seven days are deleted at startup.
-- **Snapshots.** Every ten minutes and on shutdown the engine stores a
-  hash-checked snapshot, so a restart replays only the last few log entries:
-  about half a second instead of up to a minute for a day-old session
+- **Snapshots.** Every ten minutes while the exchange is in use, when it goes
+  idle, when it wakes and on shutdown, the engine stores a hash-checked
+  snapshot, so a restart replays only the last few log entries: about half a
+  second instead of up to a minute for a day-old session
   ([ADR 0006](docs/adr/0006-startup-budget-and-snapshots.md)).
+- **The database idles with the exchange.** Five minutes after the last
+  stream client disconnects and the last order, the engine stops writing,
+  releases its lock and closes its database connection, so Neon's compute
+  can scale to zero and the free plan's compute hours last the month. The
+  market keeps running in memory. The next visitor's first write reconnects
+  (that order's "Written to the command log" time includes Neon waking up).
+  `/api/health` never touches the database, so health checks do not keep it
+  awake. Bot ticks from an idle stretch are logged when activity returns or on
+  shutdown; a crash before then loses only those
+  ([ADR 0007](docs/adr/0007-idle-aware-persistence.md)).
 - **If the database becomes unreachable**, the engine stops accepting orders,
   requests in flight and `/api/health` get `503`, and half a second later the
   process exits so Render restarts it.

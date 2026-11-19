@@ -1,3 +1,4 @@
+import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -42,6 +43,40 @@ describe.each(cases)("%s command log", (_name, make) => {
     await expect(log.append(session.id, 1, entry(2))).rejects.toThrow();
   });
 
+  it("suspends, then resumes where it left off", async () => {
+    const log = await make();
+    const session = await log.openSession(T0, DAY_MS, 7);
+    for (let i = 1; i <= 2; i++) await log.append(session.id, i, entry(i));
+
+    await log.suspend();
+    expect(log.connected).toBe(false);
+    await log.resume(session.id, 2);
+    expect(log.connected).toBe(true);
+    await log.resume(session.id, 2); // already connected: nothing to do
+    await log.append(session.id, 3, entry(3));
+    expect((await log.openSession(T0, DAY_MS, 7)).entries).toHaveLength(3);
+  });
+
+  it("refuses to resume a session another writer added to meanwhile", async () => {
+    const log = await make();
+    const session = await log.openSession(T0, DAY_MS, 7);
+    await log.append(session.id, 1, entry(1));
+    await log.suspend();
+    await log.append(session.id, 2, entry(2)); // someone else, while this engine was away
+    await expect(log.resume(session.id, 1)).rejects.toThrow(/changed/);
+  });
+
+  it("reconnects for a read while suspended, and still checks the head on resume", async () => {
+    const log = await make();
+    const session = await log.openSession(T0, DAY_MS, 7);
+    await log.append(session.id, 1, entry(1));
+    await log.suspend();
+    await log.append(session.id, 2, entry(2)); // someone else
+    expect(await log.readEntries(session.id, 0, 10)).toHaveLength(2);
+    expect(log.connected).toBe(true);
+    await expect(log.resume(session.id, 1)).rejects.toThrow(/changed/);
+  });
+
   it("round-trips every entry kind", async () => {
     const log = await make();
     const session = await log.openSession(T0, DAY_MS, 7);
@@ -82,6 +117,35 @@ describe("postgres command log", () => {
     ]);
     await expect(log.openSession(T0, DAY_MS, 7)).rejects.toThrow();
   });
+
+  it("closes its connection when suspended and opens one, once, when used again", async () => {
+    const db = new PGlite();
+    const connector = {
+      connects: 0,
+      disconnects: 0,
+      connect() {
+        this.connects += 1;
+        return Promise.resolve(db);
+      },
+      disconnect() {
+        this.disconnects += 1;
+        return Promise.resolve();
+      },
+    };
+    const log = await PostgresLog.connect(connector);
+    const session = await log.openSession(T0, DAY_MS, 7);
+    await log.append(session.id, 1, entry(1));
+    expect(connector).toMatchObject({ connects: 1, disconnects: 0 });
+
+    await log.suspend();
+    expect(connector).toMatchObject({ connects: 1, disconnects: 1 });
+    // Two callers at once while suspended share one reconnect: a second
+    // connection would find the writer lock taken by the first.
+    await Promise.all([log.readEntries(session.id, 0, 10), log.resume(session.id, 1)]);
+    expect(connector).toMatchObject({ connects: 2, disconnects: 1 });
+    await log.close();
+    expect(connector.disconnects).toBe(2);
+  });
 });
 
 // Needs a real server: PGlite has a single connection, so it cannot show two writers.
@@ -93,14 +157,44 @@ describe.skipIf(!url)("postgres single-writer lock", () => {
     clients.length = 0;
   });
 
+  const connect = async () => {
+    const client = new pg.Client({ connectionString: url });
+    clients.push(client);
+    await client.connect();
+    return client;
+  };
+
   it("refuses a second engine process", async () => {
-    const connect = async () => {
-      const client = new pg.Client({ connectionString: url });
-      clients.push(client);
-      await client.connect();
-      return client;
-    };
     await PostgresLog.open(await connect());
     await expect(PostgresLog.open(await connect())).rejects.toThrow(/lock/);
+  });
+
+  it("releases the lock while suspended, and fails at once if it is taken meanwhile", async () => {
+    const disconnect = (client: pg.Client) => {
+      clients.splice(clients.indexOf(client), 1);
+      return client.end();
+    };
+    const first = await PostgresLog.connect({ connect, disconnect });
+    const session = await first.openSession(Date.now(), DAY_MS, 7);
+    await first.suspend();
+
+    // Suspended, the first process holds no lock, so another one can start...
+    const second = await PostgresLog.open(await connect());
+    // ...and the first one, waking, must fail rather than wait: the second
+    // never lets go, so waiting for the lock would hang until the timer below.
+    // (The bound is generous because reconnecting to a remote server, such as
+    // Neon over TLS, takes seconds on its own.)
+    let timer: NodeJS.Timeout | undefined;
+    const waited = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error("resume waited for the lock"));
+      }, 10_000);
+    });
+    await expect(Promise.race([first.resume(session.id, 0), waited])).rejects.toThrow(
+      /Another engine process holds the command-log lock/,
+    );
+    clearTimeout(timer);
+    expect(first.connected).toBe(false);
+    await second.close();
   });
 });

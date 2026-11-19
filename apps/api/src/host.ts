@@ -11,17 +11,28 @@
  *   path, which rebuilds the engine and every read model exactly.
  * - Market ticks are cheap and frequent, so they are counted, not logged one by
  *   one: the count is flushed as a single `ticks` entry before the next user
- *   command, or every 30 seconds.
+ *   command, every 30 seconds while the exchange is active, and on shutdown.
  * - Snapshots. Replaying a full day of ticks takes about a minute, so every
- *   few minutes (and on shutdown) the host stores a snapshot of its state.
- *   Startup restores the latest one, checks its hash, and replays only the
- *   entries after it. A snapshot that fails any check is ignored and the whole
- *   log is replayed instead. See docs/adr/0006-startup-budget-and-snapshots.md.
+ *   few minutes while active (and on shutdown) the host stores a snapshot of
+ *   its state. Startup restores the latest one, checks its hash, and replays
+ *   only the entries after it. A snapshot that fails any check is ignored and
+ *   the whole log is replayed instead. See docs/adr/0006-startup-budget-and-snapshots.md.
+ * - Idle-aware. With no stream client and no user activity for five minutes,
+ *   the host stops its periodic writes and suspends the log, so a serverless
+ *   database can scale to zero; the market keeps ticking in memory. Bot ticks
+ *   made while idle are logged when activity returns or on shutdown, and lost
+ *   in a crash before then, which costs no user any order or balance. See
+ *   docs/adr/0007-idle-aware-persistence.md.
  */
 
 import { randomInt, randomUUID } from "node:crypto";
 
-import type { CommandResult, CommandTiming, EngineStats } from "@marketlab/contracts";
+import type {
+  CommandResult,
+  CommandTiming,
+  EngineLatency,
+  EngineStats,
+} from "@marketlab/contracts";
 import {
   CountingExchange,
   SessionEngine,
@@ -37,6 +48,11 @@ import { MarketData, type MarketDataState } from "./market-data.js";
 import { toEventView } from "./serialize.js";
 
 const TICK_FLUSH_MS = 30_000;
+/**
+ * With no stream client connected and no user activity for this long, the
+ * host stops its periodic log writes and suspends the log (ADR 0007).
+ */
+export const IDLE_AFTER_MS = 5 * 60_000;
 const LATENCY_SAMPLES = 4_096;
 const SNAPSHOT_VERSION = 2;
 export const DEFAULT_SNAPSHOT_MS = 10 * 60_000;
@@ -89,26 +105,52 @@ export class HostUnavailableError extends Error {
   override name = "HostUnavailableError";
 }
 
-/** Exchange that records how long each command takes inside the engine. */
-class InstrumentedExchange extends CountingExchange {
+/** The most recent engine times of one kind of command, microseconds. */
+class LatencyWindow {
   private readonly samples = new Float64Array(LATENCY_SAMPLES);
-  lastUs = 0;
+  private count = 0;
 
-  override submit(command: Command): EngineEvent[] {
-    const start = process.hrtime.bigint();
-    const events = super.submit(command); // counts the command
-    this.lastUs = Number(process.hrtime.bigint() - start) / 1_000;
-    this.samples[(this.commands - 1) % LATENCY_SAMPLES] = this.lastUs;
-    return events;
+  record(us: number): void {
+    this.samples[this.count % LATENCY_SAMPLES] = us;
+    this.count += 1;
   }
 
-  percentiles(): { p50: number; p99: number } {
-    const n = Math.min(this.commands, LATENCY_SAMPLES);
-    if (n === 0) return { p50: 0, p99: 0 };
+  summary(): EngineLatency {
+    const n = Math.min(this.count, LATENCY_SAMPLES);
+    if (n === 0) return { p50Us: 0, p99Us: 0, samples: 0 };
     const sorted = Array.from(this.samples.subarray(0, n)).sort((a, b) => a - b);
     const at = (q: number) =>
       Math.round((sorted[Math.min(n - 1, Math.floor(q * n))] ?? 0) * 10) / 10;
-    return { p50: at(0.5), p99: at(0.99) };
+    return { p50Us: at(0.5), p99Us: at(0.99), samples: n };
+  }
+}
+
+/**
+ * Exchange that records how long each command takes inside the engine, kept
+ * apart for bot and visitor commands: they are different work under different
+ * conditions (see apps/api/src/bench/latency.ts), so one median would describe
+ * neither.
+ */
+class InstrumentedExchange extends CountingExchange {
+  readonly bots = new LatencyWindow();
+  readonly visitors = new LatencyWindow();
+  lastUs = 0;
+
+  override submit(command: Command): EngineEvent[] {
+    return this.timed(command, this.bots);
+  }
+
+  /** A visitor's command, applied live (replayed ones count with the rest). */
+  submitVisitor(command: Command): EngineEvent[] {
+    return this.timed(command, this.visitors);
+  }
+
+  private timed(command: Command, window: LatencyWindow): EngineEvent[] {
+    const start = process.hrtime.bigint();
+    const events = super.submit(command); // counts the command
+    this.lastUs = Number(process.hrtime.bigint() - start) / 1_000;
+    window.record(this.lastUs);
+    return events;
   }
 }
 
@@ -137,6 +179,15 @@ export class EngineHost {
   private queue: Promise<unknown> = Promise.resolve();
   private timer: NodeJS.Timeout | undefined;
   private failure: unknown;
+  /** How many stream clients are watching; set by `watch`. */
+  private watchers: () => number = () => 0;
+  /** The last user command, guest account or replay read. */
+  private lastActivityAt: number;
+  /**
+   * True from the moment the host suspends the log for being idle until it
+   * has stored a snapshot after waking: periodic persistence is paused.
+   */
+  private idleStretch = false;
   private readonly listeners = new Set<(update: HostUpdate) => void>();
 
   private constructor(
@@ -149,6 +200,7 @@ export class EngineHost {
     this.startedAt = this.now();
     this.lastFlushAt = this.startedAt;
     this.lastSnapshotAt = this.startedAt;
+    this.lastActivityAt = this.startedAt;
 
     this.sessionConfig = {
       seed: session.seed,
@@ -241,11 +293,53 @@ export class EngineHost {
 
   startClock(): void {
     this.timer ??= setInterval(() => {
-      void this.serial(() => {
-        this.tick();
-        return this.maybeFlushTicks(false);
-      }).catch(() => undefined);
+      void this.clockTick();
     }, this.options.tickMs);
+  }
+
+  /** Tells the host how many stream clients are watching; while any are, it stays active. */
+  watch(watchers: () => number): void {
+    this.watchers = watchers;
+  }
+
+  /**
+   * True while someone is watching or used the exchange recently. Only then
+   * does the host write ticks and snapshots on its own; user commands are
+   * always logged.
+   */
+  get active(): boolean {
+    return this.watchers() > 0 || this.now() - this.lastActivityAt < IDLE_AFTER_MS;
+  }
+
+  /**
+   * One beat of the market clock, in the write queue: the market always
+   * ticks. While active, ticks are flushed every 30 seconds and snapshots
+   * taken as usual. On becoming idle the host logs what it has, stores a
+   * snapshot and suspends the log, so the database can scale to zero; it then
+   * writes nothing until activity returns. Waking, it flushes the idle ticks
+   * as one entry and stores a snapshot at once, so a restart soon after does
+   * not replay them. Never rejects: a failure stops the host (`onFatal`).
+   */
+  clockTick(): Promise<void> {
+    return this.serial(async () => {
+      if (this.failure !== undefined) return;
+      this.tick();
+      const { log } = this.options;
+      if (this.active) {
+        await this.maybeFlushTicks(this.idleStretch); // resumes the log if suspended
+        if (this.idleStretch) {
+          await this.maybeSnapshot(true);
+          this.idleStretch = false;
+        }
+      } else if (log.connected) {
+        await this.maybeFlushTicks(true);
+        await this.maybeSnapshot(true);
+        await log.suspend();
+        this.idleStretch = true;
+      }
+    }).catch((error: unknown) => {
+      this.fail(error);
+    });
   }
 
   async stop(): Promise<void> {
@@ -287,6 +381,7 @@ export class EngineHost {
 
   async openGuest(): Promise<string> {
     const accountId = `${GUEST_PREFIX}${randomUUID().replaceAll("-", "").slice(0, 16)}`;
+    this.lastActivityAt = this.now();
     await this.serial(async () => {
       await this.maybeFlushTicks(true); // keep the log in application order
       const entry: LogEntry = {
@@ -304,6 +399,7 @@ export class EngineHost {
 
   async submit(command: Command): Promise<CommandResult> {
     const receivedAt = this.now();
+    this.lastActivityAt = receivedAt;
     const enqueued = performance.now();
     return this.serial(async () => {
       const queueMs = Math.round((performance.now() - enqueued) * 1000) / 1000;
@@ -366,7 +462,7 @@ export class EngineHost {
   }
 
   private applyCommand(command: Command, at: number): EngineEvent[] {
-    const events = this.exchange.submit(command);
+    const events = this.exchange.submitVisitor(command);
     this.publish(events, at);
     return events;
   }
@@ -450,15 +546,23 @@ export class EngineHost {
       throw new HostUnavailableError("The command log is unavailable");
     }
     try {
+      // After an idle stretch: reconnect, retake the lock, check nobody wrote.
+      await this.options.log.resume(this.session.id, this.seq);
       await this.options.log.append(this.session.id, this.seq + 1, entry);
       this.seq += 1;
     } catch (error) {
       // The engine may now hold ticks the log does not: stop accepting work and
       // let the process restart, which replays the log into a consistent state.
-      this.failure = error;
-      this.options.onFatal?.(error);
+      this.fail(error);
       throw new HostUnavailableError("The command log is unavailable");
     }
+  }
+
+  /** Stops accepting work and reports the failure once; the process should restart. */
+  private fail(error: unknown): void {
+    if (this.failure !== undefined) return;
+    this.failure = error;
+    this.options.onFatal?.(error);
   }
 
   /** Runs work in the single-writer queue, after everything already queued. */
@@ -474,6 +578,7 @@ export class EngineHost {
    * is exactly "the log up to `seq`, applied".
    */
   checkpoint(): Promise<{ seq: number; stateHash: string; commands: number }> {
+    this.lastActivityAt = this.now(); // a replay is starting
     return this.serial(async () => {
       await this.flush();
       return {
@@ -486,13 +591,13 @@ export class EngineHost {
 
   /** Log entries after sequence `after`, for a replay. */
   readEntries(after: number, limit: number): Promise<LogEntry[]> {
+    this.lastActivityAt = this.now(); // reconnects a suspended log; keep it for a while
     return this.options.log.readEntries(this.session.id, after, limit);
   }
 
   // Reads ------------------------------------------------------------------
 
   stats(): EngineStats {
-    const { p50, p99 } = this.exchange.percentiles();
     let openOrders = 0;
     for (const id of this.exchange.accounts.ids()) {
       openOrders += this.exchange.openOrders(id).length;
@@ -501,8 +606,8 @@ export class EngineHost {
       commands: this.exchange.commands,
       trades: this.data.totalTrades(),
       openOrders,
-      p50Us: p50,
-      p99Us: p99,
+      bots: this.exchange.bots.summary(),
+      visitors: this.exchange.visitors.summary(),
     };
   }
 }
