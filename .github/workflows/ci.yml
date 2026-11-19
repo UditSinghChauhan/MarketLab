@@ -40,9 +40,43 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run format:check
-      - run: npm test
+      - name: Unit tests with coverage
+        run: npm run coverage
         env:
           TEST_DATABASE_URL: postgres://marketlab:marketlab@localhost:5432/marketlab
+      - name: Coverage summary
+        if: always()
+        run: |
+          [ -f coverage/coverage-summary.json ] || exit 0
+          node -e '
+            const t = require("./coverage/coverage-summary.json").total;
+            const cell = (m) => `${m.pct}% (${m.covered}/${m.total})`;
+            console.log("### Unit test coverage\n");
+            console.log("| Lines | Statements | Branches | Functions |");
+            console.log("| --- | --- | --- | --- |");
+            console.log(`| ${[t.lines, t.statements, t.branches, t.functions].map(cell).join(" | ")} |`);
+          ' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage
+          retention-days: 14
+
+      # The certificate tests need a server with TLS, which the service above lacks.
+      # They are skipped without one, so this step fails if any of them did not run.
+      - name: Start PostgreSQL with TLS
+        run: scripts/postgres-tls.sh
+      - name: TLS connection tests
+        env:
+          TEST_DATABASE_TLS_URL: postgres://marketlab:marketlab@localhost:5433/marketlab
+          NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/.tls/ca.crt
+        run: |
+          npx vitest run apps/api/src/log/connection.test.ts \
+            --reporter=verbose --reporter=json --outputFile.json=tls-results.json
+          jq -e '.numPendingTests == 0 and .numTodoTests == 0 and .numFailedTests == 0 and .numPassedTests > 0' \
+            tls-results.json > /dev/null || { echo "::error::TLS connection tests were skipped"; exit 1; }
+
       - run: npm run build
 
       # The built server, as Render runs it, against the Postgres service above.

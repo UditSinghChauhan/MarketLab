@@ -1,43 +1,27 @@
-import type { Candle, CommandResult, EventView, OrderView } from "@marketlab/contracts";
-import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, NavLink, Navigate, useParams } from "react-router";
+import type { CommandResult } from "@marketlab/contracts";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { Navigate, useParams } from "react-router";
 
 import { ApiRequestError, api } from "../lib/api";
-import { changeTone, pct, price, qty, rupees, signedRupees } from "../lib/format";
-import { useExchange, type ExchangeState } from "../lib/health";
-import { sideLabel } from "../lib/orders";
-import { clearSession, ensureSession, storedSession } from "../lib/session";
-import { useMarketStream, type ConnectionStatus } from "../lib/stream";
-import { Dialog } from "../ui/Dialog";
-import { LogoMark } from "../ui/Logo";
-import { Kbd, Panel } from "../ui/Panel";
-import { SkeletonText } from "../ui/Skeleton";
-import { StartingNotice } from "../ui/StartingNotice";
+import { useExchange } from "../lib/health";
+import { useMarketStream } from "../lib/stream";
+import { Panel } from "../ui/Panel";
 import { Blotter } from "./Blotter";
+import { ChartPanel } from "./ChartPanel";
 import { Guide, useGuide } from "./Guide";
-import { HeaderMenu } from "./HeaderMenu";
 import { Inspector } from "./Inspector";
+import { SYMBOLS } from "./markets";
 import { OrderBookLadder } from "./OrderBookLadder";
-import { OrderTicket, isField, type Prefill } from "./OrderTicket";
-import { PriceChart } from "./PriceChart";
+import { OrderTicket, type Prefill } from "./OrderTicket";
+import { ShortcutsDialog, StartOverDialog } from "./TerminalDialogs";
+import { TerminalHeader } from "./TerminalHeader";
+import { ToastStack } from "./ToastStack";
 import { TradeTape } from "./TradeTape";
-
-export const SYMBOLS = ["ORBT", "QNTA", "SOLR", "HLXB"] as const;
-
-/** A typical price per market, used only to size placeholders so the header does not move. */
-const SAMPLE_PRICE: Record<string, string> = {
-  ORBT: "1,250.00",
-  QNTA: "842.50",
-  SOLR: "318.20",
-  HLXB: "2,140.00",
-};
-
-interface Toast {
-  id: number;
-  text: string;
-  tone: "ok" | "info";
-}
+import { useGuestSession } from "./useGuestSession";
+import { useOrders } from "./useOrders";
+import { useOrderToasts } from "./useOrderToasts";
+import { useTerminalShortcuts } from "./useTerminalShortcuts";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 2_000, retry: 1, refetchOnWindowFocus: false } },
@@ -59,34 +43,7 @@ function Terminal({ symbol }: { symbol: string }) {
   const queryClient = useQueryClient();
   const exchange = useExchange();
   const ready = exchange.state === "ready";
-  const [session, setSession] = useState(storedSession);
-  const [sessionError, setSessionError] = useState<string | null>(null);
-  const token = session?.token ?? null;
-
-  const startSession = useCallback(() => {
-    ensureSession()
-      .then((s) => {
-        setSession(s);
-        setSessionError(null);
-      })
-      .catch((error: unknown) => {
-        setSessionError(
-          error instanceof ApiRequestError
-            ? error.message
-            : "The exchange isn't reachable right now.",
-        );
-      });
-  }, []);
-
-  // A guest account is opened once the server is awake, not while it is still starting.
-  useEffect(() => {
-    if (!session && ready) startSession();
-  }, [session, ready, startSession]);
-
-  const renewSession = useCallback(() => {
-    clearSession();
-    setSession(null);
-  }, []);
+  const { token, sessionError, startSession, renewSession } = useGuestSession(ready);
 
   // The browser tab and its toolbar follow the page: graphite here, light on the landing page.
   useEffect(() => {
@@ -104,47 +61,9 @@ function Terminal({ symbol }: { symbol: string }) {
   const market = useMarketStream(symbol, token, { onSessionEnded: renewSession, enabled: ready });
   const summary = market.markets.find((m) => m.symbol === symbol);
 
-  const orders = useQuery({
-    queryKey: ["orders", token],
-    queryFn: async () => {
-      try {
-        return await api<OrderView[]>("/api/orders", { token });
-      } catch (error) {
-        if (error instanceof ApiRequestError && error.status === 401) renewSession();
-        throw error;
-      }
-    },
-    enabled: token !== null,
-  });
-  const orderList = useMemo(() => orders.data ?? [], [orders.data]);
-
-  useEffect(() => {
-    if (market.ordersVersion > 0) void queryClient.invalidateQueries({ queryKey: ["orders"] });
-  }, [market.ordersVersion, queryClient]);
-
-  // Toasts for things that happen to the user's orders while they look elsewhere.
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const ownSeqs = useRef(new Set<number>());
-  const toast = useCallback((text: string, tone: Toast["tone"] = "ok") => {
-    const id = Date.now() + Math.random();
-    setToasts((t) => [...t.slice(-2), { id, text, tone }]);
-    setTimeout(() => {
-      setToasts((t) => t.filter((x) => x.id !== id));
-    }, 4_000);
-  }, []);
-
-  // Orders are read through a ref so a refreshed order list doesn't replay old toasts.
-  const ordersRef = useRef(orderList);
-  useEffect(() => {
-    ordersRef.current = orderList;
-  }, [orderList]);
-  useEffect(() => {
-    const later = market.lastOrderEvents.filter((e) => !ownSeqs.current.has(e.seq));
-    for (const event of later) {
-      const message = describeAsync(event, ordersRef.current);
-      if (message) toast(message);
-    }
-  }, [market.lastOrderEvents, toast]);
+  const orders = useOrders(token, market.ordersVersion, renewSession);
+  const orderList = orders.list;
+  const { toasts, toast, markOwn } = useOrderToasts(market.lastOrderEvents, orderList);
 
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [inspected, setInspected] = useState<string | null>(null);
@@ -157,26 +76,18 @@ function Terminal({ symbol }: { symbol: string }) {
   useEffect(() => {
     if (inspectorOpen) completeStep("inspector");
   }, [inspectorOpen, completeStep]);
-  const [hovered, setHovered] = useState<Candle | null>(null);
   const [cancelling, setCancelling] = useState<ReadonlySet<string>>(new Set());
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey || isField(event.target)) return;
-      if (event.key === "i" || event.key === "I") {
-        event.preventDefault();
-        setInspectorOpen((o) => !o);
-      }
-      if (event.key === "?") setShortcutsOpen(true);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-    };
-  }, []);
+  const toggleInspector = () => {
+    setInspectorOpen((o) => !o);
+  };
+  const showShortcuts = () => {
+    setShortcutsOpen(true);
+  };
+  useTerminalShortcuts({ onToggleInspector: toggleInspector, onShowShortcuts: showShortcuts });
 
   const onResult = (result: CommandResult) => {
-    for (const e of result.events) ownSeqs.current.add(e.seq);
+    markOwn(result.events);
     if (result.orderId) setInspected(result.orderId);
     if (result.ok) completeStep("order");
     void queryClient.invalidateQueries({ queryKey: ["orders"] });
@@ -188,7 +99,7 @@ function Terminal({ symbol }: { symbol: string }) {
     setInspected(null);
     queryClient.removeQueries({ queryKey: ["orders"] });
     queryClient.removeQueries({ queryKey: ["trace"] });
-    renewSession(); // clears the stored guest; the effect above opens a new one
+    renewSession(); // clears the stored guest; a new one is opened once it is gone
     toast("Started a new account with ₹10,00,000", "info");
   };
 
@@ -196,7 +107,7 @@ function Terminal({ symbol }: { symbol: string }) {
     setCancelling((s) => new Set(s).add(id));
     try {
       const result = await api<CommandResult>(`/api/orders/${id}`, { method: "DELETE", token });
-      for (const e of result.events) ownSeqs.current.add(e.seq);
+      markOwn(result.events);
       toast("Order cancelled", "info");
     } catch (error) {
       toast(
@@ -224,96 +135,21 @@ function Terminal({ symbol }: { symbol: string }) {
   }, [orderList, symbol]);
 
   const account = market.account;
-  const shown = hovered ?? null;
 
   return (
     <div className="dark-ui flex min-h-dvh flex-col bg-bg text-text xl:h-dvh">
-      <header className="flex h-12 shrink-0 items-center gap-4 border-b border-line bg-surface px-3">
-        <Link
-          to="/"
-          className="flex items-center gap-2 text-sm font-semibold tracking-[-0.02em]"
-          aria-label="MarketLab home"
-        >
-          <LogoMark className="size-5 text-muted" />
-          <span className="hidden sm:inline">MarketLab</span>
-        </Link>
-        <nav aria-label="Markets" className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
-          {SYMBOLS.map((s) => {
-            const m = market.markets.find((x) => x.symbol === s);
-            return (
-              <NavLink
-                key={s}
-                to={`/terminal/${s}`}
-                className={({ isActive }) =>
-                  `flex h-8 shrink-0 items-center gap-2 rounded-md px-2.5 text-xs ${
-                    isActive ? "bg-raised text-text" : "text-muted hover:bg-raised hover:text-text"
-                  }`
-                }
-              >
-                <span className="font-medium">{s}</span>
-                {m ? (
-                  <>
-                    <span className="num">{price(m.last)}</span>
-                    <span className={`num ${changeTone(m.changePct)}`}>{pct(m.changePct)}</span>
-                  </>
-                ) : (
-                  <>
-                    <SkeletonText sample={SAMPLE_PRICE[s] ?? "000.00"} />
-                    <SkeletonText sample="+0.00%" />
-                  </>
-                )}
-              </NavLink>
-            );
-          })}
-        </nav>
-        <div className="hidden items-center gap-5 text-xs md:flex">
-          <Status status={market.status} exchange={exchange.state} />
-          {account ? (
-            <div className="text-right leading-tight">
-              <div className="num font-medium">{rupees(account.equity)}</div>
-              <div className={`num ${changeTone(account.pnl)}`}>
-                {signedRupees(account.pnl)} ({pct(account.pnlPct)})
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-end gap-0.5 leading-tight">
-              <SkeletonText sample="₹10,00,000.00" />
-              <SkeletonText sample="₹0.00 (0.00%)" />
-            </div>
-          )}
-        </div>
-        <Link
-          to="/replay"
-          className="hidden h-8 items-center rounded-md px-2.5 text-xs font-medium text-muted hover:bg-raised hover:text-text lg:flex"
-        >
-          Replay
-        </Link>
-        <button
-          type="button"
-          onClick={() => {
-            setInspectorOpen((o) => !o);
-          }}
-          aria-expanded={inspectorOpen}
-          className="flex h-8 items-center gap-2 rounded-md border border-line px-2.5 text-xs font-medium hover:bg-raised"
-        >
-          Inspector <Kbd>I</Kbd>
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setShortcutsOpen(true);
-          }}
-          aria-label="Keyboard shortcuts"
-          className="hidden h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-text sm:flex"
-        >
-          <Kbd>?</Kbd>
-        </button>
-        <HeaderMenu
-          onStartOver={() => {
-            setConfirmStartOver(true);
-          }}
-        />
-      </header>
+      <TerminalHeader
+        markets={market.markets}
+        status={market.status}
+        exchange={exchange.state}
+        account={account}
+        inspectorOpen={inspectorOpen}
+        onToggleInspector={toggleInspector}
+        onShowShortcuts={showShortcuts}
+        onStartOver={() => {
+          setConfirmStartOver(true);
+        }}
+      />
 
       {guide.visible && <Guide done={guide.done} onDismiss={guide.dismiss} />}
 
@@ -330,71 +166,13 @@ function Terminal({ symbol }: { symbol: string }) {
       )}
 
       <main className="grid flex-1 gap-px bg-line md:grid-cols-2 xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_300px_300px] xl:grid-rows-[minmax(0,1fr)_248px]">
-        <Panel
-          title={
-            <span className="flex items-baseline gap-2">
-              <span className="text-sm font-semibold text-text">{symbol}</span>
-              <span>{summary?.name}</span>
-            </span>
-          }
-          aside={
-            <span className="num flex gap-3 text-xs text-muted">
-              {shown ? (
-                <>
-                  <span>O {price(shown.open)}</span>
-                  <span>H {price(shown.high)}</span>
-                  <span>L {price(shown.low)}</span>
-                  <span>C {price(shown.close)}</span>
-                  <span>Vol {qty(shown.volume)}</span>
-                </>
-              ) : summary ? (
-                <>
-                  <span className="hidden sm:inline">Open {price(summary.open)}</span>
-                  <span className="hidden sm:inline">High {price(summary.high)}</span>
-                  <span className="hidden sm:inline">Low {price(summary.low)}</span>
-                  <span>Vol {qty(summary.volume)}</span>
-                </>
-              ) : null}
-            </span>
-          }
-          className="order-1 h-[420px] md:col-span-2 xl:order-none xl:col-span-1 xl:h-auto"
-          bodyClassName="flex flex-col"
-        >
-          <div className="flex items-baseline gap-3 px-3 pt-2">
-            {summary ? (
-              <>
-                <span className="num text-2xl font-semibold tracking-[-0.02em]">
-                  {price(summary.last)}
-                </span>
-                <span className={`num text-sm ${changeTone(summary.changePct)}`}>
-                  {signedRupees(summary.change)} ({pct(summary.changePct)})
-                </span>
-              </>
-            ) : (
-              <SkeletonText
-                sample={SAMPLE_PRICE[symbol] ?? "000.00"}
-                className="text-2xl font-semibold tracking-[-0.02em]"
-              />
-            )}
-            <span className="ml-auto text-2xs text-muted">15-second candles</span>
-          </div>
-          <div className="relative min-h-0 flex-1 px-1 pb-1">
-            <PriceChart
-              candles={market.candles}
-              last={summary?.last ?? null}
-              onHover={setHovered}
-              loading={!market.candlesLoaded}
-            />
-            {exchange.state === "starting" && (
-              <div className="absolute inset-0 grid place-items-center p-4">
-                <StartingNotice
-                  since={exchange.waitingSince}
-                  className="rounded-lg border border-line bg-surface px-6 py-5"
-                />
-              </div>
-            )}
-          </div>
-        </Panel>
+        <ChartPanel
+          symbol={symbol}
+          summary={summary}
+          candles={market.candles}
+          candlesLoaded={market.candlesLoaded}
+          exchange={exchange}
+        />
 
         <Panel
           title="Order book"
@@ -429,7 +207,7 @@ function Terminal({ symbol }: { symbol: string }) {
           <Blotter
             account={account}
             orders={orderList}
-            ordersLoading={orders.isPending}
+            ordersLoading={orders.loading}
             onCancel={(id) => void cancel(id)}
             onInspect={(id) => {
               setInspected(id);
@@ -462,7 +240,7 @@ function Terminal({ symbol }: { symbol: string }) {
       />
 
       {shortcutsOpen && (
-        <Shortcuts
+        <ShortcutsDialog
           onClose={() => {
             setShortcutsOpen(false);
           }}
@@ -470,121 +248,15 @@ function Terminal({ symbol }: { symbol: string }) {
       )}
 
       {confirmStartOver && (
-        <Dialog
-          title="Start over with a new account?"
-          onClose={() => {
+        <StartOverDialog
+          onCancel={() => {
             setConfirmStartOver(false);
           }}
-        >
-          <p className="mt-2 text-sm leading-relaxed text-muted">
-            You get a fresh guest account with ₹10,00,000. This account's positions and open orders
-            stay on the exchange, but you won't be able to return to them.
-          </p>
-          <div className="mt-5 flex justify-end gap-2">
-            <button
-              type="button"
-              data-autofocus
-              onClick={() => {
-                setConfirmStartOver(false);
-              }}
-              className="h-9 rounded-md border border-line px-3 text-sm font-medium hover:bg-raised"
-            >
-              Keep this account
-            </button>
-            <button
-              type="button"
-              onClick={startOver}
-              className="h-9 rounded-md bg-accent px-3 text-sm font-semibold text-accent-ink hover:opacity-90"
-            >
-              Start over
-            </button>
-          </div>
-        </Dialog>
+          onConfirm={startOver}
+        />
       )}
 
-      <div
-        aria-live="polite"
-        className="pointer-events-none fixed bottom-4 left-4 z-40 flex flex-col gap-2"
-      >
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className={`rounded-md border border-line bg-raised px-3 py-2 text-sm shadow-lg ${t.tone === "ok" ? "text-text" : "text-muted"}`}
-          >
-            {t.text}
-          </div>
-        ))}
-      </div>
+      <ToastStack toasts={toasts} />
     </div>
   );
-}
-
-function Status({ status, exchange }: { status: ConnectionStatus; exchange: ExchangeState }) {
-  const label =
-    exchange === "starting"
-      ? "Starting"
-      : status === "live"
-        ? "Live"
-        : status === "connecting"
-          ? "Connecting"
-          : "Reconnecting";
-  return (
-    <span className="flex items-center gap-1.5 text-muted" role="status">
-      <span
-        aria-hidden="true"
-        className={`size-1.5 rounded-full ${label === "Live" ? "bg-bid" : "bg-pending"}`}
-      />
-      {label}
-    </span>
-  );
-}
-
-function Shortcuts({ onClose }: { onClose: () => void }) {
-  const rows: [string, string][] = [
-    ["B / S", "Buy or sell"],
-    ["M / L / T", "Market, limit or stop order"],
-    ["Enter", "Place the order"],
-    ["Esc", "Clear the ticket"],
-    ["↑ / ↓", "Move a price by one tick"],
-    ["I", "Open or close the engine inspector"],
-    ["?", "Show these shortcuts"],
-  ];
-  return (
-    <Dialog title="Keyboard shortcuts" onClose={onClose}>
-      <dl className="mt-4 space-y-2 text-sm">
-        {rows.map(([keys, action]) => (
-          <div key={keys} className="flex justify-between gap-4">
-            <dt className="text-muted">{action}</dt>
-            <dd>
-              <Kbd>{keys}</Kbd>
-            </dd>
-          </div>
-        ))}
-      </dl>
-      <div className="mt-5 flex justify-end">
-        <button
-          type="button"
-          onClick={onClose}
-          className="flex h-8 items-center gap-2 rounded-md border border-line px-3 text-xs font-medium hover:bg-raised"
-        >
-          Close <Kbd>Esc</Kbd>
-        </button>
-      </div>
-    </Dialog>
-  );
-}
-
-/** Messages for changes the user didn't just cause: a resting order filling, a stop firing. */
-function describeAsync(event: EventView, orders: readonly OrderView[]): string | null {
-  const order = (id: string) => orders.find((o) => o.id === id);
-  if (event.type === "order.filled") {
-    const o = order(event.orderId);
-    // An order missing from the list was placed a moment ago; its ticket already confirmed it.
-    return o ? `${sideLabel(o.side)} ${qty(o.qty)} ${o.symbol} filled` : null;
-  }
-  if (event.type === "stop.triggered") {
-    const o = order(event.orderId);
-    return `Stop ${o ? `${sideLabel(o.side).toLowerCase()} ${o.symbol} ` : ""}triggered at ₹${price(event.lastPrice)}`;
-  }
-  return null;
 }
