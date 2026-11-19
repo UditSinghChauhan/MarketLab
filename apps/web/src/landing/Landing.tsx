@@ -72,7 +72,11 @@ export function Landing() {
               </a>
             </div>
             <dl className="mt-12 grid max-w-lg grid-cols-3 gap-6 border-t border-line pt-6">
-              <Stat label="Median matching time" value={h ? duration(h.engine.p50Us) : "—"} />
+              <Stat
+                label="Engine time per bot command (median)"
+                value={h ? duration(h.engine.bots.p50Us) : "—"}
+                note="The simulated traders' commands: mostly quotes and cancels that never trade. A visitor's own order takes longer; the engine inspector shows both."
+              />
               <Stat label="Commands this session" value={h ? qty(h.engine.commands) : "—"} />
               <Stat
                 label="Invariant violations"

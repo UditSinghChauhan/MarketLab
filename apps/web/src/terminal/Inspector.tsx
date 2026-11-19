@@ -3,7 +3,7 @@
  * with the time each step took and every engine event it produced.
  */
 
-import type { CommandTiming, OrderTrace, OrderView } from "@marketlab/contracts";
+import type { CommandTiming, EngineStats, OrderTrace, OrderView } from "@marketlab/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
@@ -144,29 +144,47 @@ export function slowestStep(timing: CommandTiming): { step: string; us: number }
   return steps.reduce((slowest, s) => (s.us > slowest.us ? s : slowest));
 }
 
+/** Fewer visitor orders than this since the server started, and their median is not shown. */
+export const MIN_VISITOR_SAMPLES = 5;
+
 /**
- * This order's engine time beside the engine's recent median, and which step
- * set its latency. Every clause stays true for an unusually slow or fast order.
+ * This order's engine time beside the medians it should be compared with, and
+ * which step set its latency. Visitor orders and bot commands are reported
+ * apart: a visitor's order runs right after its log write, with cold caches,
+ * while bot commands are mostly quotes that never match, run back to back.
+ * Every clause stays true for an unusually slow or fast order.
  */
 export function LatencySummary({
   timing,
-  medianUs,
+  engine,
 }: {
   timing: CommandTiming;
-  /** The engine's rolling median from /api/health; undefined until health has loaded. */
-  medianUs: number | undefined;
+  /** The engine's rolling medians from /api/health; undefined until health has loaded. */
+  engine: Pick<EngineStats, "bots" | "visitors"> | undefined;
 }) {
   const slowest = slowestStep(timing);
+  const visitors =
+    engine && engine.visitors.samples >= MIN_VISITOR_SAMPLES ? engine.visitors : undefined;
   return (
     <p className="mt-4 rounded-md bg-raised px-3 py-2 text-xs leading-relaxed text-muted">
-      Matching this order took <span className="num text-text">{duration(timing.engineUs)}</span>
-      {medianUs !== undefined && (
+      Matching this order took <span className="num text-text">{duration(timing.engineUs)}</span>.
+      {visitors && (
         <>
-          ; the engine's median over recent commands is{" "}
-          <span className="num text-text">{duration(medianUs)}</span>
+          {" "}
+          Visitors' orders since the server started take a median of{" "}
+          <span className="num text-text">{duration(visitors.p50Us)}</span> (
+          {visitors.samples.toLocaleString("en-IN")} orders);
         </>
       )}
-      . {slowest.step} was the slowest step (
+      {engine && (
+        <>
+          {" "}
+          {visitors ? "the" : "The"} simulated traders' commands, mostly quotes that never trade,
+          take {visitors ? "" : "a median of "}
+          <span className="num text-text">{duration(engine.bots.p50Us)}</span>.
+        </>
+      )}{" "}
+      {slowest.step} was the slowest step (
       <span className="num text-text">{duration(slowest.us)}</span>), so it set this order's
       latency.
     </p>
@@ -175,7 +193,7 @@ export function LatencySummary({
 
 function TraceView({ trace }: { trace: OrderTrace }) {
   const [raw, setRaw] = useState(false);
-  const median = useExchange().health?.engine.p50Us;
+  const engine = useExchange().health?.engine;
   const t = trace.timing;
   const persistUs = t ? t.persistMs * 1000 : 0;
 
@@ -216,7 +234,7 @@ function TraceView({ trace }: { trace: OrderTrace }) {
               </li>
             ))}
           </ol>
-          <LatencySummary timing={t} medianUs={median} />
+          <LatencySummary timing={t} engine={engine} />
         </section>
       )}
 

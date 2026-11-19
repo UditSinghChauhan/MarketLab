@@ -21,7 +21,12 @@
 
 import { randomInt, randomUUID } from "node:crypto";
 
-import type { CommandResult, CommandTiming, EngineStats } from "@marketlab/contracts";
+import type {
+  CommandResult,
+  CommandTiming,
+  EngineLatency,
+  EngineStats,
+} from "@marketlab/contracts";
 import {
   CountingExchange,
   SessionEngine,
@@ -89,26 +94,52 @@ export class HostUnavailableError extends Error {
   override name = "HostUnavailableError";
 }
 
-/** Exchange that records how long each command takes inside the engine. */
-class InstrumentedExchange extends CountingExchange {
+/** The most recent engine times of one kind of command, microseconds. */
+class LatencyWindow {
   private readonly samples = new Float64Array(LATENCY_SAMPLES);
-  lastUs = 0;
+  private count = 0;
 
-  override submit(command: Command): EngineEvent[] {
-    const start = process.hrtime.bigint();
-    const events = super.submit(command); // counts the command
-    this.lastUs = Number(process.hrtime.bigint() - start) / 1_000;
-    this.samples[(this.commands - 1) % LATENCY_SAMPLES] = this.lastUs;
-    return events;
+  record(us: number): void {
+    this.samples[this.count % LATENCY_SAMPLES] = us;
+    this.count += 1;
   }
 
-  percentiles(): { p50: number; p99: number } {
-    const n = Math.min(this.commands, LATENCY_SAMPLES);
-    if (n === 0) return { p50: 0, p99: 0 };
+  summary(): EngineLatency {
+    const n = Math.min(this.count, LATENCY_SAMPLES);
+    if (n === 0) return { p50Us: 0, p99Us: 0, samples: 0 };
     const sorted = Array.from(this.samples.subarray(0, n)).sort((a, b) => a - b);
     const at = (q: number) =>
       Math.round((sorted[Math.min(n - 1, Math.floor(q * n))] ?? 0) * 10) / 10;
-    return { p50: at(0.5), p99: at(0.99) };
+    return { p50Us: at(0.5), p99Us: at(0.99), samples: n };
+  }
+}
+
+/**
+ * Exchange that records how long each command takes inside the engine, kept
+ * apart for bot and visitor commands: they are different work under different
+ * conditions (see apps/api/src/bench/latency.ts), so one median would describe
+ * neither.
+ */
+class InstrumentedExchange extends CountingExchange {
+  readonly bots = new LatencyWindow();
+  readonly visitors = new LatencyWindow();
+  lastUs = 0;
+
+  override submit(command: Command): EngineEvent[] {
+    return this.timed(command, this.bots);
+  }
+
+  /** A visitor's command, applied live (replayed ones count with the rest). */
+  submitVisitor(command: Command): EngineEvent[] {
+    return this.timed(command, this.visitors);
+  }
+
+  private timed(command: Command, window: LatencyWindow): EngineEvent[] {
+    const start = process.hrtime.bigint();
+    const events = super.submit(command); // counts the command
+    this.lastUs = Number(process.hrtime.bigint() - start) / 1_000;
+    window.record(this.lastUs);
+    return events;
   }
 }
 
@@ -366,7 +397,7 @@ export class EngineHost {
   }
 
   private applyCommand(command: Command, at: number): EngineEvent[] {
-    const events = this.exchange.submit(command);
+    const events = this.exchange.submitVisitor(command);
     this.publish(events, at);
     return events;
   }
@@ -492,7 +523,6 @@ export class EngineHost {
   // Reads ------------------------------------------------------------------
 
   stats(): EngineStats {
-    const { p50, p99 } = this.exchange.percentiles();
     let openOrders = 0;
     for (const id of this.exchange.accounts.ids()) {
       openOrders += this.exchange.openOrders(id).length;
@@ -501,8 +531,8 @@ export class EngineHost {
       commands: this.exchange.commands,
       trades: this.data.totalTrades(),
       openOrders,
-      p50Us: p50,
-      p99Us: p99,
+      bots: this.exchange.bots.summary(),
+      visitors: this.exchange.visitors.summary(),
     };
   }
 }

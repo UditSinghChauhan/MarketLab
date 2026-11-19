@@ -224,13 +224,29 @@ export interface SessionResponse {
   readonly expiresAt: number;
 }
 
+/** Time spent inside the matching engine over a rolling window of commands, microseconds. */
+export interface EngineLatency {
+  readonly p50Us: number;
+  readonly p99Us: number;
+  /** Commands in the window: at most 4,096, the most recent. */
+  readonly samples: number;
+}
+
 export interface EngineStats {
   readonly commands: number;
   readonly trades: number;
   readonly openOrders: number;
-  /** Rolling engine latency over recent commands, microseconds. */
-  readonly p50Us: number;
-  readonly p99Us: number;
+  /**
+   * The simulated traders' commands. Almost all are quotes and cancels that
+   * never match, run back to back by the market clock, so caches are warm.
+   */
+  readonly bots: EngineLatency;
+  /**
+   * Visitors' own commands since the server started. Each runs right after
+   * its command-log write, so it starts with cold CPU caches and usually
+   * trades: slower than a bot command for the same engine code.
+   */
+  readonly visitors: EngineLatency;
 }
 
 export interface HealthResponse {

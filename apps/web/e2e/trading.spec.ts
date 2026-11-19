@@ -40,10 +40,11 @@ test.describe("terminal", () => {
     const inspector = page.getByRole("dialog", { name: "Engine inspector" });
     await expect(inspector.getByText("Written to the command log")).toBeVisible();
     await expect(inspector.getByText("Resting in the book")).toBeVisible();
-    // This order's numbers, beside the engine's median, and which step set its latency.
+    // This order's numbers, beside the bot median (and the visitor median once
+    // there are enough visitor orders), and which step set its latency.
     await expect(
       inspector.getByText(
-        /^Matching this order took .+; the engine's median over recent commands is .+\. .+ was the slowest step \(.+\), so it set this order's latency\.$/,
+        /^Matching this order took .+?s\. (Visitors' orders since the server started take a median of .+? \([\d,]+ orders\); the|The) simulated traders' commands, mostly quotes that never trade, take (a median of )?.+?s\. .+ was the slowest step \(.+\), so it set this order's latency\.$/,
       ),
     ).toBeVisible();
     await inspector.getByRole("button", { name: /Close/ }).click();
