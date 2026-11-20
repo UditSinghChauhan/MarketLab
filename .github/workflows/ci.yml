@@ -56,7 +56,7 @@ jobs:
             console.log("| --- | --- | --- | --- |");
             console.log(`| ${[t.lines, t.statements, t.branches, t.functions].map(cell).join(" | ")} |`);
           ' >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage-report
@@ -146,7 +146,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
         working-directory: apps/web
       - run: npm run e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
