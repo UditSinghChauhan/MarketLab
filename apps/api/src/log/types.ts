@@ -78,6 +78,11 @@ export class LockHeldError extends Error {
   override name = "LockHeldError";
 }
 
+/** Startup waited as long as it may for another process to release the writer lock. */
+export class LockWaitTimeoutError extends Error {
+  override name = "LockWaitTimeoutError";
+}
+
 /** The session gained entries this process did not write while its log was suspended. */
 export class LogHeadMovedError extends Error {
   override name = "LogHeadMovedError";
