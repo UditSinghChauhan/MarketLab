@@ -66,18 +66,20 @@ How the parameters are read ([`connection.ts`](apps/api/src/log/connection.ts)):
 
 ## Configuration
 
-| Variable           | Default | Notes                                                                                                                                                            |
-| ------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`     | none    | Required in production. Direct Neon connection string.                                                                                                           |
-| `TOKEN_SECRET`     | none    | Required in production, 32+ characters. Rotating it signs every guest out.                                                                                       |
-| `TICK_MS`          | `600`   | Milliseconds between simulated market ticks.                                                                                                                     |
-| `WARMUP_MINUTES`   | `30`    | Minutes of history simulated when a new session starts.                                                                                                          |
-| `SESSION_HOURS`    | `24`    | A fresh market session starts after this long.                                                                                                                   |
-| `SNAPSHOT_MINUTES` | `10`    | Minutes between engine snapshots while the exchange is in use, which keep restarts fast. `0` turns them off.                                                     |
-| `LOG_LEVEL`        | `info`  | Fastify/pino log level.                                                                                                                                          |
-| `PUBLIC_URL`       | none    | The site's address, used for absolute URLs in link previews. On Render it defaults to the service's `onrender.com` address; set it when you add a custom domain. |
-| `RATE_LIMIT_SCALE` | `1`     | Multiplies every rate limit. Only the test suite raises it.                                                                                                      |
-| `PORT`             | `8080`  | Render sets this automatically.                                                                                                                                  |
+| Variable               | Default  | Notes                                                                                                                                                            |
+| ---------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`         | none     | Required in production. Direct Neon connection string.                                                                                                           |
+| `TOKEN_SECRET`         | none     | Required in production, 32+ characters. Rotating it signs every guest out.                                                                                       |
+| `TICK_MS`              | `600`    | Milliseconds between simulated market ticks.                                                                                                                     |
+| `WARMUP_MINUTES`       | `30`     | Minutes of history simulated when a new session starts.                                                                                                          |
+| `SESSION_HOURS`        | `24`     | A fresh market session starts after this long.                                                                                                                   |
+| `SNAPSHOT_MINUTES`     | `10`     | Minutes between engine snapshots while the exchange is in use, which keep restarts fast. `0` turns them off.                                                     |
+| `LOG_LEVEL`            | `info`   | Fastify/pino log level.                                                                                                                                          |
+| `PUBLIC_URL`           | none     | The site's address, used for absolute URLs in link previews. On Render it defaults to the service's `onrender.com` address; set it when you add a custom domain. |
+| `SHUTDOWN_DEADLINE_MS` | `20000`  | Longest a graceful shutdown may take before the process exits with code 1. At most 29000, below Render's 30-second kill.                                         |
+| `IDLE_AFTER_MS`        | `300000` | Milliseconds without stream clients or activity before the engine suspends its log. Only the test suite lowers it.                                               |
+| `RATE_LIMIT_SCALE`     | `1`      | Multiplies every rate limit. Only the test suite raises it.                                                                                                      |
+| `PORT`                 | `8080`   | Render sets this automatically.                                                                                                                                  |
 
 ## Operating notes
 
@@ -95,6 +97,23 @@ How the parameters are read ([`connection.ts`](apps/api/src/log/connection.ts)):
   `BASE_URL=http://localhost:8080 npm run assets -w @marketlab/web`.
 - **Restarts and deploys** replay the log the same way. Guests keep their
   accounts until the session rolls over.
+- **Shutdown.** On `SIGTERM` the server stops taking work at once: every new
+  request gets `503` with `Connection: close`, and `/api/health` answers
+  `503` with `"status":"stopping"`. It then closes every event stream, lets
+  orders already queued finish (each is logged before its `201`), logs the
+  pending ticks, stores a final snapshot, closes all connections and the
+  command log, and exits with code 0, normally within a second. If the log was
+  suspended and another instance has taken it over meanwhile, the final write
+  is skipped with the warning "another instance owns the log; idle ticks not
+  persisted (ADR 0007)", which is not an error. If shutdown takes longer than
+  `SHUTDOWN_DEADLINE_MS`, the process logs `shutdown_deadline_exceeded` with
+  the step it was stuck in and exits with code 1, before Render's 30-second
+  kill.
+- **Lifecycle events.** Startup, the log's suspend and resume, snapshots,
+  persistence failures and shutdown are each logged as one JSON line with an
+  `event` field (`engine_ready`, `log_suspended`, `shutdown_completed`, …), so
+  they can be searched in Render's logs. They never contain tokens or client
+  addresses.
 - **Data retention.** Sessions older than seven days are deleted at startup.
 - **Snapshots.** Every ten minutes while the exchange is in use, when it goes
   idle, when it wakes and on shutdown, the engine stores a hash-checked
