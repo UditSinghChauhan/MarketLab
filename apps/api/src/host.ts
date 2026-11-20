@@ -182,6 +182,8 @@ export class EngineHost {
   private queue: Promise<unknown> = Promise.resolve();
   private timer: NodeJS.Timeout | undefined;
   private failure: unknown;
+  /** Set when shutdown begins: new work is refused, queued work still runs. */
+  private closing = false;
   /** How many stream clients are watching; set by `watch`. */
   private watchers: () => number = () => 0;
   /** The last user command, guest account or replay read. */
@@ -359,13 +361,39 @@ export class EngineHost {
     });
   }
 
-  async stop(): Promise<void> {
+  /**
+   * Shutdown, step 1: refuse new commands, guest accounts and replay
+   * checkpoints (they fail with `HostUnavailableError`, before reaching the
+   * queue, so they are never logged or applied). Work already queued still runs.
+   */
+  beginShutdown(): void {
+    this.closing = true;
+  }
+
+  /** Stops the market clock: no more ticks. */
+  stopClock(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
+  }
+
+  /** Resolves once everything queued so far has finished (the queue is first in, first out). */
+  drain(): Promise<void> {
+    return this.serial(() => Promise.resolve());
+  }
+
+  /** Refuses new work, stops the clock, then logs pending ticks and stores a final snapshot. */
+  async stop(): Promise<void> {
+    this.beginShutdown();
+    this.stopClock();
     await this.serial(async () => {
       await this.maybeFlushTicks(true);
       await this.maybeSnapshot(true); // so the next start has almost nothing to replay
     }).catch(() => undefined);
+  }
+
+  /** Throws if the host can no longer take new work. */
+  private assertOpen(): void {
+    if (this.closing) throw new HostUnavailableError("The exchange is shutting down");
   }
 
   subscribe(listener: (update: HostUpdate) => void): () => void {
@@ -397,6 +425,7 @@ export class EngineHost {
   }
 
   async openGuest(): Promise<string> {
+    this.assertOpen();
     const accountId = `${GUEST_PREFIX}${randomUUID().replaceAll("-", "").slice(0, 16)}`;
     this.lastActivityAt = this.now();
     await this.serial(async () => {
@@ -415,6 +444,7 @@ export class EngineHost {
   }
 
   async submit(command: Command): Promise<CommandResult> {
+    this.assertOpen();
     const receivedAt = this.now();
     this.lastActivityAt = receivedAt;
     const enqueued = performance.now();
@@ -605,6 +635,9 @@ export class EngineHost {
    * is exactly "the log up to `seq`, applied".
    */
   checkpoint(): Promise<{ seq: number; stateHash: string; commands: number }> {
+    if (this.closing) {
+      return Promise.reject(new HostUnavailableError("The exchange is shutting down"));
+    }
     this.lastActivityAt = this.now(); // a replay is starting
     return this.serial(async () => {
       await this.flush();

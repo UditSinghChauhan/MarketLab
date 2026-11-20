@@ -85,6 +85,36 @@ export async function logState(url: string) {
   });
 }
 
+/**
+ * Locks the log's table in an open transaction, so the server's next INSERT
+ * waits (as a slow database would make it) until `release`. `waiting()`
+ * resolves once some INSERT is blocked on it.
+ */
+export async function holdLogTable(url: string, name: string) {
+  const db = new pg.Client({ connectionString: url });
+  await db.connect();
+  await db.query("BEGIN");
+  await db.query("LOCK TABLE log_entries IN EXCLUSIVE MODE");
+  return {
+    waiting: () =>
+      eventually(
+        async () => {
+          const { rows } = await db.query<{ n: number }>(
+            "SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE datname = $1 AND wait_event_type = 'Lock'",
+            [name],
+          );
+          return (rows[0]?.n ?? 0) > 0;
+        },
+        5_000,
+        "a write to wait for the log table",
+      ),
+    release: async () => {
+      await db.query("COMMIT");
+      await db.end();
+    },
+  };
+}
+
 /** Logged user commands of the latest session, as `{ kind, qty }`. */
 export async function loggedCommands(url: string) {
   return withClient(url, async (db) => {

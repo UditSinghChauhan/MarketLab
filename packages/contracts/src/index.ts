@@ -250,7 +250,8 @@ export interface EngineStats {
 }
 
 export interface HealthResponse {
-  readonly status: "ok" | "degraded";
+  /** `stopping`: shutting down (answered with 503), so no new traffic should arrive. */
+  readonly status: "ok" | "degraded" | "stopping";
   readonly session: number;
   readonly seq: number;
   readonly uptimeS: number;

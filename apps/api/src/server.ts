@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import pg from "pg";
 
-import { buildApp } from "./app.js";
+import { buildApp, type Lifecycle } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createEventLog } from "./events.js";
 import { EngineHost } from "./host.js";
@@ -35,8 +35,16 @@ const describeError = (error: unknown) => (error instanceof Error ? error.messag
  */
 function fatal(error: unknown): void {
   emit("persistence_failed", { error: describeError(error), fatal: true });
+  // Shutting down already: let it finish closing, then exit with an error.
+  if (shuttingDown) {
+    exitCode = 1;
+    return;
+  }
   setTimeout(() => process.exit(1), 500);
 }
+
+let shuttingDown = false;
+let exitCode = 0;
 
 async function openLog(): Promise<CommandLog> {
   if (!config.DATABASE_URL) {
@@ -76,7 +84,15 @@ const host = await EngineHost.start({
 });
 const hub = new StreamHub(host, INSTRUMENTS);
 host.watch(() => hub.size); // periodic log writes pause while nobody watches (ADR 0007)
-const app = await buildApp({ config, host, hub, instruments: INSTRUMENTS, persistence: log.kind });
+const lifecycle: Lifecycle = { draining: false };
+const app = await buildApp({
+  config,
+  host,
+  hub,
+  instruments: INSTRUMENTS,
+  persistence: log.kind,
+  lifecycle,
+});
 
 hub.start();
 host.startClock();
@@ -92,16 +108,38 @@ emit("engine_ready", {
   port: typeof address === "object" && address ? address.port : config.PORT,
 });
 
-let shuttingDown = false;
+/**
+ * Graceful shutdown (SIGTERM on every deploy and restart, SIGINT locally):
+ * 1. refuse new work: every request gets 503 and its connection is closed;
+ *    /api/health answers 503 "stopping";
+ * 2. stop the market clock and close every event stream;
+ * 3. let commands already queued finish and be logged;
+ * 4. log pending ticks and store a final snapshot;
+ * 5. close the HTTP server and every remaining connection;
+ * 6. close the command log, then exit.
+ */
 async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
-  app.log.info({ signal }, "shutting down");
+  const started = performance.now();
+  emit("shutdown_started", { signal, seq: host.sequence });
+
+  lifecycle.draining = true;
+  host.beginShutdown();
+  host.stopClock();
   hub.stop();
-  await host.stop(); // flushes pending ticks to the log
+  await host.drain();
+  await host.stop();
   await app.close();
   await log.close();
-  process.exit(0);
+
+  emit("shutdown_completed", {
+    signal,
+    seq: host.sequence,
+    ms: Math.round(performance.now() - started),
+    exitCode,
+  });
+  process.exit(exitCode);
 }
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
