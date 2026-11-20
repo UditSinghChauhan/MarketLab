@@ -119,18 +119,35 @@ emit("engine_ready", {
  *    suspended and another instance has taken it over meanwhile;
  * 5. close the HTTP server and every remaining connection;
  * 6. close the command log, then exit.
+ * If all that takes longer than SHUTDOWN_DEADLINE_MS, it gives up and exits
+ * with code 1, naming the step it was stuck in, before the platform kills it.
  */
 async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   const started = performance.now();
-  emit("shutdown_started", { signal, seq: host.sequence });
+  let phase = "refusing new work";
+  emit("shutdown_started", { signal, seq: host.sequence, deadlineMs: config.SHUTDOWN_DEADLINE_MS });
+  setTimeout(() => {
+    emit("shutdown_deadline_exceeded", {
+      signal,
+      phase,
+      deadlineMs: config.SHUTDOWN_DEADLINE_MS,
+      seq: host.sequence,
+    });
+    process.exit(1);
+    // Not unref'd: if shutdown stalled on a promise with nothing else
+    // pending, Node would otherwise exit with code 0 and no event at all.
+  }, config.SHUTDOWN_DEADLINE_MS);
 
   lifecycle.draining = true;
   host.beginShutdown();
+  phase = "closing streams";
   host.stopClock();
   hub.stop();
+  phase = "finishing queued commands";
   await host.drain();
+  phase = "final flush and snapshot";
   const finalFlush = await host.finalFlush().catch((error: unknown) => {
     // A failed append already reported itself through `fatal`.
     if (!(error instanceof HostUnavailableError)) {
@@ -139,7 +156,9 @@ async function shutdown(signal: string) {
     exitCode = 1;
     return "failed" as const;
   });
+  phase = "closing connections";
   await app.close();
+  phase = "closing the command log";
   await log.close();
 
   emit(

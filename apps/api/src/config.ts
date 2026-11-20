@@ -38,6 +38,12 @@ const Env = z.object({
     .int()
     .min(1_000)
     .default(5 * 60_000),
+  /**
+   * Longest a graceful shutdown may take before the process gives up and
+   * exits with code 1. Below Render's 30-second limit, after which it kills
+   * the process without warning.
+   */
+  SHUTDOWN_DEADLINE_MS: z.coerce.number().int().min(1_000).max(29_000).default(20_000),
   /** Multiplies every rate limit. The end-to-end suite raises it; leave it at 1 otherwise. */
   RATE_LIMIT_SCALE: z.coerce.number().positive().default(1),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),

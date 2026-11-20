@@ -196,6 +196,37 @@ describe.skipIf(!testDatabaseUrl)("graceful shutdown of the built server", () =>
   );
 
   it(
+    "gives up at SHUTDOWN_DEADLINE_MS with exit code 1, naming the step that hung",
+    async () => {
+      const running = await start({ SHUTDOWN_DEADLINE_MS: "1500" });
+      await sleep(TICKS_PENDING_MS);
+      // The final flush can never finish: the log table stays locked.
+      const table = await holdLogTable(db.url, db.name);
+      try {
+        const sentAt = running.signal("SIGTERM");
+        const exit = await Promise.race([
+          running.exited,
+          sleep(WAIT_MS).then(() => {
+            throw new Error("still running");
+          }),
+        ]);
+        expect(exit.code, running.output()).toBe(1);
+        expect(exit.at - sentAt).toBeGreaterThanOrEqual(1_400);
+        expect(exit.at - sentAt).toBeLessThan(SHUTDOWN_BUDGET_MS);
+        expect(running.events.find((e) => e.event === "shutdown_deadline_exceeded")).toMatchObject({
+          phase: "final flush and snapshot",
+          deadlineMs: 1500,
+          level: 50,
+        });
+        expect(running.events.map((e) => e.event)).not.toContain("shutdown_completed");
+      } finally {
+        await table.release();
+      }
+    },
+    TEST_MS,
+  );
+
+  it(
     "resumes a suspended log to write the idle ticks and a final snapshot",
     async () => {
       const running = await start({ IDLE_AFTER_MS: "1500" });
