@@ -39,6 +39,8 @@ export class StreamHub {
   private readonly dirtyBooks = new Set<string>();
   private readonly timers: NodeJS.Timeout[] = [];
   private unsubscribe: (() => void) | undefined;
+  /** Set by `stop`: streams that arrive afterwards are refused, not left open forever. */
+  private stopped = false;
 
   constructor(
     private readonly host: EngineHost,
@@ -68,6 +70,7 @@ export class StreamHub {
   }
 
   stop(): void {
+    this.stopped = true;
     this.unsubscribe?.();
     for (const timer of this.timers) clearInterval(timer);
     this.timers.length = 0;
@@ -76,6 +79,17 @@ export class StreamHub {
   }
 
   attach(res: ServerResponse, symbol: string, accountId: string | undefined): void {
+    if (this.stopped) {
+      // Nothing would ever close this stream, and the server could not stop.
+      res.writeHead(503, {
+        "content-type": "application/json; charset=utf-8",
+        connection: "close",
+      });
+      res.end(
+        JSON.stringify({ error: { code: "unavailable", message: "The exchange is restarting" } }),
+      );
+      return;
+    }
     res.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-cache, no-transform",

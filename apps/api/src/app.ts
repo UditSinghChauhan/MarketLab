@@ -41,6 +41,17 @@ export interface AppDeps {
   readonly persistence: "postgres" | "memory";
   /** Where log lines go instead of stdout; given one, the app logs even in tests. */
   readonly logStream?: { write(line: string): void };
+  /** Shared with the process: set `draining` when shutdown begins. */
+  readonly lifecycle?: Lifecycle;
+}
+
+export interface Lifecycle {
+  /**
+   * True once shutdown has begun: every request but /api/health gets 503, and
+   * every response closes its connection, so no keep-alive socket outlives
+   * the server.
+   */
+  draining: boolean;
 }
 
 export class HttpError extends Error {
@@ -170,6 +181,7 @@ const errorBody = (code: string, message: string, details?: unknown): ApiError =
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const { config, host, hub, instruments, logStream } = deps;
+  const lifecycle = deps.lifecycle ?? { draining: false };
   const bySymbol = new Map(instruments.map((i) => [i.symbol, i]));
   const securityHeaders: Record<string, string> =
     config.NODE_ENV === "production"
@@ -197,6 +209,18 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     logger: config.NODE_ENV === "test" && !logStream ? false : logger,
     trustProxy: true,
     bodyLimit: 16 * 1024,
+    // On close, destroy every connection, not only those idle at that moment;
+    // the shutdown sequence has already drained the work they were waiting for.
+    forceCloseConnections: true,
+  });
+
+  // Shutdown has begun: refuse new work, and close each connection after its
+  // response, including responses to requests that were already in flight.
+  app.addHook("onRequest", async (request, reply) => {
+    if (!lifecycle.draining) return;
+    void reply.header("connection", "close");
+    if (request.url === "/api/health" || request.url.startsWith("/api/health?")) return;
+    return reply.status(503).send(errorBody("unavailable", "The exchange is restarting"));
   });
 
   // gzip/brotli for JSON and static assets. The event stream is hijacked from
@@ -213,6 +237,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   app.addHook("onSend", async (_request, reply) => {
     void reply.headers(securityHeaders);
+    if (lifecycle.draining) void reply.header("connection", "close");
   });
 
   app.setErrorHandler((error, request, reply) => {
@@ -266,12 +291,18 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   // System -------------------------------------------------------------------
 
-  // 503 when the engine can no longer write its log, so the platform restarts it.
+  // 503 when the engine can no longer write its log, so the platform restarts
+  // it, and while shutting down, so no traffic is routed here. Never queries
+  // the database (ADR 0007).
   app.get("/api/health", (_request, reply): HealthResponse => {
     const violations = host.exchange.audit().length;
-    if (!host.healthy) void reply.status(503);
+    if (!host.healthy || lifecycle.draining) void reply.status(503);
     return {
-      status: host.healthy && violations === 0 ? "ok" : "degraded",
+      status: lifecycle.draining
+        ? "stopping"
+        : host.healthy && violations === 0
+          ? "ok"
+          : "degraded",
       session: host.session.id,
       seq: host.sequence,
       uptimeS: Math.round((Date.now() - host.startedAt) / 1000),

@@ -13,7 +13,7 @@ import type { EngineHost } from "./host.js";
 import { INSTRUMENTS } from "./instruments.js";
 import { MemoryLog } from "./log/memory.js";
 import { StreamHub } from "./stream.js";
-import { clock, startHost, testConfig } from "./test/fixtures.js";
+import { buy, clock, startHost, testConfig } from "./test/fixtures.js";
 
 let app: FastifyInstance;
 let host: EngineHost;
@@ -269,5 +269,121 @@ describe("absoluteLinks", () => {
     const out = absoluteLinks(html, "https://marketlab.example", '/"><script>alert(1)</script>');
     expect(out).not.toContain("<script>");
     expect(out).not.toContain('/">');
+  });
+});
+
+describe("while shutting down", () => {
+  async function drainable() {
+    const log = new MemoryLog();
+    const drainingHost = await startHost(log, clock().now);
+    drainingHost.tick();
+    const hub = new StreamHub(drainingHost, INSTRUMENTS);
+    const lifecycle = { draining: false };
+    const served = await buildApp({
+      config: testConfig(),
+      host: drainingHost,
+      hub,
+      instruments: INSTRUMENTS,
+      persistence: "memory",
+      lifecycle,
+    });
+    const token = (
+      await served.inject({ method: "POST", url: "/api/session" })
+    ).json<SessionResponse>().token;
+    return { log, host: drainingHost, hub, lifecycle, served, token };
+  }
+
+  const order = { symbol: "ORBT", side: "buy", type: "market", qty: 1 };
+
+  it("refuses every request but health with 503, closing the connection", async () => {
+    const { served, lifecycle, token } = await drainable();
+    lifecycle.draining = true;
+    try {
+      for (const request of [
+        { method: "GET", url: "/api/markets" },
+        { method: "POST", url: "/api/session" },
+        { method: "GET", url: "/api/stream?symbol=ORBT" },
+        { method: "GET", url: "/api/replay" },
+        { method: "POST", url: "/api/orders", headers: auth(token), payload: order },
+      ] as const) {
+        const res = await served.inject(request);
+        expect(res.statusCode, request.url).toBe(503);
+        expect(res.headers.connection, request.url).toBe("close");
+        expect(res.json()).toEqual({
+          error: { code: "unavailable", message: "The exchange is restarting" },
+        });
+      }
+    } finally {
+      await served.close();
+    }
+  });
+
+  it("answers health with 503 'stopping', without touching the database", async () => {
+    const { served, lifecycle } = await drainable();
+    expect((await served.inject("/api/health")).statusCode).toBe(200);
+    lifecycle.draining = true;
+    try {
+      const res = await served.inject("/api/health");
+      expect(res.statusCode).toBe(503);
+      expect(res.headers.connection).toBe("close");
+      expect(res.json<HealthResponse>().status).toBe("stopping");
+    } finally {
+      await served.close();
+    }
+  });
+
+  it("never logs or applies an order that reaches the host after shutdown began", async () => {
+    // The request passed the HTTP gate just before draining began.
+    const { served, host: closing, log, token } = await drainable();
+    const before = (await log.readEntries(closing.session.id, 0, 1_000)).length;
+    const hash = closing.exchange.stateHash();
+    closing.beginShutdown();
+    try {
+      const res = await served.inject({
+        method: "POST",
+        url: "/api/orders",
+        headers: auth(token),
+        payload: order,
+      });
+      expect(res.statusCode).toBe(503);
+      expect((await log.readEntries(closing.session.id, 0, 1_000)).length).toBe(before);
+      expect(closing.exchange.stateHash()).toBe(hash);
+    } finally {
+      await served.close();
+    }
+  });
+
+  it("finishes and logs commands queued before shutdown; drain waits for them", async () => {
+    const { served, host: closing, log } = await drainable();
+    const accountId = await closing.openGuest();
+    closing.tick();
+    const before = (await log.readEntries(closing.session.id, 0, 1_000)).length;
+    let finished = false;
+    const queued = closing.submit(buy(accountId, "ORBT", 1)).then((result) => {
+      finished = true;
+      return result;
+    });
+    closing.beginShutdown();
+    await closing.drain();
+    try {
+      expect(finished).toBe(true);
+      expect((await queued).ok).toBe(true);
+      // The pending ticks, then the order.
+      expect((await log.readEntries(closing.session.id, 0, 1_000)).length).toBe(before + 2);
+    } finally {
+      await served.close();
+    }
+  });
+
+  it("refuses an event stream that arrives after the hub stopped", async () => {
+    const { served, hub } = await drainable();
+    hub.stop();
+    try {
+      const res = await served.inject("/api/stream?symbol=ORBT");
+      expect(res.statusCode).toBe(503);
+      expect(res.headers.connection).toBe("close");
+    } finally {
+      await served.close();
+    }
   });
 });

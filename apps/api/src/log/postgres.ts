@@ -19,6 +19,8 @@
 import { z } from "zod";
 
 import {
+  LockHeldError,
+  LogHeadMovedError,
   parseEntry,
   type CommandLog,
   type LogEntry,
@@ -88,7 +90,7 @@ async function takeWriterLock(db: Queryable): Promise<void> {
   const [lock] = await select(db, LockRow, "SELECT pg_try_advisory_lock($1) AS locked", [
     WRITER_LOCK,
   ]);
-  if (!lock?.locked) throw new Error("Another engine process holds the command-log lock");
+  if (!lock?.locked) throw new LockHeldError("Another engine process holds the command-log lock");
 }
 
 export class PostgresLog<C extends Queryable = Queryable> implements CommandLog {
@@ -180,7 +182,7 @@ export class PostgresLog<C extends Queryable = Queryable> implements CommandLog 
     );
     const head = row?.head ?? 0;
     if (head !== expectedSeq) {
-      throw new Error(
+      throw new LogHeadMovedError(
         `The command log changed while the engine was away: expected ${String(expectedSeq)} entries, found ${String(head)}`,
       );
     }

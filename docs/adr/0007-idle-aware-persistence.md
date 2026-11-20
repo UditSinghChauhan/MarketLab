@@ -49,7 +49,10 @@ connection.**
   is stored straight away, so a restart soon after does not replay them.
 - Unchanged: every user command is preceded by a flush of the pending ticks
   and is logged before it is applied; on graceful shutdown (`SIGTERM`) the
-  host flushes and snapshots, resuming the log first if it must.
+  host flushes and snapshots, resuming the log first if it must. If another
+  instance has taken the lock or written to the session meanwhile, it writes
+  nothing and exits normally: the idle ticks are not persisted, and the log
+  stays exactly as the other instance has it.
 - Any failure to resume, flush or suspend stops the host through `onFatal`, as
   a failed append always has; the process restarts and replays the log.
 

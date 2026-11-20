@@ -42,8 +42,16 @@ import {
   type SessionState,
 } from "@marketlab/engine";
 
+import type { EmitEvent } from "./events.js";
 import { GUEST_CASH, GUEST_PREFIX, type InstrumentConfig } from "./instruments.js";
-import type { CommandLog, LogEntry, Session, StoredSnapshot } from "./log/types.js";
+import {
+  LockHeldError,
+  LogHeadMovedError,
+  type CommandLog,
+  type LogEntry,
+  type Session,
+  type StoredSnapshot,
+} from "./log/types.js";
 import { MarketData, type MarketDataState } from "./market-data.js";
 import { toEventView } from "./serialize.js";
 
@@ -99,7 +107,18 @@ export interface HostOptions {
   readonly snapshotMs?: number;
   /** Called for problems the host recovers from (an unusable or unsaved snapshot). */
   readonly onWarning?: (message: string, error?: unknown) => void;
+  /** Lifecycle events: replay verified, snapshot saved, log suspended and resumed. */
+  readonly onEvent?: EmitEvent;
+  /** How long without watchers or activity before the host goes idle; default `IDLE_AFTER_MS`. */
+  readonly idleAfterMs?: number;
 }
+
+/**
+ * What the final flush on shutdown did: `saved` the pending ticks and a
+ * snapshot, or `owned-elsewhere`: the log was suspended and another process
+ * has since taken it over, so this one must not write (ADR 0007).
+ */
+export type FinalFlush = "saved" | "owned-elsewhere";
 
 export class HostUnavailableError extends Error {
   override name = "HostUnavailableError";
@@ -179,6 +198,8 @@ export class EngineHost {
   private queue: Promise<unknown> = Promise.resolve();
   private timer: NodeJS.Timeout | undefined;
   private failure: unknown;
+  /** Set when shutdown begins: new work is refused, queued work still runs. */
+  private closing = false;
   /** How many stream clients are watching; set by `watch`. */
   private watchers: () => number = () => 0;
   /** The last user command, guest account or replay read. */
@@ -188,6 +209,8 @@ export class EngineHost {
    * has stored a snapshot after waking: periodic persistence is paused.
    */
   private idleStretch = false;
+  /** True from the host suspending the log until a write has resumed it. */
+  private logSuspended = false;
   private readonly listeners = new Set<(update: HostUpdate) => void>();
 
   private constructor(
@@ -279,6 +302,16 @@ export class EngineHost {
       ms: Math.round(performance.now() - started),
       snapshotSeq,
     };
+    if (!host.hashMismatchReported) {
+      options.onEvent?.("replay_verified", {
+        session: session.id,
+        entries: tail.length,
+        ms: host.replay.ms,
+        snapshotSeq,
+        seq: host.seq,
+        stateHash: host.exchange.stateHash(),
+      });
+    }
 
     const warmup = options.warmupTicks ?? 0;
     if (session.entries.length === 0 && warmup > 0) {
@@ -308,7 +341,8 @@ export class EngineHost {
    * always logged.
    */
   get active(): boolean {
-    return this.watchers() > 0 || this.now() - this.lastActivityAt < IDLE_AFTER_MS;
+    const idleAfter = this.options.idleAfterMs ?? IDLE_AFTER_MS;
+    return this.watchers() > 0 || this.now() - this.lastActivityAt < idleAfter;
   }
 
   /**
@@ -336,19 +370,71 @@ export class EngineHost {
         await this.maybeSnapshot(true);
         await log.suspend();
         this.idleStretch = true;
+        this.logSuspended = true;
+        this.options.onEvent?.("log_suspended", { session: this.session.id, seq: this.seq });
       }
     }).catch((error: unknown) => {
       this.fail(error);
     });
   }
 
-  async stop(): Promise<void> {
+  /**
+   * Shutdown, step 1: refuse new commands, guest accounts and replay
+   * checkpoints (they fail with `HostUnavailableError`, before reaching the
+   * queue, so they are never logged or applied). Work already queued still runs.
+   */
+  beginShutdown(): void {
+    this.closing = true;
+  }
+
+  /** Stops the market clock: no more ticks. */
+  stopClock(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
-    await this.serial(async () => {
+  }
+
+  /** Resolves once everything queued so far has finished (the queue is first in, first out). */
+  drain(): Promise<void> {
+    return this.serial(() => Promise.resolve());
+  }
+
+  /**
+   * Shutdown, step 4, after `drain`: logs the pending ticks and stores a final
+   * snapshot, so the next start has almost nothing to replay. A suspended log
+   * is resumed first; if another process has taken the lock or written to the
+   * session meanwhile, this process no longer owns the log and writes nothing,
+   * which is not a failure: only unwatched bot ticks are lost (ADR 0007).
+   * Rejects, through the usual `onFatal`, if the log cannot be written.
+   */
+  finalFlush(): Promise<FinalFlush> {
+    return this.serial(async () => {
+      if (this.failure !== undefined) {
+        throw new HostUnavailableError("The command log is unavailable");
+      }
+      try {
+        await this.resumeLog();
+      } catch (error) {
+        if (error instanceof LockHeldError || error instanceof LogHeadMovedError) {
+          return "owned-elsewhere";
+        }
+        throw error;
+      }
       await this.maybeFlushTicks(true);
-      await this.maybeSnapshot(true); // so the next start has almost nothing to replay
-    }).catch(() => undefined);
+      await this.maybeSnapshot(true);
+      return "saved";
+    });
+  }
+
+  /** Refuses new work, stops the clock, then logs pending ticks and stores a final snapshot. */
+  async stop(): Promise<FinalFlush | undefined> {
+    this.beginShutdown();
+    this.stopClock();
+    return this.finalFlush().catch(() => undefined);
+  }
+
+  /** Throws if the host can no longer take new work. */
+  private assertOpen(): void {
+    if (this.closing) throw new HostUnavailableError("The exchange is shutting down");
   }
 
   subscribe(listener: (update: HostUpdate) => void): () => void {
@@ -380,6 +466,7 @@ export class EngineHost {
   }
 
   async openGuest(): Promise<string> {
+    this.assertOpen();
     const accountId = `${GUEST_PREFIX}${randomUUID().replaceAll("-", "").slice(0, 16)}`;
     this.lastActivityAt = this.now();
     await this.serial(async () => {
@@ -398,6 +485,7 @@ export class EngineHost {
   }
 
   async submit(command: Command): Promise<CommandResult> {
+    this.assertOpen();
     const receivedAt = this.now();
     this.lastActivityAt = receivedAt;
     const enqueued = performance.now();
@@ -523,6 +611,7 @@ export class EngineHost {
       await this.options.log.saveSnapshot(this.session.id, this.snapshot());
       this.lastSnapshotAt = this.now();
       this.lastSnapshotSeq = this.seq;
+      this.options.onEvent?.("snapshot_saved", { session: this.session.id, seq: this.seq });
     } catch (error) {
       this.lastSnapshotAt = this.now(); // try again after the usual interval, not every tick
       this.options.onWarning?.("Could not store a snapshot; the log is unaffected", error);
@@ -547,7 +636,7 @@ export class EngineHost {
     }
     try {
       // After an idle stretch: reconnect, retake the lock, check nobody wrote.
-      await this.options.log.resume(this.session.id, this.seq);
+      await this.resumeLog();
       await this.options.log.append(this.session.id, this.seq + 1, entry);
       this.seq += 1;
     } catch (error) {
@@ -555,6 +644,15 @@ export class EngineHost {
       // let the process restart, which replays the log into a consistent state.
       this.fail(error);
       throw new HostUnavailableError("The command log is unavailable");
+    }
+  }
+
+  /** Resumes the log if it was suspended (a no-op otherwise); throws if it cannot. */
+  private async resumeLog(): Promise<void> {
+    await this.options.log.resume(this.session.id, this.seq);
+    if (this.logSuspended) {
+      this.logSuspended = false;
+      this.options.onEvent?.("log_resumed", { session: this.session.id, seq: this.seq });
     }
   }
 
@@ -578,6 +676,9 @@ export class EngineHost {
    * is exactly "the log up to `seq`, applied".
    */
   checkpoint(): Promise<{ seq: number; stateHash: string; commands: number }> {
+    if (this.closing) {
+      return Promise.reject(new HostUnavailableError("The exchange is shutting down"));
+    }
     this.lastActivityAt = this.now(); // a replay is starting
     return this.serial(async () => {
       await this.flush();
