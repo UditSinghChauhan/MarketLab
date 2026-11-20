@@ -25,12 +25,19 @@ export const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 export const WRITER_LOCK = 0x6d6c6162;
 
 const API_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const SERVER = path.join(API_DIR, "dist", "server.js");
+/** The bundle `startServer` runs; set by `buildServer` (each test file has its own). */
+let serverScript: string | undefined;
 
-/** Bundles the API exactly as `npm run build` does; returns the server script. */
-export async function buildServer(): Promise<string> {
-  await promisify(execFile)(process.execPath, ["build.js"], { cwd: API_DIR });
-  return SERVER;
+/**
+ * Bundles the API exactly as `npm run build` does, into a file of the test
+ * suite's own (`dist/test-<suite>.js`): suites run in parallel, and must not
+ * overwrite each other's bundle while one is starting.
+ */
+export async function buildServer(suite: string): Promise<string> {
+  const outfile = path.join("dist", `test-${suite}.js`);
+  await promisify(execFile)(process.execPath, ["build.js", outfile], { cwd: API_DIR });
+  serverScript = path.join(API_DIR, outfile);
+  return serverScript;
 }
 
 /** Runs `work` with a connection to `url`, closing it afterwards. */
@@ -70,19 +77,41 @@ export async function createDatabase(adminUrl: string): Promise<TestDatabase> {
   };
 }
 
-/** The latest session's log head and snapshot position. */
+/** The latest session's log head and snapshot position (and hash), and how many sessions exist. */
 export async function logState(url: string) {
   return withClient(url, async (db) => {
-    const { rows } = await db.query<{ session: string; head: number; snapshot: number | null }>(
+    const { rows } = await db.query<{
+      session: string;
+      head: number;
+      snapshot: number | null;
+      hash: string | null;
+      sessions: number;
+    }>(
       `SELECT s.id AS session,
               COALESCE((SELECT MAX(seq) FROM log_entries WHERE session_id = s.id), 0) AS head,
-              (SELECT seq FROM snapshots WHERE session_id = s.id) AS snapshot
+              (SELECT seq FROM snapshots WHERE session_id = s.id) AS snapshot,
+              (SELECT state_hash FROM snapshots WHERE session_id = s.id) AS hash,
+              (SELECT COUNT(*)::int FROM sessions) AS sessions
          FROM sessions s ORDER BY s.id DESC LIMIT 1`,
     );
     const row = rows[0];
     if (!row) throw new Error("no session in the log");
-    return { session: Number(row.session), head: row.head, snapshotSeq: row.snapshot };
+    return {
+      session: Number(row.session),
+      head: row.head,
+      snapshotSeq: row.snapshot,
+      snapshotHash: row.hash,
+      sessions: row.sessions,
+    };
   });
+}
+
+/** GET /api/health: the status code and the parsed body. */
+export async function health(
+  base: string,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const res = await fetch(`${base}/api/health`);
+  return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
 
 /**
@@ -207,8 +236,9 @@ export interface StartOptions {
 
 /** Spawns the built server with production settings and a short market clock. */
 export async function startServer(options: StartOptions): Promise<ServerProcess> {
+  if (!serverScript) throw new Error("call buildServer() first");
   const port = await freePort();
-  const child = spawn(process.execPath, ["--enable-source-maps", SERVER], {
+  const child = spawn(process.execPath, ["--enable-source-maps", serverScript], {
     cwd: API_DIR,
     stdio: ["ignore", "pipe", "pipe"],
     env: {

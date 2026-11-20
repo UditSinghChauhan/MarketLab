@@ -8,11 +8,14 @@ import { readFileSync } from "node:fs";
 import { build } from "esbuild";
 
 const pkg = JSON.parse(readFileSync(new URL("package.json", import.meta.url), "utf8"));
+// Process tests pass their own output file, so suites built in parallel never
+// overwrite each other's bundle (or the deployed one).
+const outfile = process.argv[2] ?? "dist/server.js";
 const external = Object.keys(pkg.dependencies).filter((name) => !name.startsWith("@marketlab/"));
 
 await build({
   entryPoints: ["src/server.ts"],
-  outfile: "dist/server.js",
+  outfile,
   bundle: true,
   platform: "node",
   target: "node22",

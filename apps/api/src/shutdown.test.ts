@@ -47,7 +47,7 @@ describe.skipIf(!testDatabaseUrl)("graceful shutdown of the built server", () =>
   let server: ServerProcess | undefined;
 
   beforeAll(async () => {
-    await buildServer();
+    await buildServer("shutdown");
   }, 60_000);
 
   afterEach(async () => {
