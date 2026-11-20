@@ -53,7 +53,9 @@ How the parameters are read ([`connection.ts`](apps/api/src/log/connection.ts)):
 2. When asked for `DATABASE_URL`, paste the Neon connection string.
    `TOKEN_SECRET` is generated for you.
 3. Apply. The first build runs `npm ci --include=dev && npm run build`, then
-   `npm start`. Render marks the service live once `/api/health` answers.
+   `npm start`. Render marks the service live once `/api/health` answers 200.
+   Until the engine has the command log and has replayed it, health answers
+   `503` with `"status":"starting"` and a reason.
 
 ## 3. Check it
 
@@ -76,6 +78,7 @@ How the parameters are read ([`connection.ts`](apps/api/src/log/connection.ts)):
 | `SNAPSHOT_MINUTES`     | `10`     | Minutes between engine snapshots while the exchange is in use, which keep restarts fast. `0` turns them off.                                                     |
 | `LOG_LEVEL`            | `info`   | Fastify/pino log level.                                                                                                                                          |
 | `PUBLIC_URL`           | none     | The site's address, used for absolute URLs in link previews. On Render it defaults to the service's `onrender.com` address; set it when you add a custom domain. |
+| `LOCK_WAIT_MS`         | `840000` | How long a starting instance waits for the previous one to release the command log before exiting with code 1. At most 900000, Render's 15-minute limit.         |
 | `SHUTDOWN_DEADLINE_MS` | `20000`  | Longest a graceful shutdown may take before the process exits with code 1. At most 29000, below Render's 30-second kill.                                         |
 | `IDLE_AFTER_MS`        | `300000` | Milliseconds without stream clients or activity before the engine suspends its log. Only the test suite lowers it.                                               |
 | `RATE_LIMIT_SCALE`     | `1`      | Multiplies every rate limit. Only the test suite raises it.                                                                                                      |
@@ -83,9 +86,26 @@ How the parameters are read ([`connection.ts`](apps/api/src/log/connection.ts)):
 
 ## Operating notes
 
-- **One instance only.** The engine is a single writer. A second instance fails
-  at startup with "Another engine process holds the command-log lock"; that is
-  the lock doing its job. Don't scale the service horizontally.
+- **One instance only.** The engine is a single writer: only the process
+  holding the command log's lock writes. Don't scale the service horizontally;
+  extra instances would only ever wait.
+- **Deploys wait for the site to go quiet.** Render starts the new instance
+  while the old one still serves. The new one listens at once, but answers
+  `/api/health` with `503 {"status":"starting","reason":"waiting for the
+previous instance"}` until the old one has gone idle (five minutes after the
+  last visitor leaves) and released the log. It then replays the log (health
+  says "replaying the command log"), turns healthy, and Render switches
+  traffic to it. While it waits it logs `lock_waiting` every 30 seconds.
+  - If someone stays on the site for longer than `LOCK_WAIT_MS` (14 minutes),
+    the new instance gives up and exits with code 1, Render reports the deploy
+    as failed, and **the old version keeps serving**. Deploy again later.
+  - Between the takeover and the switch, a request that still reaches the old
+    instance gets `503` at once (the web app shows "Starting the exchange" and
+    retries); the old instance then waits for its `SIGTERM` and exits without
+    writing.
+  - This is deferral, not a zero-downtime handover
+    ([ADR 0009](docs/adr/0009-deploys-with-a-single-writer.md)). To deploy at
+    once, deploy when nobody is on the site.
 - **Free-plan sleep.** Render's free plan stops the service after about 15
   minutes without traffic. The next visit wakes it (expect a cold start of
   roughly a minute), and startup replays the session's log, so no order or
