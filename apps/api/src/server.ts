@@ -8,6 +8,7 @@ import pg from "pg";
 
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
+import { createEventLog } from "./events.js";
 import { EngineHost } from "./host.js";
 import { INSTRUMENTS } from "./instruments.js";
 import { MemoryLog } from "./log/memory.js";
@@ -24,6 +25,8 @@ const config = {
   ...loaded,
   WEB_DIST: loaded.WEB_DIST ?? (existsSync(bundledWeb) ? bundledWeb : undefined),
 };
+const emit = createEventLog();
+const describeError = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
  * The log can no longer be written. The host already refuses new work and
@@ -31,7 +34,7 @@ const config = {
  * 503, then exit so the platform restarts the process and replays the log.
  */
 function fatal(error: unknown): void {
-  console.error("fatal:", error);
+  emit("persistence_failed", { error: describeError(error), fatal: true });
   setTimeout(() => process.exit(1), 500);
 }
 
@@ -57,6 +60,7 @@ async function openLog(): Promise<CommandLog> {
 }
 
 const log = await openLog();
+if (log.kind === "postgres") emit("lock_acquired", { waitedMs: 0 });
 const host = await EngineHost.start({
   log,
   instruments: INSTRUMENTS,
@@ -68,24 +72,25 @@ const host = await EngineHost.start({
   onWarning: (message, error) => {
     console.warn(`${message}:`, error instanceof Error ? error.message : error);
   },
+  onEvent: emit,
 });
 const hub = new StreamHub(host, INSTRUMENTS);
 host.watch(() => hub.size); // periodic log writes pause while nobody watches (ADR 0007)
 const app = await buildApp({ config, host, hub, instruments: INSTRUMENTS, persistence: log.kind });
 
-app.log.info(
-  {
-    session: host.session.id,
-    replayed: host.replay.entries,
-    replayMs: host.replay.ms,
-    snapshotSeq: host.replay.snapshotSeq,
-  },
-  "engine ready",
-);
-
 hub.start();
 host.startClock();
 await app.listen({ host: config.HOST, port: config.PORT });
+const address = app.server.address();
+emit("engine_ready", {
+  session: host.session.id,
+  seq: host.sequence,
+  replayed: host.replay.entries,
+  replayMs: host.replay.ms,
+  snapshotSeq: host.replay.snapshotSeq,
+  persistence: log.kind,
+  port: typeof address === "object" && address ? address.port : config.PORT,
+});
 
 let shuttingDown = false;
 async function shutdown(signal: string) {

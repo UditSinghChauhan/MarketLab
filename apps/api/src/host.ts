@@ -42,6 +42,7 @@ import {
   type SessionState,
 } from "@marketlab/engine";
 
+import type { EmitEvent } from "./events.js";
 import { GUEST_CASH, GUEST_PREFIX, type InstrumentConfig } from "./instruments.js";
 import type { CommandLog, LogEntry, Session, StoredSnapshot } from "./log/types.js";
 import { MarketData, type MarketDataState } from "./market-data.js";
@@ -99,6 +100,8 @@ export interface HostOptions {
   readonly snapshotMs?: number;
   /** Called for problems the host recovers from (an unusable or unsaved snapshot). */
   readonly onWarning?: (message: string, error?: unknown) => void;
+  /** Lifecycle events: replay verified, snapshot saved, log suspended and resumed. */
+  readonly onEvent?: EmitEvent;
 }
 
 export class HostUnavailableError extends Error {
@@ -188,6 +191,8 @@ export class EngineHost {
    * has stored a snapshot after waking: periodic persistence is paused.
    */
   private idleStretch = false;
+  /** True from the host suspending the log until a write has resumed it. */
+  private logSuspended = false;
   private readonly listeners = new Set<(update: HostUpdate) => void>();
 
   private constructor(
@@ -279,6 +284,16 @@ export class EngineHost {
       ms: Math.round(performance.now() - started),
       snapshotSeq,
     };
+    if (!host.hashMismatchReported) {
+      options.onEvent?.("replay_verified", {
+        session: session.id,
+        entries: tail.length,
+        ms: host.replay.ms,
+        snapshotSeq,
+        seq: host.seq,
+        stateHash: host.exchange.stateHash(),
+      });
+    }
 
     const warmup = options.warmupTicks ?? 0;
     if (session.entries.length === 0 && warmup > 0) {
@@ -336,6 +351,8 @@ export class EngineHost {
         await this.maybeSnapshot(true);
         await log.suspend();
         this.idleStretch = true;
+        this.logSuspended = true;
+        this.options.onEvent?.("log_suspended", { session: this.session.id, seq: this.seq });
       }
     }).catch((error: unknown) => {
       this.fail(error);
@@ -523,6 +540,7 @@ export class EngineHost {
       await this.options.log.saveSnapshot(this.session.id, this.snapshot());
       this.lastSnapshotAt = this.now();
       this.lastSnapshotSeq = this.seq;
+      this.options.onEvent?.("snapshot_saved", { session: this.session.id, seq: this.seq });
     } catch (error) {
       this.lastSnapshotAt = this.now(); // try again after the usual interval, not every tick
       this.options.onWarning?.("Could not store a snapshot; the log is unaffected", error);
@@ -547,7 +565,7 @@ export class EngineHost {
     }
     try {
       // After an idle stretch: reconnect, retake the lock, check nobody wrote.
-      await this.options.log.resume(this.session.id, this.seq);
+      await this.resumeLog();
       await this.options.log.append(this.session.id, this.seq + 1, entry);
       this.seq += 1;
     } catch (error) {
@@ -555,6 +573,15 @@ export class EngineHost {
       // let the process restart, which replays the log into a consistent state.
       this.fail(error);
       throw new HostUnavailableError("The command log is unavailable");
+    }
+  }
+
+  /** Resumes the log if it was suspended (a no-op otherwise); throws if it cannot. */
+  private async resumeLog(): Promise<void> {
+    await this.options.log.resume(this.session.id, this.seq);
+    if (this.logSuspended) {
+      this.logSuspended = false;
+      this.options.onEvent?.("log_resumed", { session: this.session.id, seq: this.seq });
     }
   }
 
