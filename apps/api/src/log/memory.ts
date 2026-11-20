@@ -1,4 +1,10 @@
-import type { CommandLog, LogEntry, Session, StoredSnapshot } from "./types.js";
+import {
+  LogHeadMovedError,
+  type CommandLog,
+  type LogEntry,
+  type Session,
+  type StoredSnapshot,
+} from "./types.js";
 
 /**
  * In-memory log for local development and tests. Lost on restart. It has no
@@ -24,7 +30,7 @@ export class MemoryLog implements CommandLog {
     const head = this.sessions.find((s) => s.id === sessionId)?.entries.length ?? 0;
     if (head !== expectedSeq) {
       return Promise.reject(
-        new Error(
+        new LogHeadMovedError(
           `The command log changed: expected ${String(expectedSeq)} entries, found ${String(head)}`,
         ),
       );

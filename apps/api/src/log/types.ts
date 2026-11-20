@@ -73,6 +73,16 @@ export interface StoredSnapshot {
   readonly state: string;
 }
 
+/** Another process holds the single-writer lock: it, not this one, owns the log. */
+export class LockHeldError extends Error {
+  override name = "LockHeldError";
+}
+
+/** The session gained entries this process did not write while its log was suspended. */
+export class LogHeadMovedError extends Error {
+  override name = "LogHeadMovedError";
+}
+
 export interface CommandLog {
   readonly kind: "postgres" | "memory";
   /**
@@ -84,9 +94,9 @@ export interface CommandLog {
   suspend(): Promise<void>;
   /**
    * Reconnects if suspended, retaking the writer lock without waiting, and
-   * checks that the session still has exactly `expectedSeq` entries. Throws if
-   * another process holds the lock or wrote to the session. A no-op when
-   * connected and already checked.
+   * checks that the session still has exactly `expectedSeq` entries. Throws
+   * `LockHeldError` if another process holds the lock, `LogHeadMovedError` if
+   * one wrote to the session. A no-op when connected and already checked.
    */
   resume(sessionId: number, expectedSeq: number): Promise<void>;
   /**

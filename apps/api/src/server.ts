@@ -9,7 +9,7 @@ import pg from "pg";
 import { buildApp, type Lifecycle } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createEventLog } from "./events.js";
-import { EngineHost } from "./host.js";
+import { EngineHost, HostUnavailableError } from "./host.js";
 import { INSTRUMENTS } from "./instruments.js";
 import { MemoryLog } from "./log/memory.js";
 import { connectionOptions } from "./log/connection.js";
@@ -76,6 +76,7 @@ const host = await EngineHost.start({
   sessionMaxAgeMs: config.SESSION_HOURS * 60 * 60 * 1000,
   warmupTicks: Math.round((config.WARMUP_MINUTES * 60_000) / config.TICK_MS),
   snapshotMs: config.SNAPSHOT_MINUTES * 60_000,
+  idleAfterMs: config.IDLE_AFTER_MS,
   onFatal: fatal,
   onWarning: (message, error) => {
     console.warn(`${message}:`, error instanceof Error ? error.message : error);
@@ -114,7 +115,8 @@ emit("engine_ready", {
  *    /api/health answers 503 "stopping";
  * 2. stop the market clock and close every event stream;
  * 3. let commands already queued finish and be logged;
- * 4. log pending ticks and store a final snapshot;
+ * 4. log pending ticks and store a final snapshot, unless the log was
+ *    suspended and another instance has taken it over meanwhile;
  * 5. close the HTTP server and every remaining connection;
  * 6. close the command log, then exit.
  */
@@ -129,16 +131,33 @@ async function shutdown(signal: string) {
   host.stopClock();
   hub.stop();
   await host.drain();
-  await host.stop();
+  const finalFlush = await host.finalFlush().catch((error: unknown) => {
+    // A failed append already reported itself through `fatal`.
+    if (!(error instanceof HostUnavailableError)) {
+      emit("persistence_failed", { error: describeError(error), phase: "final flush" });
+    }
+    exitCode = 1;
+    return "failed" as const;
+  });
   await app.close();
   await log.close();
 
-  emit("shutdown_completed", {
-    signal,
-    seq: host.sequence,
-    ms: Math.round(performance.now() - started),
-    exitCode,
-  });
+  emit(
+    "shutdown_completed",
+    {
+      signal,
+      seq: host.sequence,
+      finalFlush,
+      ms: Math.round(performance.now() - started),
+      exitCode,
+    },
+    finalFlush === "owned-elsewhere"
+      ? {
+          level: "warn",
+          message: "another instance owns the log; idle ticks not persisted (ADR 0007)",
+        }
+      : undefined,
+  );
   process.exit(exitCode);
 }
 process.on("SIGTERM", () => void shutdown("SIGTERM"));

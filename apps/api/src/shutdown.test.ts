@@ -11,7 +11,10 @@ import { Agent, request } from "node:http";
 
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
+import pg from "pg";
+
 import {
+  WRITER_LOCK,
   buildServer,
   connectionsTo,
   createDatabase,
@@ -188,6 +191,76 @@ describe.skipIf(!testDatabaseUrl)("graceful shutdown of the built server", () =>
       const qtys = (await loggedCommands(db.url)).map((c) => c.qty);
       expect(qtys).toContain(7);
       expect(qtys).not.toContain(9);
+    },
+    TEST_MS,
+  );
+
+  it(
+    "resumes a suspended log to write the idle ticks and a final snapshot",
+    async () => {
+      const running = await start({ IDLE_AFTER_MS: "1500" });
+      const suspended = await running.waitFor("log_suspended", 10_000);
+      await sleep(TICKS_PENDING_MS); // idle ticks, held only in memory
+      await expectCleanExit(running, running.signal("SIGTERM"));
+
+      const after = running.events.slice(running.events.indexOf(suspended));
+      expect(after.map((e) => e.event)).toEqual(
+        expect.arrayContaining(["log_resumed", "snapshot_saved", "shutdown_completed"]),
+      );
+      expect(after.find((e) => e.event === "shutdown_completed")).toMatchObject({
+        finalFlush: "saved",
+        exitCode: 0,
+      });
+      expect((await logState(db.url)).head).toBeGreaterThan(Number(suspended.seq));
+    },
+    TEST_MS,
+  );
+
+  it(
+    "exits cleanly, writing nothing, if another instance took the lock while the log was suspended",
+    async () => {
+      const running = await start({ IDLE_AFTER_MS: "1500" });
+      const suspended = await running.waitFor("log_suspended", 10_000);
+      await sleep(TICKS_PENDING_MS);
+      // A new instance (as in a deploy) takes the writer lock while this one is idle.
+      const other = new pg.Client({ connectionString: db.url });
+      await other.connect();
+      try {
+        const { rows } = await other.query<{ locked: boolean }>(
+          "SELECT pg_try_advisory_lock($1) AS locked",
+          [WRITER_LOCK],
+        );
+        expect(rows[0]?.locked).toBe(true);
+        const before = await logState(db.url);
+
+        const sentAt = running.signal("SIGTERM");
+        const exit = await Promise.race([
+          running.exited,
+          sleep(WAIT_MS).then(() => {
+            throw new Error("still running");
+          }),
+        ]);
+        expect(exit.code, running.output()).toBe(0);
+        expect(exit.at - sentAt).toBeLessThan(SHUTDOWN_BUDGET_MS);
+        expect(running.events.map((e) => e.event)).not.toContain("persistence_failed");
+        expect(running.events.find((e) => e.event === "shutdown_completed")).toMatchObject({
+          finalFlush: "owned-elsewhere",
+          msg: "another instance owns the log; idle ticks not persisted (ADR 0007)",
+          level: 40,
+        });
+        // Nothing written; the snapshot from going idle is still at the head.
+        const after = await logState(db.url);
+        expect(after).toEqual(before);
+        expect(after.snapshotSeq).toBe(after.head);
+        expect(after.head).toBe(Number(suspended.seq));
+      } finally {
+        await other.end();
+      }
+      await eventually(
+        async () => (await connectionsTo(admin, db.name)) === 0,
+        2_000,
+        "the server's database connections to close",
+      );
     },
     TEST_MS,
   );

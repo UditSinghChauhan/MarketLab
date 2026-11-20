@@ -248,6 +248,27 @@ describe("idle-aware persistence on PostgreSQL (PGlite)", () => {
     expect(host.healthy).toBe(false);
     expect(host.sequence).toBe(seq); // and it wrote nothing
   });
+
+  it("on shutdown, skips the final flush without failing if another writer took over while idle", async () => {
+    const { log } = await pgliteLog();
+    const onFatal = vi.fn();
+    const { host, beat } = await setup(log, { onFatal });
+    await goIdle(host, beat, log);
+    await beat(MINUTE); // idle ticks this process will not get to log
+    await log.append(host.session.id, host.sequence + 1, {
+      kind: "ticks",
+      count: 1,
+      from: 0,
+      at: 0,
+    });
+
+    const seq = host.sequence;
+    expect(await host.stop()).toBe("owned-elsewhere");
+    expect(onFatal).not.toHaveBeenCalled();
+    expect(host.sequence).toBe(seq);
+    const { entries } = await log.openSession(0, Infinity, 1);
+    expect(entries).toHaveLength(seq + 1); // only the other writer's entry was added
+  });
 });
 
 /** A log that, once armed, records and refuses every use. */

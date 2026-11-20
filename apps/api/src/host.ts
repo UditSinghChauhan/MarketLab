@@ -44,7 +44,14 @@ import {
 
 import type { EmitEvent } from "./events.js";
 import { GUEST_CASH, GUEST_PREFIX, type InstrumentConfig } from "./instruments.js";
-import type { CommandLog, LogEntry, Session, StoredSnapshot } from "./log/types.js";
+import {
+  LockHeldError,
+  LogHeadMovedError,
+  type CommandLog,
+  type LogEntry,
+  type Session,
+  type StoredSnapshot,
+} from "./log/types.js";
 import { MarketData, type MarketDataState } from "./market-data.js";
 import { toEventView } from "./serialize.js";
 
@@ -102,7 +109,16 @@ export interface HostOptions {
   readonly onWarning?: (message: string, error?: unknown) => void;
   /** Lifecycle events: replay verified, snapshot saved, log suspended and resumed. */
   readonly onEvent?: EmitEvent;
+  /** How long without watchers or activity before the host goes idle; default `IDLE_AFTER_MS`. */
+  readonly idleAfterMs?: number;
 }
+
+/**
+ * What the final flush on shutdown did: `saved` the pending ticks and a
+ * snapshot, or `owned-elsewhere`: the log was suspended and another process
+ * has since taken it over, so this one must not write (ADR 0007).
+ */
+export type FinalFlush = "saved" | "owned-elsewhere";
 
 export class HostUnavailableError extends Error {
   override name = "HostUnavailableError";
@@ -325,7 +341,8 @@ export class EngineHost {
    * always logged.
    */
   get active(): boolean {
-    return this.watchers() > 0 || this.now() - this.lastActivityAt < IDLE_AFTER_MS;
+    const idleAfter = this.options.idleAfterMs ?? IDLE_AFTER_MS;
+    return this.watchers() > 0 || this.now() - this.lastActivityAt < idleAfter;
   }
 
   /**
@@ -381,14 +398,38 @@ export class EngineHost {
     return this.serial(() => Promise.resolve());
   }
 
+  /**
+   * Shutdown, step 4, after `drain`: logs the pending ticks and stores a final
+   * snapshot, so the next start has almost nothing to replay. A suspended log
+   * is resumed first; if another process has taken the lock or written to the
+   * session meanwhile, this process no longer owns the log and writes nothing,
+   * which is not a failure: only unwatched bot ticks are lost (ADR 0007).
+   * Rejects, through the usual `onFatal`, if the log cannot be written.
+   */
+  finalFlush(): Promise<FinalFlush> {
+    return this.serial(async () => {
+      if (this.failure !== undefined) {
+        throw new HostUnavailableError("The command log is unavailable");
+      }
+      try {
+        await this.resumeLog();
+      } catch (error) {
+        if (error instanceof LockHeldError || error instanceof LogHeadMovedError) {
+          return "owned-elsewhere";
+        }
+        throw error;
+      }
+      await this.maybeFlushTicks(true);
+      await this.maybeSnapshot(true);
+      return "saved";
+    });
+  }
+
   /** Refuses new work, stops the clock, then logs pending ticks and stores a final snapshot. */
-  async stop(): Promise<void> {
+  async stop(): Promise<FinalFlush | undefined> {
     this.beginShutdown();
     this.stopClock();
-    await this.serial(async () => {
-      await this.maybeFlushTicks(true);
-      await this.maybeSnapshot(true); // so the next start has almost nothing to replay
-    }).catch(() => undefined);
+    return this.finalFlush().catch(() => undefined);
   }
 
   /** Throws if the host can no longer take new work. */

@@ -28,6 +28,16 @@ const Env = z.object({
    */
   PUBLIC_URL: z.url().optional(),
   RENDER_EXTERNAL_URL: z.url().optional(),
+  /**
+   * Milliseconds without stream clients or activity before the engine goes
+   * idle and suspends its log (ADR 0007). Process tests shorten it; leave it
+   * at five minutes otherwise.
+   */
+  IDLE_AFTER_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .default(5 * 60_000),
   /** Multiplies every rate limit. The end-to-end suite raises it; leave it at 1 otherwise. */
   RATE_LIMIT_SCALE: z.coerce.number().positive().default(1),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
