@@ -82,6 +82,19 @@ const host = await EngineHost.start({
     console.warn(`${message}:`, error instanceof Error ? error.message : error);
   },
   onEvent: emit,
+  // A newer instance took the log while this one was idle (a deploy): refuse
+  // everything and wait for SIGTERM, rather than exit and contend for the log.
+  onSuperseded: (error) => {
+    hub.stop();
+    emit(
+      "persistence_failed",
+      { error: describeError(error), fatal: false },
+      {
+        level: "warn",
+        message: "another instance owns the log; refusing all work until stopped (ADR 0009)",
+      },
+    );
+  },
 });
 const hub = new StreamHub(host, INSTRUMENTS);
 host.watch(() => hub.size); // periodic log writes pause while nobody watches (ADR 0007)

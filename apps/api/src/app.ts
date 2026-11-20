@@ -216,8 +216,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   // Shutdown has begun: refuse new work, and close each connection after its
   // response, including responses to requests that were already in flight.
+  // The same once another instance has taken over the command log.
+  const refusing = () => lifecycle.draining || host.superseded;
   app.addHook("onRequest", async (request, reply) => {
-    if (!lifecycle.draining) return;
+    if (!refusing()) return;
     void reply.header("connection", "close");
     if (request.url === "/api/health" || request.url.startsWith("/api/health?")) return;
     return reply.status(503).send(errorBody("unavailable", "The exchange is restarting"));
@@ -237,7 +239,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   app.addHook("onSend", async (_request, reply) => {
     void reply.headers(securityHeaders);
-    if (lifecycle.draining) void reply.header("connection", "close");
+    if (refusing()) void reply.header("connection", "close");
   });
 
   app.setErrorHandler((error, request, reply) => {
@@ -296,13 +298,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // the database (ADR 0007).
   app.get("/api/health", (_request, reply): HealthResponse => {
     const violations = host.exchange.audit().length;
-    if (!host.healthy || lifecycle.draining) void reply.status(503);
+    if (!host.healthy || refusing()) void reply.status(503);
     return {
-      status: lifecycle.draining
-        ? "stopping"
-        : host.healthy && violations === 0
-          ? "ok"
-          : "degraded",
+      status: refusing() ? "stopping" : host.healthy && violations === 0 ? "ok" : "degraded",
+      ...(host.superseded ? { reason: "another instance owns the command log" } : {}),
       session: host.session.id,
       seq: host.sequence,
       uptimeS: Math.round((Date.now() - host.startedAt) / 1000),
