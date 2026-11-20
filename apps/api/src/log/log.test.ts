@@ -236,7 +236,8 @@ describe.skipIf(!url)("postgres single-writer lock", () => {
 
     await release(holder); // the other process lets go
     const log = await waiting;
-    expect(log.lockWaitedMs).toBeGreaterThanOrEqual(500);
+    // Measured from its first attempt, which follows connecting.
+    expect(log.lockWaitedMs).toBeGreaterThanOrEqual(400);
     expect(queries.some((q) => q.includes("CREATE TABLE"))).toBe(true);
     await expect(PostgresLog.open(await connect())).rejects.toThrow(LockHeldError);
     await log.close();

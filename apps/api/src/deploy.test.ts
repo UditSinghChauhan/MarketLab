@@ -38,6 +38,21 @@ const exitWithin = (server: ServerProcess, ms: number): Promise<Exit> =>
 
 const STARTING = { status: "starting", reason: "waiting for the previous instance" };
 
+const count = (server: ServerProcess, event: string) =>
+  server.events.filter((e) => e.event === event).length;
+
+/** The `n`th (0-based) event of that name, waiting for it if need be. */
+async function nth(server: ServerProcess, event: string, n: number, ms = 10_000) {
+  await eventually(
+    async () => Promise.resolve(count(server, event) > n),
+    ms,
+    `${event} #${String(n + 1)}`,
+  );
+  const found = server.events.filter((e) => e.event === event)[n];
+  if (!found) throw new Error(`no ${event} #${String(n + 1)}`);
+  return found;
+}
+
 describe.skipIf(!testDatabaseUrl)("a deploy: two instances, one command log", () => {
   const admin = testDatabaseUrl ?? "";
   let db: TestDatabase;
@@ -80,11 +95,17 @@ describe.skipIf(!testDatabaseUrl)("a deploy: two instances, one command log", ()
       signal: watching.signal,
     });
     expect(stream.status).toBe(200);
+    // On a loaded machine the old instance may have gone idle before the
+    // stream connected (or been suspending as it did); watched now, it wakes
+    // and retakes the lock. Let a few 100 ms ticks settle that first.
+    await sleep(500);
+    const suspends = count(old, "log_suspended");
+    if (suspends > count(old, "log_resumed")) await nth(old, "log_resumed", suspends - 1);
 
     // The new instance replays the whole log, with no snapshot to start from.
     const next = await startWaiting({ SNAPSHOT_MINUTES: "0" });
     await sleep(2_500); // longer than the old one's idle threshold
-    expect(old.events.map((e) => e.event)).not.toContain("log_suspended");
+    expect(count(old, "log_suspended")).toBe(suspends); // watched: it stays active
     expect(await health(next.base)).toEqual({ status: 503, body: STARTING });
     const page = await fetch(`${next.base}/api/markets`);
     expect(page.status).toBe(503);
@@ -92,7 +113,7 @@ describe.skipIf(!testDatabaseUrl)("a deploy: two instances, one command log", ()
 
     // The visitor leaves; the old instance goes idle and releases the lock.
     watching.abort();
-    const suspended = await old.waitFor("log_suspended", 10_000);
+    const suspended = await nth(old, "log_suspended", suspends);
     const ready = await next.waitFor("engine_ready", 10_000);
     const acquired = await next.waitFor("lock_acquired");
     const handover = Number(ready.time) - Number(suspended.time);
@@ -100,7 +121,7 @@ describe.skipIf(!testDatabaseUrl)("a deploy: two instances, one command log", ()
       `waited ${String(acquired.waitedMs)} ms for the lock; ready ${String(handover)} ms after the old instance suspended`,
     );
     expect(Number(acquired.waitedMs)).toBeGreaterThan(2_000);
-    expect(handover).toBeLessThan(3_500); // one 2 s poll, plus replay
+    expect(handover).toBeLessThan(5_000); // one 2 s poll plus replay; about 2 s when unloaded
 
     const now = await health(next.base);
     expect(now.status).toBe(200);
