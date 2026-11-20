@@ -177,6 +177,14 @@ export interface Exit {
   readonly at: number;
 }
 
+/**
+ * A failure message for an assertion on `exit`: a process killed by a signal
+ * has `code === null`, so the signal is what tells the two cases apart.
+ */
+export function describeExit(exit: Exit, output: string): string {
+  return `exit.code=${String(exit.code)} exit.signal=${String(exit.signal)}\n${output}`;
+}
+
 export interface ServerProcess {
   readonly base: string;
   readonly child: ChildProcess;

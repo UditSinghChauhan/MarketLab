@@ -25,6 +25,7 @@ import {
   openGuest,
   placeOrder,
   startServer,
+  describeExit,
   testDatabaseUrl,
   type ServerProcess,
   type TestDatabase,
@@ -74,7 +75,7 @@ describe.skipIf(!testDatabaseUrl)("graceful shutdown of the built server", () =>
     ]);
     const elapsed = exit.at - sentAt;
     console.info(`exited ${String(exit.code)} after ${String(elapsed)} ms`);
-    expect(exit.code, running.output()).toBe(code);
+    expect(exit.code, describeExit(exit, running.output())).toBe(code);
     expect(elapsed).toBeLessThan(SHUTDOWN_BUDGET_MS);
 
     const state = await logState(db.url);
@@ -210,7 +211,7 @@ describe.skipIf(!testDatabaseUrl)("graceful shutdown of the built server", () =>
             throw new Error("still running");
           }),
         ]);
-        expect(exit.code, running.output()).toBe(1);
+        expect(exit.code, describeExit(exit, running.output())).toBe(1);
         expect(exit.at - sentAt).toBeGreaterThanOrEqual(1_400);
         expect(exit.at - sentAt).toBeLessThan(SHUTDOWN_BUDGET_MS);
         expect(running.events.find((e) => e.event === "shutdown_deadline_exceeded")).toMatchObject({
@@ -271,7 +272,7 @@ describe.skipIf(!testDatabaseUrl)("graceful shutdown of the built server", () =>
             throw new Error("still running");
           }),
         ]);
-        expect(exit.code, running.output()).toBe(0);
+        expect(exit.code, describeExit(exit, running.output())).toBe(0);
         expect(exit.at - sentAt).toBeLessThan(SHUTDOWN_BUDGET_MS);
         expect(running.events.map((e) => e.event)).not.toContain("persistence_failed");
         expect(running.events.find((e) => e.event === "shutdown_completed")).toMatchObject({

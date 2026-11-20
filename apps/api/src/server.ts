@@ -95,6 +95,11 @@ const app = await buildApp({
   lifecycle,
 });
 
+// Installed before the server accepts traffic, so every signal from the first
+// request on gets a graceful shutdown. engine_ready is emitted after this.
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
+
 hub.start();
 host.startClock();
 await app.listen({ host: config.HOST, port: config.PORT });
@@ -179,5 +184,3 @@ async function shutdown(signal: string) {
   );
   process.exit(exitCode);
 }
-process.on("SIGTERM", () => void shutdown("SIGTERM"));
-process.on("SIGINT", () => void shutdown("SIGINT"));
