@@ -20,7 +20,12 @@ import {
   type SessionResponse,
 } from "@marketlab/contracts";
 import { MoneyError, parseRupees, quantity, type Command, type OrderId } from "@marketlab/engine";
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import Fastify, {
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+  type FastifyServerFactory,
+} from "fastify";
 import { ZodError } from "zod";
 
 import { issueToken, verifyToken } from "./auth.js";
@@ -43,6 +48,12 @@ export interface AppDeps {
   readonly logStream?: { write(line: string): void };
   /** Shared with the process: set `draining` when shutdown begins. */
   readonly lifecycle?: Lifecycle;
+  /**
+   * Serve on an existing HTTP server (one already listening while the engine
+   * started) instead of creating one. The app then never listens or closes
+   * that server itself; its owner does both.
+   */
+  readonly serverFactory?: FastifyServerFactory;
 }
 
 export interface Lifecycle {
@@ -211,7 +222,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     bodyLimit: 16 * 1024,
     // On close, destroy every connection, not only those idle at that moment;
     // the shutdown sequence has already drained the work they were waiting for.
+    // (With `serverFactory`, the server's owner does this.)
     forceCloseConnections: true,
+    ...(deps.serverFactory ? { serverFactory: deps.serverFactory } : {}),
   });
 
   // Shutdown has begun: refuse new work, and close each connection after its

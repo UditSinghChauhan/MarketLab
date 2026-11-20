@@ -39,6 +39,17 @@ const Env = z.object({
     .min(1_000)
     .default(5 * 60_000),
   /**
+   * How long a starting instance waits for the previous one to release the
+   * command log (a deploy, ADR 0009) before giving up with exit code 1. Under
+   * Render's 15-minute limit for a new instance to become healthy.
+   */
+  LOCK_WAIT_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(15 * 60_000)
+    .default(14 * 60_000),
+  /**
    * Longest a graceful shutdown may take before the process gives up and
    * exits with code 1. Below Render's 30-second limit, after which it kills
    * the process without warning.
