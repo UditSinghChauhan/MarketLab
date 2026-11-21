@@ -66,23 +66,61 @@ How the parameters are read ([`connection.ts`](apps/api/src/log/connection.ts)):
 - `https://<your-service>.onrender.com/replay` ends with "Your browser replayed
   N engine commands and matched the server exactly".
 
+### Check the client-address header
+
+Rate limits need each visitor's address. Behind Render's proxy every request
+arrives from the proxy, so the server reads the address from the one header
+named in `CLIENT_IP_HEADER`, and trusts no header until it is set. Cloudflare
+sets `CF-Connecting-IP` (`True-Client-IP` only on its Enterprise plan). Which
+header reaches the service has to be checked on the live service, not
+assumed:
+
+1. Set `CLIENT_IP_HEADER` to `CF-Connecting-IP` in the service's environment
+   and let it redeploy.
+2. **A forged value must be replaced.** From one machine, open 12 sessions,
+   each claiming a different address:
+
+   ```sh
+   for i in $(seq 12); do
+     curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+       -H "CF-Connecting-IP: 203.0.113.$i" https://<your-service>.onrender.com/api/session
+   done
+   ```
+
+   Expect ten `201` and then `429`: the proxy overwrote the forged header with
+   your real address, so all 12 counted against one limit. If all 12 answer
+   `201`, the header passes through from the client and anyone can dodge the
+   limits with it: remove `CLIENT_IP_HEADER` and find the header Render's
+   proxy does set.
+
+3. **Different visitors must count apart.** Within the same minute, open one
+   session from another network (a phone on mobile data). Expect `201`. A
+   `429` means the header is missing and every visitor shares the proxy's
+   limit.
+
+The check opens about 13 guest accounts, which count towards
+`MAX_GUESTS_PER_SESSION` until the session rolls over. Nothing logs or
+returns the addresses involved.
+
 ## Configuration
 
-| Variable               | Default  | Notes                                                                                                                                                                                |
-| ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`         | none     | Required in production. Direct Neon connection string.                                                                                                                               |
-| `TOKEN_SECRET`         | none     | Required in production, 32+ characters. Rotating it signs every guest out.                                                                                                           |
-| `TICK_MS`              | `600`    | Milliseconds between simulated market ticks.                                                                                                                                         |
-| `WARMUP_MINUTES`       | `30`     | Minutes of history simulated when a new session starts.                                                                                                                              |
-| `SESSION_HOURS`        | `24`     | A fresh market session starts after this long.                                                                                                                                       |
-| `SNAPSHOT_MINUTES`     | `10`     | Minutes between engine snapshots while the exchange is in use, which keep restarts fast. `0` turns them off.                                                                         |
-| `LOG_LEVEL`            | `info`   | Fastify/pino log level.                                                                                                                                                              |
-| `PUBLIC_URL`           | none     | The site's address, used for absolute URLs in link previews. On Render it defaults to the service's `onrender.com` address; set it when you add a custom domain.                     |
-| `LOCK_WAIT_MS`         | `840000` | How long a starting instance waits for the previous one to release the command log before exiting with code 1. At most 900000: Render's 15-minute limit, assumed, not verified live. |
-| `SHUTDOWN_DEADLINE_MS` | `20000`  | Longest a graceful shutdown may take before the process exits with code 1. At most 29000, below Render's 30-second kill.                                                             |
-| `IDLE_AFTER_MS`        | `300000` | Milliseconds without stream clients or activity before the engine suspends its log. Only the test suite lowers it.                                                                   |
-| `RATE_LIMIT_SCALE`     | `1`      | Multiplies every rate limit. Only the test suite raises it.                                                                                                                          |
-| `PORT`                 | `8080`   | Render sets this automatically.                                                                                                                                                      |
+| Variable                 | Default  | Notes                                                                                                                                                                                          |
+| ------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`           | none     | Required in production. Direct Neon connection string.                                                                                                                                         |
+| `TOKEN_SECRET`           | none     | Required in production, 32+ characters. Rotating it signs every guest out.                                                                                                                     |
+| `TICK_MS`                | `600`    | Milliseconds between simulated market ticks.                                                                                                                                                   |
+| `WARMUP_MINUTES`         | `30`     | Minutes of history simulated when a new session starts.                                                                                                                                        |
+| `SESSION_HOURS`          | `24`     | A fresh market session starts after this long.                                                                                                                                                 |
+| `SNAPSHOT_MINUTES`       | `10`     | Minutes between engine snapshots while the exchange is in use, which keep restarts fast. `0` turns them off.                                                                                   |
+| `LOG_LEVEL`              | `info`   | Fastify/pino log level.                                                                                                                                                                        |
+| `PUBLIC_URL`             | none     | The site's address, used for absolute URLs in link previews. On Render it defaults to the service's `onrender.com` address; set it when you add a custom domain.                               |
+| `CLIENT_IP_HEADER`       | none     | The header the proxy sets to the visitor's address, used to key rate limits. Set it only after [checking it](#check-the-client-address-header). `X-Forwarded-For` and `Forwarded` are refused. |
+| `MAX_GUESTS_PER_SESSION` | `500`    | Guest accounts one market session accepts; past it, new visitors get `503` "The demo is full until the market resets".                                                                         |
+| `LOCK_WAIT_MS`           | `840000` | How long a starting instance waits for the previous one to release the command log before exiting with code 1. At most 900000: Render's 15-minute limit, assumed, not verified live.           |
+| `SHUTDOWN_DEADLINE_MS`   | `20000`  | Longest a graceful shutdown may take before the process exits with code 1. At most 29000, below Render's 30-second kill.                                                                       |
+| `IDLE_AFTER_MS`          | `300000` | Milliseconds without stream clients or activity before the engine suspends its log. Only the test suite lowers it.                                                                             |
+| `RATE_LIMIT_SCALE`       | `1`      | Multiplies every rate limit. Only the test suite raises it.                                                                                                                                    |
+| `PORT`                   | `8080`   | Render sets this automatically.                                                                                                                                                                |
 
 ## Operating notes
 
@@ -110,6 +148,17 @@ previous instance"}` until the old one has gone idle (five minutes after the
     limit for that, and `SIGTERM` to the old instance 60 seconds after the
     switch) is a platform assumption the design relies on, not something
     verified on a live deploy.
+- **Rate limits without `CLIENT_IP_HEADER`.** Until it is set, no proxy
+  header is trusted, so every visitor arrives with the proxy's address and
+  shares one set of limits (for the whole site: 10 new sessions a minute,
+  30 orders every 10 seconds).
+  The server logs a warning saying so at startup.
+- **When the demo is full.** A session that reaches
+  `MAX_GUESTS_PER_SESSION` guests keeps serving everyone who already has an
+  account; new visitors see "The demo is full until the market resets" until
+  the next session starts. Each guest's orders cost about 0.7 KB of snapshot,
+  so 500 guests averaging 30 orders keep it near 10 MB
+  (`npm run bench:guests -w @marketlab/api`).
 - **Free-plan sleep.** Render's free plan stops the service after about 15
   minutes without traffic. The next visit wakes it (expect a cold start of
   roughly a minute), and startup replays the session's log, so no order or
