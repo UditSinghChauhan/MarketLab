@@ -10,7 +10,7 @@ import { Link } from "react-router";
 import { ApiRequestError, api } from "../lib/api";
 import { changeTone, duration, pct, price } from "../lib/format";
 import { useExchange } from "../lib/health";
-import { describeEvent, outcomeUnknown, replayedMessage } from "../lib/orders";
+import { describeEvent, isCommandResult, outcomeUnknown, replayedMessage } from "../lib/orders";
 import { ensureSession } from "../lib/session";
 import { useClientOrderId } from "../lib/useClientOrderId";
 import { useMarketStream } from "../lib/stream";
@@ -44,16 +44,17 @@ export function HeroDemo() {
         // The token is part of the details: a new guest account means a new order.
         body: { ...order, clientOrderId: clientOrderIds.next({ order, token }) },
         allow: [422],
+        validate: isCommandResult,
       });
-      clientOrderIds.settled();
       setResult(placed);
+      clientOrderIds.settled(); // only once a valid result is in hand
     } catch (e) {
       // Only the order request can have an unknown outcome; keep its id for a retry.
       const unknown = ordering && outcomeUnknown(e);
       if (!unknown) clientOrderIds.settled();
       setError(
         unknown
-          ? "Couldn't confirm that order; it may have been placed. Pressing the button again won't place it twice."
+          ? "Couldn't confirm that order; it may have been placed. Pressing the button again on this page won't place it twice. After a reload, check Orders in the terminal first."
           : e instanceof ApiRequestError
             ? e.message
             : "The exchange isn't reachable right now.",

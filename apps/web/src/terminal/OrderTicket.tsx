@@ -22,6 +22,7 @@ import { price as fmtPrice, qty as fmtQty, rupees, stepPrice } from "../lib/form
 import {
   UNCONFIRMED_ORDER,
   confirmation,
+  isCommandResult,
   outcomeUnknown,
   rejectMessage,
   replayedMessage,
@@ -178,8 +179,8 @@ export function OrderTicket({
         body: { ...parsed.data, clientOrderId: clientOrderIds.next(parsed.data) },
         token,
         allow: [422],
+        validate: isCommandResult,
       });
-      clientOrderIds.settled();
       setFeedback(
         result.replayed
           ? { tone: result.ok ? "ok" : "error", text: replayedMessage(result) }
@@ -188,6 +189,9 @@ export function OrderTicket({
             : { tone: "error", text: rejectMessage(result.rejectReason) },
       );
       onResult(result);
+      // Only now is the outcome known and shown: anything that throws before
+      // this line is reported as unknown below, and the id must still be kept.
+      clientOrderIds.settled();
     } catch (error) {
       // Unknown outcome: keep the id, so resending the same order is safe.
       const unknown = outcomeUnknown(error);

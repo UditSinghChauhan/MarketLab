@@ -186,6 +186,52 @@ describe("OrderTicket", () => {
       expect(sent(1)).not.toBe(sent(0));
     });
 
+    it.each([
+      ["an empty body", ""],
+      ["a body that is not JSON", "{ok: tru"],
+      ["JSON that is not a command result", JSON.stringify({ ok: true })],
+    ])(
+      "after a 201 with %s, keeps the id: the order may exist, so a resend must reuse it",
+      async (_name, body) => {
+        const { user, onResult } = setup();
+        fetchMock.mockResolvedValueOnce(new Response(body, { status: 201 }));
+        await user.click(screen.getByRole("button", { name: /Buy 10 ORBT/ }));
+        expect(
+          await screen.findByText(
+            /Couldn't confirm this order\. It may have been placed: check Orders/,
+          ),
+        ).toBeInTheDocument();
+        expect(onResult).not.toHaveBeenCalled();
+
+        respond(200, { ...accepted, events: [], replayed: true, order: null });
+        await user.click(screen.getByRole("button", { name: /Buy 10 ORBT/ }));
+        expect(
+          await screen.findByText(
+            "Your earlier attempt already placed this order. It wasn't placed twice.",
+          ),
+        ).toBeInTheDocument();
+        expect(sent(1)).toBe(sent(0));
+      },
+    );
+
+    it("forgets the id when the ticket remounts (a reload or a market switch): the resend is a new order", async () => {
+      // Documents a known limit (ADR 0004): the id lives only in the mounted
+      // form, so the server cannot recognise a resend made after a remount.
+      const first = setup();
+      fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+      await first.user.click(screen.getByRole("button", { name: /Buy 10 ORBT/ }));
+      await screen.findByText(/Couldn't confirm this order/);
+      first.view.unmount();
+
+      const second = setup();
+      respond(201, accepted);
+      await second.user.click(screen.getByRole("button", { name: /Buy 10 ORBT/ }));
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      });
+      expect(sent(1)).not.toBe(sent(0));
+    });
+
     it("treats a refusal as settled: the message is the server's, the next attempt is new", async () => {
       const { user } = setup();
       respond(429, { error: { code: "rate_limited", message: "Too many orders; slow down" } });
@@ -197,6 +243,22 @@ describe("OrderTicket", () => {
         expect(fetchMock).toHaveBeenCalledTimes(2);
       });
       expect(sent(1)).not.toBe(sent(0));
+    });
+
+    it("settles after a placed order and after an engine rejection: each next order is new", async () => {
+      const { user } = setup();
+      respond(201, accepted);
+      await user.click(screen.getByRole("button", { name: /Buy 10 ORBT/ }));
+      await screen.findByText("Bought 10 ORBT");
+      respond(422, { ...accepted, ok: false, orderId: null, rejectReason: "off_tick", events: [] });
+      await user.click(screen.getByRole("button", { name: /Buy 10 ORBT/ }));
+      await screen.findByText(/Prices move in steps/);
+      respond(201, accepted);
+      await user.click(screen.getByRole("button", { name: /Buy 10 ORBT/ }));
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+      });
+      expect(new Set([sent(0), sent(1), sent(2)]).size).toBe(3);
     });
   });
 

@@ -49,9 +49,15 @@ regenerates them. A busy session is thousands of rows, not millions.
   part of the logged command, and the exchange remembers, per account, the last
   500 ids and what became of each (the order created, or why it was refused).
   Before logging a command, the host looks its id up: a known id is answered
-  with the first outcome and the order as it stands now, marked
+  with the first outcome (`ok`, `orderId`, `rejectReason`), marked
   `"replayed": true`, and nothing is logged; the same id with different details
-  is refused with `409`. Because the ids are rebuilt by replaying the log, are
+  is refused with `409`. The answer also carries the order as it stands now
+  (`order`) while the read models still hold it. They keep an account's last
+  200 accepted orders, fewer than the 500 remembered ids, so a remembered
+  accepted order can come back with `order: null` once it has left that
+  history. The retry is still recognised and nothing is placed; only the view
+  is gone. A rejected order has no view, so its `order` is always null; it
+  uses one of the 500 id slots but never enters the order history. Because the ids are rebuilt by replaying the log, are
   stored in snapshots and are part of the state hash, a restart (from the whole
   log or from a snapshot) and the browser's verified replay all know them.
 
@@ -65,6 +71,16 @@ regenerates them. A busy session is thousands of rows, not millions.
     again. A session rollover ends the account, so there is nothing to retry
     into. A client that sends no id can still create a duplicate. Cancels carry
     no id; cancelling twice is already harmless (the second is refused).
+  - The server can only recognise an id the client sends again. The web app
+    keeps an unconfirmed order's id in memory, in the order form that sent it,
+    and nowhere else: a page reload, a closed tab, leaving the page, or anything
+    that remounts the form (switching markets in the terminal does) forgets it.
+    The guest account survives a reload (its token is in `localStorage`), so
+    sending the same order after one goes out with a new id and places a second
+    order if the first was committed. The web app therefore promises a safe
+    resend only from the same open form, and asks the visitor to check their
+    orders first. Keeping the id across reloads (browser storage, per account)
+    is a separate decision, not taken here.
   - Cost, measured on a development machine: 132 bytes of snapshot per remembered id. At the bound (500
     guests with 500 ids each) that is 31 MB more snapshot, about 1.1 ms per
     command for the state hash instead of 0.5 ms, and 0.2 s once after a

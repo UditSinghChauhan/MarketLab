@@ -69,12 +69,16 @@ An order's path:
 2. The engine host queues the command behind earlier ones. One writer means
    the engine never sees two inputs at once. If the order carries a
    `clientOrderId` the account has already used, it stops here: the answer is
-   the first order, marked `"replayed": true`, and nothing is logged.
+   the first order's outcome, marked `"replayed": true`, and nothing is logged.
+   Its current view comes along while the order is still in the account's last
+   200; after that the answer has `"order": null`, and is still not a new order.
 3. The command is appended to the Postgres log. If that fails, it is not applied.
    One outcome is unknown: if the connection drops after the database committed
    the write but before it replied, the visitor gets `503`, yet the order exists
    after the restart. The web app says so, and resending the order unchanged
-   reuses its `clientOrderId`, so it is not placed twice.
+   from the same open order form reuses its `clientOrderId`, so it is not
+   placed twice. The id lives only in that form: after a reload or a market
+   switch, a resend gets a new id and would place the order again.
 4. The engine matches it in memory, in microseconds, and emits events.
 5. Read models fold the events into candles, the tape, P&L and order traces,
    and the stream pushes them to every open screen.

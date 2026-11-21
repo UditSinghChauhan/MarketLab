@@ -216,7 +216,13 @@ export interface CommandResult {
    * `ok`, `orderId` and `rejectReason` describe the first request's outcome.
    */
   readonly replayed?: true;
-  /** With `replayed`: the order the first request created, as it stands now (null if it was rejected). */
+  /**
+   * With `replayed`: the order the first request created, as it stands now.
+   * Null when the first request was rejected, and also when it was accepted but
+   * the order has since left the account's order history (the last 200
+   * orders), which can happen while its id is still remembered. Read `ok`, not
+   * `order`, to tell the two apart; either way nothing new was placed.
+   */
   readonly order?: OrderView | null;
 }
 

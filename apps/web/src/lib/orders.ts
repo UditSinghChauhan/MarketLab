@@ -20,19 +20,44 @@ export function newClientOrderId(): string {
 
 /**
  * True when an order request failed without saying whether the order was
- * placed: no response at all, or a server error (the write may have reached
- * the log before the reply was lost). A 4xx means it was not placed.
+ * placed: no response at all, a server error (the write may have reached the
+ * log before the reply was lost), or a success status with a body that is not
+ * a command result (`UnexpectedResponseError`). A 4xx means it was not placed.
  */
 export function outcomeUnknown(error: unknown): boolean {
   return !(error instanceof ApiRequestError) || error.status >= 500;
 }
 
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+const isStringOrNull = (value: unknown) => value === null || typeof value === "string";
+
+/**
+ * True when an order response body has the shape of a `CommandResult`: enough
+ * to read its outcome and show it, so a truncated or empty body is never
+ * mistaken for a handled order.
+ */
+export function isCommandResult(body: unknown): body is CommandResult {
+  return (
+    isObject(body) &&
+    typeof body.ok === "boolean" &&
+    isStringOrNull(body.orderId) &&
+    isStringOrNull(body.rejectReason) &&
+    Array.isArray(body.events) &&
+    isObject(body.timing) &&
+    (body.replayed === undefined || body.replayed === true) &&
+    (body.order === undefined || body.order === null || isObject(body.order))
+  );
+}
+
 export const UNCONFIRMED_ORDER =
-  "Couldn't confirm this order. It may have been placed: check Orders before placing it again. Sending it again unchanged won't place it twice.";
+  "Couldn't confirm this order. It may have been placed: check Orders before placing it again. Resending it unchanged from this ticket won't place it twice, but after a reload or a market switch it would.";
 
 /** The answer to a retry the exchange recognised: what the first attempt did. */
 export function replayedMessage(result: CommandResult): string {
   if (!result.ok) return rejectMessage(result.rejectReason);
+  // `order` is null once the order has left the account's order history; the
+  // first attempt was still accepted, and this retry still placed nothing.
   const status = result.order ? ` (${statusLabel(result.order).toLowerCase()})` : "";
   return `Your earlier attempt already placed this order${status}. It wasn't placed twice.`;
 }

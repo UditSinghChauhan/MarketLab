@@ -1,14 +1,16 @@
-import type { EventView, OrderView } from "@marketlab/contracts";
+import type { CommandResult, EventView, OrderView } from "@marketlab/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiRequestError } from "./api";
+import { ApiRequestError, UnexpectedResponseError } from "./api";
 import {
   cancelMessage,
   confirmation,
   describeEvent,
+  isCommandResult,
   newClientOrderId,
   outcomeUnknown,
   rejectMessage,
+  replayedMessage,
   sideLabel,
   statusLabel,
   typeLabel,
@@ -33,7 +35,76 @@ describe("client order ids", () => {
     expect(outcomeUnknown(new TypeError("Failed to fetch"))).toBe(true);
     expect(outcomeUnknown(status(503))).toBe(true);
     expect(outcomeUnknown(status(500))).toBe(true);
-    for (const s of [400, 401, 409, 429]) expect(outcomeUnknown(status(s))).toBe(false);
+    for (const s of [400, 401, 409, 422, 429]) expect(outcomeUnknown(status(s))).toBe(false);
+  });
+
+  it("count a success status with an unusable body as unknown, not as a handled order", () => {
+    expect(outcomeUnknown(new UnexpectedResponseError(201))).toBe(true);
+    expect(outcomeUnknown(new UnexpectedResponseError(200))).toBe(true);
+  });
+});
+
+describe("isCommandResult", () => {
+  const result: CommandResult = {
+    ok: true,
+    orderId: "ord_1",
+    rejectReason: null,
+    events: [],
+    timing: { receivedAt: 0, queueMs: 0, persistMs: 0, engineUs: 0 },
+  };
+
+  it("accepts placed, rejected and replayed results, with or without the order's view", () => {
+    expect(isCommandResult(result)).toBe(true);
+    expect(isCommandResult({ ...result, ok: false, orderId: null, rejectReason: "off_tick" })).toBe(
+      true,
+    );
+    expect(isCommandResult({ ...result, replayed: true, order: null })).toBe(true);
+    expect(isCommandResult({ ...result, replayed: true, order: { id: "ord_1" } })).toBe(true);
+  });
+
+  it("refuses an empty, unparsed or partial body", () => {
+    for (const body of [null, undefined, "", "ok", [], {}, { ok: true }]) {
+      expect(isCommandResult(body)).toBe(false);
+    }
+    expect(isCommandResult({ ok: true, orderId: "ord_1", rejectReason: null, timing: {} })).toBe(
+      false,
+    );
+    expect(isCommandResult({ ...result, ok: "true" })).toBe(false);
+    expect(isCommandResult({ ...result, orderId: 1 })).toBe(false);
+    expect(isCommandResult({ ...result, replayed: false })).toBe(false);
+    expect(isCommandResult({ ...result, order: "ord_1" })).toBe(false);
+  });
+});
+
+describe("replayedMessage", () => {
+  const replay = (overrides: Partial<CommandResult>): CommandResult => ({
+    ok: true,
+    orderId: "o1",
+    rejectReason: null,
+    events: [],
+    timing: { receivedAt: 0, queueMs: 0, persistMs: 0, engineUs: 0 },
+    replayed: true,
+    ...overrides,
+  });
+
+  it("names the placed order's current status when its view came along", () => {
+    expect(replayedMessage(replay({ order: order("filled", 10) }))).toBe(
+      "Your earlier attempt already placed this order (filled). It wasn't placed twice.",
+    );
+  });
+
+  it("still says the order was placed once when its view has left the order history", () => {
+    // Accepted, but older than the account's last 200 orders: no view, no status.
+    expect(replayedMessage(replay({ order: null }))).toBe(
+      "Your earlier attempt already placed this order. It wasn't placed twice.",
+    );
+  });
+
+  it("repeats the first attempt's rejection, never calling it placed", () => {
+    const message = replayedMessage(
+      replay({ ok: false, orderId: null, rejectReason: "insufficient_funds", order: null }),
+    );
+    expect(message).toBe("Not enough cash for this order.");
   });
 });
 

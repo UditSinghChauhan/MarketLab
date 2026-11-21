@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { Command } from "@marketlab/engine";
+import { CLIENT_ORDER_IDS_PER_ACCOUNT, type Command } from "@marketlab/engine";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -12,6 +12,7 @@ import {
 import { INSTRUMENTS } from "./instruments.js";
 import { MemoryLog } from "./log/memory.js";
 import type { CommandLog } from "./log/types.js";
+import { MAX_ORDERS_PER_ACCOUNT } from "./market-data.js";
 import { buy, clock, hostOptions, pgliteLog, sell, startHost } from "./test/fixtures.js";
 
 /** Everything observable about a host, for exact before/after comparison. */
@@ -188,6 +189,74 @@ describe.each(logs)("client order ids (%s log)", (_name, makeLog) => {
       });
       expect(restarted.sequence).toBe(head);
     }
+  });
+});
+
+describe("client order ids beyond the order history", () => {
+  it("recognise a retry whose order has left the read model: replayed, order null, nothing placed or logged", async () => {
+    // The read model keeps fewer orders than the engine keeps ids, so this is reachable.
+    expect(MAX_ORDERS_PER_ACCOUNT).toBeLessThan(CLIENT_ORDER_IDS_PER_ACCOUNT);
+    const log = new MemoryLog();
+    const time = clock();
+    const options = { ...hostOptions(log, time.now), snapshotMs: 0 };
+    const host = await EngineHost.start(options);
+    const guest = await host.openGuest();
+
+    const original = withId(buy(guest, "ORBT", 1, "1.00"));
+    const first = await host.submit(original);
+    expect(first).toMatchObject({ ok: true, rejectReason: null });
+    const orderId = first.orderId ?? "";
+    for (let i = 0; i < MAX_ORDERS_PER_ACCOUNT; i++) {
+      expect(await host.submit(withId(buy(guest, "ORBT", 1, "1.00")))).toMatchObject({ ok: true });
+    }
+
+    // The view is gone; the engine still remembers the id, and the order itself still rests.
+    expect(host.data.order(orderId)).toBeUndefined();
+    expect(host.data.ordersOf(guest)).toHaveLength(MAX_ORDERS_PER_ACCOUNT);
+    expect(
+      host.exchange.clientOrder(guest, (original as { clientOrderId: string }).clientOrderId),
+    ).toMatchObject({ orderId, rejectReason: null });
+    const open = host.exchange.openOrders(guest).length;
+    expect(open).toBe(MAX_ORDERS_PER_ACCOUNT + 1);
+
+    const logged = host.sequence;
+    const hash = host.exchange.stateHash();
+    const retry = await host.submit(original);
+    expect(retry).toMatchObject({
+      ok: true,
+      orderId,
+      rejectReason: null,
+      events: [],
+      replayed: true,
+      order: null,
+    });
+    expect(host.sequence).toBe(logged);
+    expect(host.exchange.stateHash()).toBe(hash);
+    expect(host.exchange.openOrders(guest)).toHaveLength(open);
+
+    // A rejected order takes an id slot but never enters the order history.
+    const refused = withId(sell(guest, "ORBT", 1_000_000, "1300.00"));
+    expect(await host.submit(refused)).toMatchObject({ ok: false });
+    expect(host.data.ordersOf(guest)).toHaveLength(MAX_ORDERS_PER_ACCOUNT);
+    expect(await host.submit(refused)).toMatchObject({
+      ok: false,
+      orderId: null,
+      rejectReason: "insufficient_shares",
+      replayed: true,
+      order: null,
+    });
+    await host.stop();
+
+    // Replaying the whole log evicts the same view and remembers the same id.
+    const restarted = await EngineHost.start(options);
+    expect(restarted.exchange.stateHash()).toBe(host.exchange.stateHash());
+    expect(await restarted.submit(original)).toMatchObject({
+      ok: true,
+      orderId,
+      replayed: true,
+      order: null,
+    });
+    expect(restarted.sequence).toBe(host.sequence);
   });
 });
 
