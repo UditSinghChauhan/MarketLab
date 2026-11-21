@@ -42,7 +42,10 @@ export {
   type Balance,
 } from "./accounts.js";
 export {
+  CLIENT_ORDER_IDS_PER_ACCOUNT,
   Exchange,
+  orderDetails,
+  type ClientOrder,
   type ExchangeState,
   type MarketConfig,
   type OpenOrder,

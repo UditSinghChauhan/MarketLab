@@ -33,6 +33,8 @@ const place = {
   symbol: z.string(),
   side: z.enum(["buy", "sell"]),
   qty,
+  // Kept on replay: it rebuilds the exchange's remembered client order ids.
+  clientOrderId: z.uuid().optional(),
 };
 
 /** Validates entries read back from storage, so a corrupt row fails loudly at startup. */

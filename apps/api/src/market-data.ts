@@ -31,7 +31,12 @@ import { rupees, toEventView } from "./serialize.js";
 export { CANDLE_MS };
 const MAX_CANDLES = 480; // two hours of 15-second candles
 const MAX_TRADES = 120;
-const MAX_ORDERS_PER_ACCOUNT = 200;
+/**
+ * Orders kept per account (accepted ones; rejections are never tracked). Fewer
+ * than the client order ids the engine remembers, so a replayed retry can name
+ * an order whose view is gone (`order: null`, ADR 0004).
+ */
+export const MAX_ORDERS_PER_ACCOUNT = 200;
 
 interface SymbolStats {
   open: number;
@@ -368,6 +373,12 @@ export class MarketData {
       .filter((v): v is NonNullable<typeof v> => v !== undefined)
       .reverse()
       .map((v) => ({ ...v }));
+  }
+
+  /** One order as it stands now. */
+  order(orderId: string): OrderView | undefined {
+    const view = this.orders.get(orderId)?.view;
+    return view ? { ...view } : undefined;
   }
 
   symbolOf(orderId: string): string | undefined {

@@ -80,13 +80,21 @@ async function trade(app: FastifyInstance, host: EngineHost, advance: (ms: numbe
     advance(600);
     host.tick();
     if (i === 5) await alice({ symbol: "ORBT", side: "buy", type: "market", qty: 30 });
-    if (i === 20)
-      await bob({ symbol: "SOLR", side: "buy", type: "limit", qty: 100, price: "300.00" });
+    if (i === 20) {
+      // With a client order id, sent twice: the retry is not logged, and the
+      // remembered id is part of the state every replay must reach.
+      const order = { symbol: "SOLR", side: "buy", type: "limit", qty: 100, price: "300.00" };
+      const retried = { ...order, clientOrderId: CLIENT_ORDER_ID };
+      await bob(retried);
+      expect((await bob(retried)).statusCode).toBe(200);
+    }
     if (i === 31)
       await alice({ symbol: "ORBT", side: "sell", type: "limit", qty: 10, price: "1300.00" });
     if (i === 44) await bob({ symbol: "HLXB", side: "sell", type: "market", qty: 5 }); // rejected
   }
 }
+
+const CLIENT_ORDER_ID = "0b6f1d7e-3c1a-4c55-9a51-7c2f3e4d5a6b";
 
 const logs: [string, () => Promise<CommandLog>][] = [
   ["memory", () => Promise.resolve(new MemoryLog())],
@@ -112,6 +120,14 @@ describe.each(logs)("verified replay over HTTP (%s log)", (_name, makeLog) => {
     expect(head.seq).toBe(host.sequence);
     // Every entry records the state it was applied to, so a divergence can be located.
     expect(entries.every((e) => /^[0-9a-f]{16}$/.test(e.h ?? ""))).toBe(true);
+    // The served log carries the client order id, once (the retry was not
+    // logged); the hashes above include the id the exchange remembers.
+    const ids = entries.flatMap((e) =>
+      e.kind === "command" && e.command.kind === "place" && e.command.clientOrderId
+        ? [e.command.clientOrderId]
+        : [],
+    );
+    expect(ids).toEqual([CLIENT_ORDER_ID]);
   });
 
   it("still verifies from the first entry after the server restarted from a snapshot", async () => {

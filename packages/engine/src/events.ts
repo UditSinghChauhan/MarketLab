@@ -18,6 +18,12 @@ interface PlaceBase {
   readonly symbol: string;
   readonly side: Side;
   readonly qty: Quantity;
+  /**
+   * The client's own id for this order (a UUID), so a retry of the same
+   * request can be recognised. The exchange remembers the last
+   * `CLIENT_ORDER_IDS_PER_ACCOUNT` per account and what became of each.
+   */
+  readonly clientOrderId?: string;
 }
 
 export type PlaceCommand =
