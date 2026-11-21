@@ -230,6 +230,10 @@ previous instance"}` until the old one has gone idle (five minutes after the
   ([ADR 0007](docs/adr/0007-idle-aware-persistence.md)).
 - **If the database becomes unreachable**, the engine stops accepting orders,
   requests in flight and `/api/health` get `503`, and half a second later the
-  process exits so Render restarts it.
+  process exits so Render restarts it. One case is ambiguous: if the
+  connection drops after PostgreSQL committed an order but before it replied,
+  the visitor gets `503`, yet the order is in the log and exists after the
+  restart. Retrying places it again. This is a known limitation
+  ([ADR 0004](docs/adr/0004-command-log.md)).
 - **If startup fails with a TLS or `sslmode` message**, the connection string
   is wrong; the message says which parameter to change.
