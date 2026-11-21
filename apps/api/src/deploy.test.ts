@@ -233,6 +233,55 @@ describe.skipIf(!testDatabaseUrl)("a deploy: two instances, one command log", ()
     expect((await exitWithin(next, 10_000)).code).toBe(0);
   }, 60_000);
 
+  it("ends a stream that is open on the old instance when it finds it was superseded", async () => {
+    // A stream keeps the old instance active, so it cannot release the lock
+    // while one is open (the first test). The reachable case is a visitor who
+    // reaches the old instance after it released the lock and the new one took
+    // it, while Render still routes there: that stream's own wake-up is what
+    // finds the takeover, so the stream is open at that moment.
+    db = await createDatabase(admin);
+    const old = await start({ IDLE_AFTER_MS: "1500" });
+    await old.waitFor("log_suspended", 10_000);
+    const next = await start(); // takes the free lock at once
+    expect((await health(next.base)).status).toBe(200);
+    const before = await logState(db.url);
+
+    const opened = performance.now();
+    const res = await fetch(`${old.base}/api/stream?symbol=ORBT`);
+    expect(res.status).toBe(200);
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    const first = await reader.read();
+    expect(new TextDecoder().decode(first.value)).toContain('"type":"hello"'); // really open
+
+    // Watched, the old instance wakes, tries to retake the lock, stands down,
+    // and closes the stream from its side.
+    const ended = (async () => {
+      for (;;) if ((await reader.read()).done) return performance.now() - opened;
+    })();
+    const endedAfter = await Promise.race([
+      ended,
+      sleep(5_000).then(() => {
+        throw new Error(`the stream stayed open:\n${old.output()}`);
+      }),
+    ]);
+    console.info(`the old instance's stream ended ${endedAfter.toFixed(0)} ms after it opened`);
+    expect(endedAfter).toBeLessThan(2_000);
+    expect(await old.waitFor("persistence_failed")).toMatchObject({ fatal: false, level: 40 });
+    expect(old.child.exitCode).toBeNull();
+
+    // It refuses everything else, including a new stream; it wrote nothing.
+    expect((await fetch(`${old.base}/api/stream?symbol=ORBT`)).status).toBe(503);
+    expect((await fetch(`${old.base}/api/session`, { method: "POST" })).status).toBe(503);
+    expect((await health(old.base)).body).toMatchObject({ status: "stopping" });
+    expect((await logState(db.url)).head).toBe(before.head);
+    expect((await health(next.base)).status).toBe(200);
+
+    old.signal("SIGTERM");
+    expect((await exitWithin(old, 10_000)).code).toBe(0);
+    next.signal("SIGTERM");
+    expect((await exitWithin(next, 10_000)).code).toBe(0);
+  }, 60_000);
+
   it("stops at once if signalled while still waiting for the lock", async () => {
     db = await createDatabase(admin);
     const old = await start();
