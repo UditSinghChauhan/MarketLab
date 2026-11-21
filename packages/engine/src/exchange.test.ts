@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { Exchange } from "./exchange.js";
+import type { PlaceCommand } from "./events.js";
+import { CLIENT_ORDER_IDS_PER_ACCOUNT, Exchange } from "./exchange.js";
 import { notional, paise, subtract } from "./money.js";
 import type { OrderId } from "./order.js";
 import {
@@ -332,5 +333,87 @@ describe("open orders", () => {
       ["limit", 4, "resting"],
       ["stop", 4, "pending_stop"],
     ]);
+  });
+});
+
+describe("client order ids", () => {
+  const withId = <C extends PlaceCommand>(command: C, clientOrderId: string): C => ({
+    ...command,
+    clientOrderId,
+  });
+
+  it("remembers what became of each order with an id: the order it created, or why it was refused", () => {
+    exchange = makeExchange();
+    const placed = acceptedId(exchange.submit(withId(limit("alice", "buy", 10, rs("99")), "c-1")));
+    exchange.submit(withId(market("alice", "sell", START_SHARES + 1), "c-2"));
+    exchange.submit(market("alice", "buy", 1)); // no id: nothing to remember
+
+    expect(exchange.clientOrder("alice", "c-1")).toEqual({
+      clientOrderId: "c-1",
+      details: "ACME buy limit 10 9900",
+      orderId: placed,
+      rejectReason: null,
+    });
+    expect(exchange.clientOrder("alice", "c-2")).toMatchObject({
+      orderId: null,
+      rejectReason: "insufficient_shares",
+    });
+    expect(exchange.clientOrder("bob", "c-1")).toBeUndefined(); // ids are per account
+  });
+
+  it("keeps the first outcome if an id is ever applied twice", () => {
+    exchange = makeExchange();
+    const first = acceptedId(exchange.submit(withId(limit("alice", "buy", 1, rs("99")), "c-1")));
+    exchange.submit(withId(limit("alice", "buy", 2, rs("98")), "c-1"));
+    expect(exchange.clientOrder("alice", "c-1")).toMatchObject({
+      orderId: first,
+      details: "ACME buy limit 1 9900",
+    });
+  });
+
+  it(`forgets an account's oldest id past ${String(CLIENT_ORDER_IDS_PER_ACCOUNT)}, and no other account's`, () => {
+    exchange = makeExchange();
+    exchange.submit(withId(limit("bob", "buy", 1, rs("90")), "bob-0"));
+    for (let i = 0; i <= CLIENT_ORDER_IDS_PER_ACCOUNT; i++) {
+      exchange.submit(withId(limit("alice", "buy", 1, rs("90")), `a-${String(i)}`));
+    }
+    expect(exchange.clientOrder("alice", "a-0")).toBeUndefined();
+    expect(exchange.clientOrder("alice", "a-1")).toBeDefined();
+    expect(
+      exchange.clientOrder("alice", `a-${String(CLIENT_ORDER_IDS_PER_ACCOUNT)}`),
+    ).toBeDefined();
+    expect(exchange.serialize().clientOrders?.find(([id]) => id === "alice")?.[1]).toHaveLength(
+      CLIENT_ORDER_IDS_PER_ACCOUNT,
+    );
+    expect(exchange.clientOrder("bob", "bob-0")).toBeDefined();
+  });
+
+  it("survives serialize and load, with the same state hash", () => {
+    exchange = makeExchange();
+    exchange.submit(withId(limit("alice", "buy", 10, rs("99")), "c-1"));
+    exchange.submit(withId(market("bob", "buy", 100_000), "c-2"));
+    const copy = new Exchange([
+      { symbol: SYMBOL, tickSize: rs("0.05"), referencePrice: rs("100") },
+    ]);
+    copy.load(exchange.serialize());
+    expect(copy.clientOrder("alice", "c-1")).toEqual(exchange.clientOrder("alice", "c-1"));
+    expect(copy.clientOrder("bob", "c-2")).toEqual(exchange.clientOrder("bob", "c-2"));
+    expect(copy.stateHash()).toBe(exchange.stateHash());
+  });
+
+  it("is part of the state hash, and leaves the hash of a state without ids unchanged", () => {
+    const scenario = (id?: string) => {
+      const x = makeExchange(["alice", "bob"]);
+      const first = limit("alice", "buy", 10, rs("99"));
+      x.submit(id ? withId(first, id) : first);
+      x.submit(market("bob", "sell", 4));
+      x.submit(stop("bob", "buy", 3, rs("101")));
+      return x.stateHash();
+    };
+    // The hash the engine gave this scenario before client order ids existed.
+    expect(scenario()).toBe("ff021d00e8c6c398");
+    expect(scenario("c-1")).not.toBe(scenario());
+    expect(scenario("c-1")).not.toBe(scenario("c-2"));
+    exchange = makeExchange();
   });
 });
