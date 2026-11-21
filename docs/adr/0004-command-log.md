@@ -39,13 +39,37 @@ regenerates them. A busy session is thousands of rows, not millions.
   fails the command is not applied, the caller gets `503`, the host stops
   accepting work and the process exits; the platform restarts it and replay
   restores a consistent state.
-- **Unknown outcome (a known limitation).** If the connection drops after
-  PostgreSQL committed the append but before its reply arrived, the host
-  cannot tell that the command was logged. It treats the write as failed: the
-  caller gets `503` and the process restarts, and the replay then applies the
-  command. A client that retries after that `503` places the order a second
-  time. The fix is an idempotency key (a client order id, remembered across
-  replay); it is not built yet.
+- **Unknown outcome.** If the connection drops after PostgreSQL committed the
+  append but before its reply arrived, the host cannot tell that the command
+  was logged. It treats the write as failed: the caller gets `503` and the
+  process restarts, and the replay then applies the command.
+- **Client order ids** make the retry after an unknown outcome safe. A place
+  order may carry a `clientOrderId` (a UUID); the web app sends one with every
+  order and reuses it when it resends an unconfirmed order unchanged. The id is
+  part of the logged command, and the exchange remembers, per account, the last
+  500 ids and what became of each (the order created, or why it was refused).
+  Before logging a command, the host looks its id up: a known id is answered
+  with the first outcome and the order as it stands now, marked
+  `"replayed": true`, and nothing is logged; the same id with different details
+  is refused with `409`. Because the ids are rebuilt by replaying the log, are
+  stored in snapshots and are part of the state hash, a restart (from the whole
+  log or from a snapshot) and the browser's verified replay all know them.
+
+  What this guarantees, and what it does not:
+  - Within one market session, an account's order with a given id is placed at
+    most once, however often it is sent, while the id is among the account's
+    last 500.
+  - It is not exactly-once. An order whose request never reached the log is
+    not placed at all until the client sends it again. An id older than the
+    account's last 500 is forgotten, so a retry that late would place the order
+    again. A session rollover ends the account, so there is nothing to retry
+    into. A client that sends no id can still create a duplicate. Cancels carry
+    no id; cancelling twice is already harmless (the second is refused).
+  - Cost, measured on a development machine: 132 bytes of snapshot per remembered id. At the bound (500
+    guests with 500 ids each) that is 31 MB more snapshot, about 1.1 ms per
+    command for the state hash instead of 0.5 ms, and 0.2 s once after a
+    snapshot is restored. With ten ids per guest none of it is measurable.
+
 - `(session_id, seq)` is the primary key and the host assigns gap-free
   sequence numbers, so a duplicate or out-of-order write is refused by the
   database.
@@ -95,7 +119,8 @@ session never is.
 - The built server, run as a process against real PostgreSQL
   (`apps/api/src/persistence.test.ts`): its connection killed between writes
   and during an append, a reply lost after the commit (the unknown outcome
-  above, and the duplicate a retry creates), a corrupt stored snapshot, two
+  above: a retry with the order's `clientOrderId` is answered with it, one
+  without creates a duplicate), a corrupt stored snapshot, two
   processes starting at once, and waking while the database is unreachable.
   Each failure is fatal, leaves no snapshot ahead of the log, and a restart
   reaches the log head's state hash.
