@@ -13,7 +13,8 @@
  *   (docs/adr/0007-idle-aware-persistence.md).
  * - (session_id, seq) is the primary key: the engine assigns gap-free sequence
  *   numbers, so a duplicate or out-of-order write is rejected by the database.
- * - Sessions older than seven days are pruned at startup.
+ * - Sessions older than seven days are pruned at startup and when a session
+ *   rolls over.
  * - Each session keeps at most one engine snapshot, so startup replays only the
  *   entries written after it (docs/adr/0006-startup-budget-and-snapshots.md).
  */
@@ -24,6 +25,7 @@ import {
   LockHeldError,
   LockWaitTimeoutError,
   LogHeadMovedError,
+  RETENTION_DAYS,
   parseEntry,
   type CommandLog,
   type LogEntry,
@@ -63,7 +65,6 @@ async function select<T>(db: Queryable, schema: z.ZodType<T>, text: string, para
 }
 
 const WRITER_LOCK = 0x6d6c6162; // "mlab"
-const RETENTION_DAYS = 7;
 
 const MIGRATION = [
   `CREATE TABLE IF NOT EXISTS sessions (
@@ -342,6 +343,17 @@ export class PostgresLog<C extends Queryable = Queryable> implements CommandLog 
          SET seq = EXCLUDED.seq, state_hash = EXCLUDED.state_hash,
              state = EXCLUDED.state, created_at = now()`,
       [sessionId, snapshot.seq, snapshot.stateHash, snapshot.state],
+    );
+  }
+
+  async pruneSessions(now: number): Promise<void> {
+    await (
+      await this.db()
+    ).query(
+      `DELETE FROM sessions
+        WHERE started_at < $1::timestamptz - make_interval(days => $2)
+          AND id <> (SELECT MAX(id) FROM sessions)`,
+      [new Date(now), RETENTION_DAYS],
     );
   }
 

@@ -1,5 +1,6 @@
 import {
   LogHeadMovedError,
+  pastRetention,
   type CommandLog,
   type LogEntry,
   type Session,
@@ -44,7 +45,8 @@ export class MemoryLog implements CommandLog {
     if (latest && now - latest.startedAt < maxAgeMs) {
       return Promise.resolve({ ...latest, entries: [...latest.entries] });
     }
-    const session = { id: this.sessions.length + 1, seed: newSeed, startedAt: now, entries: [] };
+    // Ids only ever grow, even after old sessions are pruned.
+    const session = { id: (latest?.id ?? 0) + 1, seed: newSeed, startedAt: now, entries: [] };
     this.sessions.push(session);
     return Promise.resolve({ ...session, entries: [] });
   }
@@ -76,6 +78,15 @@ export class MemoryLog implements CommandLog {
   saveSnapshot(sessionId: number, snapshot: StoredSnapshot): Promise<void> {
     this.suspended = false;
     this.snapshots.set(sessionId, snapshot);
+    return Promise.resolve();
+  }
+
+  pruneSessions(now: number): Promise<void> {
+    const latest = this.sessions.at(-1);
+    this.sessions = this.sessions.filter((s) => s === latest || !pastRetention(s.startedAt, now));
+    for (const id of this.snapshots.keys()) {
+      if (!this.sessions.some((s) => s.id === id)) this.snapshots.delete(id);
+    }
     return Promise.resolve();
   }
 

@@ -52,6 +52,14 @@ export const LogEntrySchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+/** How long ended sessions are kept, for replay and inspection. */
+export const RETENTION_DAYS = 7;
+const RETENTION_MS = RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+/** True if a session that started at `startedAt` is past retention at `now`. */
+export const pastRetention = (startedAt: number, now: number): boolean =>
+  now - startedAt > RETENTION_MS;
+
 export interface Session {
   readonly id: number;
   readonly seed: number;
@@ -117,6 +125,11 @@ export interface CommandLog {
   loadSnapshot(sessionId: number): Promise<StoredSnapshot | null>;
   /** Stores a snapshot, replacing the session's previous one. */
   saveSnapshot(sessionId: number, snapshot: StoredSnapshot): Promise<void>;
+  /**
+   * Deletes sessions (with their entries and snapshots) that started more
+   * than `RETENTION_DAYS` before `now`. The latest session is always kept.
+   */
+  pruneSessions(now: number): Promise<void>;
   close(): Promise<void>;
 }
 
