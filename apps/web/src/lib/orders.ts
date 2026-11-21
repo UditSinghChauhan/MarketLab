@@ -1,8 +1,41 @@
 /** Engine vocabulary turned into words a trader understands. */
 
-import type { EventView, OrderType, OrderView, Side } from "@marketlab/contracts";
+import type { CommandResult, EventView, OrderType, OrderView, Side } from "@marketlab/contracts";
 
+import { ApiRequestError } from "./api";
 import { price, qty, rupees } from "./format";
+
+/**
+ * A new client order id (a version 4 UUID). `crypto.randomUUID` needs a
+ * secure context; `getRandomValues` works everywhere.
+ */
+export function newClientOrderId(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = ((b[6] ?? 0) & 0x0f) | 0x40;
+  b[8] = ((b[8] ?? 0) & 0x3f) | 0x80;
+  const hex = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * True when an order request failed without saying whether the order was
+ * placed: no response at all, or a server error (the write may have reached
+ * the log before the reply was lost). A 4xx means it was not placed.
+ */
+export function outcomeUnknown(error: unknown): boolean {
+  return !(error instanceof ApiRequestError) || error.status >= 500;
+}
+
+export const UNCONFIRMED_ORDER =
+  "Couldn't confirm this order. It may have been placed: check Orders before placing it again. Sending it again unchanged won't place it twice.";
+
+/** The answer to a retry the exchange recognised: what the first attempt did. */
+export function replayedMessage(result: CommandResult): string {
+  if (!result.ok) return rejectMessage(result.rejectReason);
+  const status = result.order ? ` (${statusLabel(result.order).toLowerCase()})` : "";
+  return `Your earlier attempt already placed this order${status}. It wasn't placed twice.`;
+}
 
 const REJECT_REASONS: Record<string, string> = {
   insufficient_funds: "Not enough cash for this order.",

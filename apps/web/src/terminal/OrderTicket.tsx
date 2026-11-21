@@ -19,7 +19,14 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { ApiRequestError, api } from "../lib/api";
 import { price as fmtPrice, qty as fmtQty, rupees, stepPrice } from "../lib/format";
-import { confirmation, rejectMessage } from "../lib/orders";
+import {
+  UNCONFIRMED_ORDER,
+  confirmation,
+  outcomeUnknown,
+  rejectMessage,
+  replayedMessage,
+} from "../lib/orders";
+import { useClientOrderId } from "../lib/useClientOrderId";
 import { Kbd } from "../ui/Panel";
 import { SkeletonText } from "../ui/Skeleton";
 
@@ -69,6 +76,7 @@ export function OrderTicket({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [pending, setPending] = useState(false);
+  const clientOrderIds = useClientOrderId();
   const formRef = useRef<HTMLFormElement>(null);
   const id = useId();
 
@@ -167,23 +175,26 @@ export function OrderTicket({
     try {
       const result = await api<CommandResult>("/api/orders", {
         method: "POST",
-        body: parsed.data,
+        body: { ...parsed.data, clientOrderId: clientOrderIds.next(parsed.data) },
         token,
         allow: [422],
       });
+      clientOrderIds.settled();
       setFeedback(
-        result.ok
-          ? { tone: "ok", text: confirmation(result.events) ?? "Order placed" }
-          : { tone: "error", text: rejectMessage(result.rejectReason) },
+        result.replayed
+          ? { tone: result.ok ? "ok" : "error", text: replayedMessage(result) }
+          : result.ok
+            ? { tone: "ok", text: confirmation(result.events) ?? "Order placed" }
+            : { tone: "error", text: rejectMessage(result.rejectReason) },
       );
       onResult(result);
     } catch (error) {
+      // Unknown outcome: keep the id, so resending the same order is safe.
+      const unknown = outcomeUnknown(error);
+      if (!unknown) clientOrderIds.settled();
       setFeedback({
         tone: "error",
-        text:
-          error instanceof ApiRequestError
-            ? error.message
-            : "Couldn't reach the exchange. Try again.",
+        text: error instanceof ApiRequestError && !unknown ? error.message : UNCONFIRMED_ORDER,
       });
     } finally {
       setPending(false);

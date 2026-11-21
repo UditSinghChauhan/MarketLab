@@ -10,8 +10,9 @@ import { Link } from "react-router";
 import { ApiRequestError, api } from "../lib/api";
 import { changeTone, duration, pct, price } from "../lib/format";
 import { useExchange } from "../lib/health";
-import { describeEvent } from "../lib/orders";
+import { describeEvent, outcomeUnknown, replayedMessage } from "../lib/orders";
 import { ensureSession } from "../lib/session";
+import { useClientOrderId } from "../lib/useClientOrderId";
 import { useMarketStream } from "../lib/stream";
 import { OrderBookLadder } from "../terminal/OrderBookLadder";
 import { SkeletonText } from "../ui/Skeleton";
@@ -27,23 +28,35 @@ export function HeroDemo() {
   const [result, setResult] = useState<CommandResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const clientOrderIds = useClientOrderId();
 
   const tryOrder = async () => {
     setPending(true);
     setError(null);
+    let ordering = false;
     try {
       const { token } = await ensureSession();
-      setResult(
-        await api<CommandResult>("/api/orders", {
-          method: "POST",
-          token,
-          body: { symbol: SYMBOL, side: "buy", type: "market", qty: 5 },
-          allow: [422],
-        }),
-      );
+      const order = { symbol: SYMBOL, side: "buy", type: "market", qty: 5 } as const;
+      ordering = true;
+      const placed = await api<CommandResult>("/api/orders", {
+        method: "POST",
+        token,
+        // The token is part of the details: a new guest account means a new order.
+        body: { ...order, clientOrderId: clientOrderIds.next({ order, token }) },
+        allow: [422],
+      });
+      clientOrderIds.settled();
+      setResult(placed);
     } catch (e) {
+      // Only the order request can have an unknown outcome; keep its id for a retry.
+      const unknown = ordering && outcomeUnknown(e);
+      if (!unknown) clientOrderIds.settled();
       setError(
-        e instanceof ApiRequestError ? e.message : "The exchange isn't reachable right now.",
+        unknown
+          ? "Couldn't confirm that order; it may have been placed. Pressing the button again won't place it twice."
+          : e instanceof ApiRequestError
+            ? e.message
+            : "The exchange isn't reachable right now.",
       );
     } finally {
       setPending(false);
@@ -136,7 +149,6 @@ export function HeroDemo() {
 }
 
 function Trace({ result, onReset }: { result: CommandResult; onReset: () => void }) {
-  const t = result.timing;
   const id = result.orderId ?? "";
   return (
     <div className="h-[372px] overflow-y-auto px-4 py-4">
@@ -146,6 +158,20 @@ function Trace({ result, onReset }: { result: CommandResult; onReset: () => void
           Back to the book
         </button>
       </div>
+      {result.replayed ? (
+        // A retry the exchange recognised: nothing new happened to trace.
+        <p className="text-sm text-muted">{replayedMessage(result)}</p>
+      ) : (
+        <TraceDetail result={result} id={id} />
+      )}
+    </div>
+  );
+}
+
+function TraceDetail({ result, id }: { result: CommandResult; id: string }) {
+  const t = result.timing;
+  return (
+    <>
       <dl className="mb-5 grid grid-cols-3 gap-px overflow-hidden rounded-md bg-line text-center">
         {[
           ["Waited", duration(t.queueMs * 1000)],
@@ -175,6 +201,6 @@ function Trace({ result, onReset }: { result: CommandResult; onReset: () => void
             );
           })}
       </ol>
-    </div>
+    </>
   );
 }
