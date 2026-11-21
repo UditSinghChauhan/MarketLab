@@ -39,6 +39,13 @@ regenerates them. A busy session is thousands of rows, not millions.
   fails the command is not applied, the caller gets `503`, the host stops
   accepting work and the process exits; the platform restarts it and replay
   restores a consistent state.
+- **Unknown outcome (a known limitation).** If the connection drops after
+  PostgreSQL committed the append but before its reply arrived, the host
+  cannot tell that the command was logged. It treats the write as failed: the
+  caller gets `503` and the process restarts, and the replay then applies the
+  command. A client that retries after that `503` places the order a second
+  time. The fix is an idempotency key (a client order id, remembered across
+  replay); it is not built yet.
 - `(session_id, seq)` is the primary key and the host assigns gap-free
   sequence numbers, so a duplicate or out-of-order write is refused by the
   database.
@@ -85,6 +92,13 @@ session never is.
   produce identical ticks.
 - A failing append leaves balances untouched and stops the host.
 - The advisory-lock test runs against a real PostgreSQL server in CI.
+- The built server, run as a process against real PostgreSQL
+  (`apps/api/src/persistence.test.ts`): its connection killed between writes
+  and during an append, a reply lost after the commit (the unknown outcome
+  above, and the duplicate a retry creates), a corrupt stored snapshot, two
+  processes starting at once, and waking while the database is unreachable.
+  Each failure is fatal, leaves no snapshot ahead of the log, and a restart
+  reaches the log head's state hash.
 
 ## Consequences and limits
 

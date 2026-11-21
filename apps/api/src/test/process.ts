@@ -10,7 +10,7 @@
 
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { createServer } from "node:net";
+import { connect, createServer, type AddressInfo, type Socket } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -179,6 +179,188 @@ export async function connectionsTo(adminUrl: string, name: string): Promise<num
     );
     return rows[0]?.n ?? 0;
   });
+}
+
+/**
+ * Ends the server's connections to database `name`, as a network failure or a
+ * database restart would: every backend but the caller's own, or with
+ * `waitingOnly`, only those blocked on a lock (a write held by `holdLogTable`).
+ */
+export async function terminateConnections(
+  adminUrl: string,
+  name: string,
+  waitingOnly = false,
+): Promise<number> {
+  return withClient(adminUrl, async (db) => {
+    const { rows } = await db.query<{ n: number }>(
+      `SELECT COUNT(pg_terminate_backend(pid))::int AS n FROM pg_stat_activity
+        WHERE datname = $1 AND pid <> pg_backend_pid()
+          AND (NOT $2 OR wait_event_type = 'Lock')`,
+      [name, waitingOnly],
+    );
+    return rows[0]?.n ?? 0;
+  });
+}
+
+export interface PgProxy {
+  /** `databaseUrl`, pointed at the proxy. */
+  readonly url: string;
+  /**
+   * The next query whose Bind (or simple Query) message contains `marker` is
+   * forwarded, and every message of PostgreSQL's reply to it is withheld
+   * until that reply proves the write committed: `CommandComplete` with tag
+   * `INSERT 0 1`, then `ReadyForQuery` with status `I` (idle, no transaction
+   * open: the implicit transaction has committed). The connection is then
+   * closed, so the client never learns the outcome. Resolves with the command
+   * tag; rejects (and closes the connection) if the reply is anything else.
+   */
+  loseReplyTo(marker: string): Promise<{ commandTag: string }>;
+  /** Closes every connection and stops listening: the database is unreachable. */
+  stop(): Promise<void>;
+}
+
+/** Startup-phase request codes that the server answers with one unframed byte. */
+const SSL_REQUEST = 80877103;
+const GSSENC_REQUEST = 80877104;
+
+interface Trap {
+  readonly marker: Buffer;
+  readonly sprung: (result: { commandTag: string }) => void;
+  readonly failed: (error: Error) => void;
+}
+
+/**
+ * A TCP proxy in front of PostgreSQL, for the failures a local server never
+ * produces on its own: a lost reply, and a database that cannot be reached.
+ *
+ * It follows the wire protocol's message framing in both directions, so
+ * nothing depends on how TCP happens to split the bytes. Replies are matched
+ * to requests by order: the server answers each Sync (extended protocol) or
+ * Query (simple protocol), and the startup message, with one ReadyForQuery.
+ */
+export async function startPgProxy(databaseUrl: string): Promise<PgProxy> {
+  const target = new URL(databaseUrl);
+  const sockets = new Set<Socket>();
+  let trap: Trap | undefined;
+  const proxy = createServer((client) => {
+    const upstream = connect(Number(target.port || "5432"), target.hostname);
+    const close = () => {
+      client.destroy();
+      upstream.destroy();
+      sockets.delete(client);
+      sockets.delete(upstream);
+    };
+    for (const socket of [client, upstream]) {
+      sockets.add(socket);
+      socket.on("error", close).on("close", close);
+    }
+
+    // Client to server: forwarded as received, and parsed alongside.
+    let fromClient = Buffer.alloc(0);
+    let startup = true;
+    /** Requests the server will answer with a ReadyForQuery (the startup message counts). */
+    let requests = 0;
+    /** Unframed one-byte answers to SSL/GSS requests still to come from the server. */
+    let rawBytesExpected = 0;
+    /** The trapped request: its reply follows ReadyForQuery number `after`. */
+    let trapped: { trap: Trap; after: number } | undefined;
+    client.on("data", (chunk: Buffer) => {
+      upstream.write(chunk);
+      fromClient = Buffer.concat([fromClient, chunk]);
+      for (;;) {
+        if (startup) {
+          if (fromClient.length < 8) return;
+          const length = fromClient.readInt32BE(0);
+          if (fromClient.length < length) return;
+          const code = fromClient.readInt32BE(4);
+          fromClient = fromClient.subarray(length);
+          if (code === SSL_REQUEST || code === GSSENC_REQUEST) {
+            rawBytesExpected += 1;
+          } else {
+            startup = false;
+            requests = 1;
+          }
+          continue;
+        }
+        if (fromClient.length < 5) return;
+        const end = 1 + fromClient.readInt32BE(1);
+        if (fromClient.length < end) return;
+        const type = String.fromCharCode(fromClient[0] ?? 0);
+        const body = fromClient.subarray(5, end);
+        fromClient = fromClient.subarray(end);
+        if (trap && !trapped && (type === "B" || type === "Q") && body.includes(trap.marker)) {
+          trapped = { trap, after: requests };
+          trap = undefined;
+        }
+        if (type === "S" || type === "Q") requests += 1;
+      }
+    });
+
+    // Server to client: forwarded one whole message at a time, except the
+    // trapped request's reply, which is withheld and checked.
+    let fromServer = Buffer.alloc(0);
+    let ready = 0; // ReadyForQuery messages seen
+    let commandTag: string | undefined;
+    let error: string | undefined;
+    upstream.on("data", (chunk: Buffer) => {
+      fromServer = Buffer.concat([fromServer, chunk]);
+      while (rawBytesExpected > 0 && fromServer.length > 0) {
+        client.write(fromServer.subarray(0, 1));
+        fromServer = fromServer.subarray(1);
+        rawBytesExpected -= 1;
+      }
+      for (;;) {
+        if (fromServer.length < 5) return;
+        const end = 1 + fromServer.readInt32BE(1);
+        if (fromServer.length < end) return;
+        const message = fromServer.subarray(0, end);
+        fromServer = fromServer.subarray(end);
+        const type = String.fromCharCode(message[0] ?? 0);
+        if (!trapped || ready < trapped.after) {
+          client.write(message);
+          if (type === "Z") ready += 1;
+          continue;
+        }
+        // Part of the trapped request's reply: never forwarded.
+        if (type === "C") commandTag = message.subarray(5, end - 1).toString("utf8");
+        if (type === "E") error = message.subarray(5).toString("utf8").replace(/\0/g, " ").trim();
+        if (type !== "Z") continue;
+        const status = String.fromCharCode(message[5] ?? 0);
+        close();
+        if (commandTag === "INSERT 0 1" && error === undefined && status === "I") {
+          trapped.trap.sprung({ commandTag });
+        } else {
+          trapped.trap.failed(
+            new Error(
+              `the trapped write did not commit: tag ${String(commandTag)}, status ${status}, error ${String(error)}`,
+            ),
+          );
+        }
+        return;
+      }
+    });
+  });
+  await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
+  const url = new URL(databaseUrl);
+  url.hostname = "127.0.0.1";
+  url.port = String((proxy.address() as AddressInfo).port);
+  let stopped: Promise<void> | undefined;
+  return {
+    url: url.toString(),
+    loseReplyTo: (marker) =>
+      new Promise((resolve, reject) => {
+        trap = { marker: Buffer.from(marker), sprung: resolve, failed: reject };
+      }),
+    stop: () => {
+      stopped ??= new Promise((resolve) => {
+        for (const socket of sockets) socket.destroy();
+        proxy.close(() => {
+          resolve();
+        });
+      });
+      return stopped;
+    },
+  };
 }
 
 /** Polls `check` until it returns true, or fails after `ms`. */
