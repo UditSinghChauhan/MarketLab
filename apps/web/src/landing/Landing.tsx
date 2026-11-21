@@ -195,7 +195,10 @@ export function Landing() {
                 Money is play money. Each visitor gets ₹10,00,000 and a guest account; there is no
                 signup.
               </li>
-              <li>The market resets every 24 hours with a fresh simulation.</li>
+              <li>
+                About once a day, at a quiet moment, the market starts a fresh simulation and
+                accounts start over.
+              </li>
               <li>No fees, short selling, order amendment or time-in-force options yet.</li>
             </ul>
           </div>

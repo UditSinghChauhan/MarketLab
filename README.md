@@ -211,8 +211,17 @@ docs/          Design direction, architecture decision records, screenshots
 
 The four listed companies are fictional and their prices come from seeded bot
 traders. Money is play money: each visitor gets a guest account with
-₹10,00,000 and no signup. The market resets every 24 hours. There are no fees,
-short selling, order amendment or time-in-force options yet.
+₹10,00,000 and no signup. There are no fees, short selling, order amendment or
+time-in-force options yet.
+
+**Market sessions.** A session is one simulated trading day. Once it is 24
+hours old (`SESSION_HOURS`), it ends at the first quiet moment: when nobody
+has had the site open or traded for five minutes. A restart after that age
+ends it too. While people keep using the site, it carries on past 24 hours. A
+fresh session starts with new bot traders and half an hour of simulated
+history. **Guest accounts, balances and open orders end with the old
+session**: it is play money, and a returning visitor simply gets a new
+account. The old session's command log is kept for seven days.
 
 ## Author
 
