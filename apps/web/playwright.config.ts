@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+import { E2E_TOKEN_SECRET } from "./e2e/secret";
+
 const PORT = 4173;
 
 /**
@@ -37,6 +39,7 @@ export default defineConfig({
       TICK_MS: "300",
       WARMUP_MINUTES: "5",
       LOG_LEVEL: "warn",
+      TOKEN_SECRET: E2E_TOKEN_SECRET,
       // Every test opens its own guest account from one address; production limits stay as they are.
       RATE_LIMIT_SCALE: "100",
     },
