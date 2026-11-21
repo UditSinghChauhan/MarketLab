@@ -18,6 +18,7 @@ import {
 import { INSTRUMENTS } from "./instruments.js";
 import { LogHeadMovedError, type CommandLog } from "./log/types.js";
 import { StreamHub } from "./stream.js";
+import { accountView } from "./views.js";
 import { CountingLog, buy, clock, hostOptions, pgliteLog, testConfig } from "./test/fixtures.js";
 
 const TICK_MS = 600;
@@ -195,31 +196,62 @@ describe("idle-aware persistence", () => {
   });
 });
 
-/** A log that can hold its next `openSession` until released: a known point inside a rollover. */
-class GatedLog extends CountingLog {
-  private next: { reached: () => void; gate: Promise<void> } | undefined;
+interface Barrier {
+  /** Resolves once the log call has arrived and is being held. */
+  readonly reached: Promise<void>;
+  readonly release: () => void;
+}
 
-  holdNextSession(): { reached: Promise<void>; release: () => void } {
-    let reached = (): void => undefined;
-    let release = (): void => undefined;
-    const reachedPromise = new Promise<void>((resolve) => {
-      reached = resolve;
-    });
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    this.next = { reached, gate };
-    return { reached: reachedPromise, release };
+function barrier(): Barrier & { arrive: () => void; gate: Promise<void> } {
+  let arrive = (): void => undefined;
+  let release = (): void => undefined;
+  const reached = new Promise<void>((resolve) => {
+    arrive = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { reached, release, arrive, gate };
+}
+
+/**
+ * A log that can hold a call until released, at known points inside a
+ * rollover: its next `openSession` (before the new session exists), or its
+ * first append to a given session (after the swap, during the warm-up write).
+ */
+class GatedLog extends CountingLog {
+  private session: ReturnType<typeof barrier> | undefined;
+  private appendTo: { sessionId: number; held: ReturnType<typeof barrier> } | undefined;
+
+  holdNextSession(): Barrier {
+    this.session = barrier();
+    return this.session;
+  }
+
+  holdNextAppend(sessionId: number): Barrier {
+    const held = barrier();
+    this.appendTo = { sessionId, held };
+    return held;
   }
 
   override async openSession(...args: Parameters<CountingLog["openSession"]>) {
-    const next = this.next;
-    this.next = undefined;
-    if (next) {
-      next.reached();
-      await next.gate;
+    const held = this.session;
+    this.session = undefined;
+    if (held) {
+      held.arrive();
+      await held.gate;
     }
     return super.openSession(...args);
+  }
+
+  override async append(...args: Parameters<CountingLog["append"]>) {
+    const hold = this.appendTo;
+    if (hold?.sessionId === args[0]) {
+      this.appendTo = undefined;
+      hold.held.arrive();
+      await hold.held.gate;
+    }
+    return super.append(...args);
   }
 }
 
@@ -339,53 +371,148 @@ describe("session rollover", () => {
     await app.close();
   });
 
-  it("ends a stream that connected during the rollover, before its account is gone", async () => {
-    const log = new GatedLog();
-    const { host, time, beat } = await aging(log);
-    const hub = new StreamHub(host, INSTRUMENTS, { marketsIntervalMs: 20 });
-    host.watch(() => hub.size);
-    hub.start();
-    const app = await buildApp({
-      config: testConfig(),
-      host,
-      hub,
-      instruments: INSTRUMENTS,
-      persistence: "memory",
-    });
-    await app.listen({ port: 0, host: "127.0.0.1" });
-    const address = app.server.address();
-    const base = `http://127.0.0.1:${String(typeof address === "object" && address ? address.port : 0)}`;
-    try {
-      const { token } = (await app.inject({ method: "POST", url: "/api/session" })).json<{
+  /**
+   * A stream request validates its token and attaches to the hub in one
+   * synchronous turn (app.ts, /api/stream); the rollover replaces the
+   * session and notifies the hub in another (`rollover`, no await between).
+   * So a request lands wholly before the swap or wholly after it. These
+   * tests hold the rollover on each side of that point, and look at the
+   * point itself, with barriers. Only `setInterval` is faked, so the hub's
+   * market pushes run exactly when a test advances them, and any error they
+   * throw fails the test where it happens.
+   */
+  describe("streams across the session boundary", () => {
+    const MARKETS_MS = 1_000;
+
+    async function served() {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+      const log = new GatedLog();
+      const context = await aging(log);
+      const { host } = context;
+      const hub = new StreamHub(host, INSTRUMENTS, { marketsIntervalMs: MARKETS_MS });
+      host.watch(() => hub.size);
+      hub.start();
+      const app = await buildApp({
+        config: testConfig(),
+        host,
+        hub,
+        instruments: INSTRUMENTS,
+        persistence: "memory",
+      });
+      await app.listen({ port: 0, host: "127.0.0.1" });
+      const address = app.server.address();
+      const base = `http://127.0.0.1:${String(typeof address === "object" && address ? address.port : 0)}`;
+      const visitor = (await app.inject({ method: "POST", url: "/api/session" })).json<{
         token: string;
+        accountId: string;
       }>();
-      await goIdle(host, beat, log);
-      time.advance(MAX_AGE);
-
-      const held = log.holdNextSession();
-      const rolling = host.clockTick();
-      await held.reached;
-      // A returning visitor opens the terminal right now: the old session still holds.
-      const stream = await fetch(`${base}/api/stream?symbol=ORBT&token=${token}`);
-      expect(stream.status).toBe(200);
-      expect(hub.size).toBe(1);
-      held.release();
-      await rolling;
-
-      // The server ended it (the browser reconnects and is told its session ended).
-      expect(hub.size).toBe(0);
-      const reader = (stream.body as ReadableStream<Uint8Array>).getReader();
-      const ended = async () => {
-        for (;;) if ((await reader.read()).done) return true;
+      await goIdle(host, context.beat, log);
+      context.time.advance(MAX_AGE); // the next beat rolls the session over
+      const stream = (token?: string) =>
+        fetch(`${base}/api/stream?symbol=ORBT${token ? `&token=${token}` : ""}`);
+      const close = async () => {
+        hub.stop();
+        await app.close();
+        vi.useRealTimers();
       };
-      await expect(ended()).resolves.toBe(true);
-      // Market pushes keep running (every 20 ms) without touching the old account.
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      expect(host.healthy).toBe(true);
-    } finally {
-      hub.stop();
-      await app.close();
+      return { ...context, log, hub, visitor, stream, close };
     }
+
+    /** Reads a stream to its end; resolves true once the server has ended it. */
+    async function endOf(response: Response): Promise<boolean> {
+      const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+      for (;;) if ((await reader.read()).done) return true;
+    }
+
+    it("before the swap: a stream that passed the old session's check is ended at the swap", async () => {
+      const { host, hub, log, visitor, stream, close } = await served();
+      try {
+        // At the notification itself: what has already happened when the hub is told.
+        const atNotification: Record<string, unknown>[] = [];
+        host.onSessionStart((session) => {
+          atNotification.push({
+            session,
+            current: host.session.id,
+            oldAccountKnown: host.exchange.accounts.has(visitor.accountId),
+            streams: hub.size,
+          });
+        });
+
+        const held = log.holdNextSession();
+        const rolling = host.clockTick();
+        await held.reached; // the old session still holds; the new one does not exist yet
+        const stale = await stream(visitor.token);
+        expect(stale.status).toBe(200);
+        expect(hub.size).toBe(1);
+        held.release();
+        await rolling;
+
+        // Registered after the hub's, this listener ran just after it: the swap
+        // had happened, the old account was gone, and the stream was already ended.
+        expect(atNotification).toEqual([
+          { session: 2, current: 2, oldAccountKnown: false, streams: 0 },
+        ]);
+        await expect(endOf(stale)).resolves.toBe(true);
+        expect(hub.size).toBe(0);
+
+        // Its browser reconnects with the same token: refused, never attached.
+        const again = await stream(visitor.token);
+        expect(again.status).toBe(401);
+        expect(await again.json()).toMatchObject({ error: { code: "session_expired" } });
+        // A public stream in the new session, and market pushes run over it.
+        const fresh = await stream();
+        expect(fresh.status).toBe(200);
+        expect(hub.size).toBe(1);
+        vi.advanceTimersByTime(5 * MARKETS_MS);
+        expect(host.healthy).toBe(true);
+        fresh.body?.cancel().catch(() => undefined);
+      } finally {
+        await close();
+      }
+    });
+
+    it("after the swap, while the rollover is still writing: the old token is refused at once", async () => {
+      const { host, hub, log, visitor, stream, close } = await served();
+      try {
+        const held = log.holdNextAppend(2); // the new session's warm-up entry
+        const rolling = host.clockTick();
+        await held.reached; // swapped and notified; the warm-up write is in flight
+        expect(host.session.id).toBe(2);
+
+        const stale = await stream(visitor.token);
+        expect(stale.status).toBe(401);
+        expect(await stale.json()).toMatchObject({ error: { code: "session_expired" } });
+        expect(hub.size).toBe(0); // never attached
+        const fresh = await stream(); // a public stream may join the new session now
+        expect(fresh.status).toBe(200);
+        expect(hub.size).toBe(1);
+
+        held.release();
+        await rolling;
+        expect(hub.size).toBe(1); // a stream of the new session is left alone
+        vi.advanceTimersByTime(5 * MARKETS_MS);
+        expect(host.healthy).toBe(true);
+        fresh.body?.cancel().catch(() => undefined);
+      } finally {
+        await close();
+      }
+    });
+
+    it("an unended stale stream would crash the market push (the failure the swap prevents)", async () => {
+      // The hub's pushes read the stream's account. The same read, made
+      // directly for an account the new session does not have, throws:
+      const { host, log, visitor, close } = await served();
+      try {
+        const held = log.holdNextAppend(2);
+        const rolling = host.clockTick();
+        await held.reached;
+        expect(() => accountView(host, INSTRUMENTS, visitor.accountId)).toThrow(/Unknown account/);
+        held.release();
+        await rolling;
+      } finally {
+        await close();
+      }
+    });
   });
 
   it("deletes sessions that started more than seven days before", async () => {
