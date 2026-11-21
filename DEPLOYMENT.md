@@ -233,7 +233,9 @@ previous instance"}` until the old one has gone idle (five minutes after the
   process exits so Render restarts it. One case is ambiguous: if the
   connection drops after PostgreSQL committed an order but before it replied,
   the visitor gets `503`, yet the order is in the log and exists after the
-  restart. Retrying places it again. This is a known limitation
-  ([ADR 0004](docs/adr/0004-command-log.md)).
+  restart. The web app then says the order may have been placed, and resending
+  it unchanged reuses its `clientOrderId`, so the exchange answers with the
+  order instead of placing it twice. A client that sends no `clientOrderId`
+  would place it again ([ADR 0004](docs/adr/0004-command-log.md)).
 - **If startup fails with a TLS or `sslmode` message**, the connection string
   is wrong; the message says which parameter to change.

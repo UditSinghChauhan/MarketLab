@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type {
   CommandResult,
   HealthResponse,
@@ -183,6 +185,7 @@ describe("trading", () => {
     [{ symbol: "ORBT", side: "buy", type: "market", qty: 1.5 }, "qty"],
     [{ symbol: "ORBT", side: "hold", type: "market", qty: 1 }, "side"],
     [{ symbol: "ORBT", side: "buy", type: "limit", qty: 1, price: "12.345" }, "price"],
+    [{ symbol: "ORBT", side: "buy", type: "market", qty: 1, clientOrderId: "retry-1" }, "UUID"],
   ])("validates the request body (%j)", async (payload, field) => {
     const token = await session();
     const res = await app.inject({
@@ -193,6 +196,68 @@ describe("trading", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(JSON.stringify(res.json())).toContain(field);
+  });
+
+  it("answers a repeated clientOrderId with the first order, marked replayed, and places nothing", async () => {
+    // An address of its own, so its requests count against no other test's rate limits.
+    const remoteAddress = "10.6.6.6";
+    const token = (
+      await app.inject({ method: "POST", url: "/api/session", remoteAddress })
+    ).json<SessionResponse>().token;
+    const order = {
+      symbol: "QNTA",
+      side: "buy",
+      type: "limit",
+      qty: 2,
+      price: "700.00",
+      clientOrderId: randomUUID(),
+    };
+    const post = (payload: object) =>
+      app.inject({
+        method: "POST",
+        url: "/api/orders",
+        headers: auth(token),
+        payload,
+        remoteAddress,
+      });
+
+    const first = await post(order);
+    expect(first.statusCode).toBe(201);
+    const placed = first.json<CommandResult>();
+    expect(placed.replayed).toBeUndefined();
+    const logged = host.sequence;
+
+    const retry = await post(order);
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json<CommandResult>()).toMatchObject({
+      ok: true,
+      orderId: placed.orderId,
+      events: [],
+      replayed: true,
+      order: { id: placed.orderId, qty: 2, price: "700.00", status: "resting" },
+    });
+    expect(host.sequence).toBe(logged);
+    const orders = (await app.inject({ url: "/api/orders", headers: auth(token) })).json<
+      unknown[]
+    >();
+    expect(orders).toHaveLength(1);
+
+    // The same id with other details is a client bug, not a retry.
+    const reused = await post({ ...order, qty: 3 });
+    expect(reused.statusCode).toBe(409);
+    expect(reused.json()).toMatchObject({ error: { code: "client_order_id_reused" } });
+
+    // A refused order's retry is refused the same way, without a new log entry.
+    const refused = { ...order, side: "sell", clientOrderId: randomUUID() };
+    expect((await post(refused)).statusCode).toBe(422);
+    const again = await post(refused);
+    expect(again.statusCode).toBe(422);
+    expect(again.json<CommandResult>()).toMatchObject({
+      replayed: true,
+      rejectReason: "insufficient_shares",
+      order: null,
+    });
+    expect(host.sequence).toBe(logged + 1);
   });
 
   it("cancels a resting order, and hides other people's orders", async () => {

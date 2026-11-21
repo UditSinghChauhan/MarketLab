@@ -39,7 +39,8 @@ one.**
 
 - A snapshot is the state right after log entry `seq` was applied: the
   exchange (`Exchange.serialize()`: sequence counter, balances, open orders in
-  arrival order, stops, last prices), each simulator's position in its random
+  arrival order, stops, last prices, and each account's remembered client order
+  ids, ADR 0004), each simulator's position in its random
   sequence and its fair value, and the read models (candles, tape, order
   history, cost basis). It is stored as JSON text with
   `Exchange.stateHash()` at that point.

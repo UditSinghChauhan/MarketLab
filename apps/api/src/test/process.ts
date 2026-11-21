@@ -528,13 +528,21 @@ export async function openGuest(base: string): Promise<string> {
   return ((await res.json()) as { token: string }).token;
 }
 
-/** Places a market buy of `qty` ORBT; returns the HTTP status (0: connection failed). */
-export async function placeOrder(base: string, token: string, qty: number): Promise<number> {
+/**
+ * Places a market buy of `qty` ORBT, with `clientOrderId` if given; returns
+ * the HTTP status (0: connection failed).
+ */
+export async function placeOrder(
+  base: string,
+  token: string,
+  qty: number,
+  clientOrderId?: string,
+): Promise<number> {
   try {
     const res = await fetch(`${base}/api/orders`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ type: "market", symbol: "ORBT", side: "buy", qty }),
+      body: JSON.stringify({ type: "market", symbol: "ORBT", side: "buy", qty, clientOrderId }),
     });
     await res.arrayBuffer();
     return res.status;

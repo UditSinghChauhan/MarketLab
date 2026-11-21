@@ -59,6 +59,31 @@ export interface ExchangeState {
     readonly stops: readonly OrderId[];
   }[];
   readonly orders: readonly OpenOrder[];
+  /**
+   * Remembered client order ids, per account, oldest first. Absent when there
+   * are none (and in snapshots taken before client order ids existed).
+   */
+  readonly clientOrders?: readonly (readonly [string, readonly ClientOrder[]])[];
+}
+
+/** How many client order ids the exchange remembers per account; older ones are forgotten. */
+export const CLIENT_ORDER_IDS_PER_ACCOUNT = 500;
+
+/** What became of a place command that carried a client order id. */
+export interface ClientOrder {
+  readonly clientOrderId: string;
+  /** The command's details (`orderDetails`), to tell a retry from a reuse of the id. */
+  readonly details: string;
+  /** The order it created, or null if the exchange rejected it. */
+  readonly orderId: OrderId | null;
+  readonly rejectReason: RejectReason | null;
+}
+
+/** A place command's details, without its account or client order id. */
+export function orderDetails(command: PlaceCommand): string {
+  const price =
+    command.type === "limit" ? command.limitPrice : command.type === "stop" ? command.stopPrice : 0;
+  return `${command.symbol} ${command.side} ${command.type} ${String(command.qty)} ${String(price)}`;
 }
 
 interface OrderRecord {
@@ -79,6 +104,10 @@ export class Exchange {
   readonly accounts = new Accounts();
   private readonly markets = new Map<string, MarketState>();
   private readonly orders = new Map<OrderId, OrderRecord>();
+  /** Per account, client order id to outcome, oldest first (insertion order). */
+  private readonly clientOrders = new Map<string, Map<string, ClientOrder>>();
+  /** Each account's part of the state hash, cached until that account's ids change. */
+  private readonly clientOrderDigests = new Map<string, string>();
   private seq = 0;
   private out: EngineEvent[] = [];
 
@@ -135,11 +164,20 @@ export class Exchange {
     return result.sort((a, b) => a.order.seq - b.order.seq);
   }
 
+  /** What became of the account's order with this client order id, if it is remembered. */
+  clientOrder(accountId: string, clientOrderId: string): ClientOrder | undefined {
+    return this.clientOrders.get(accountId)?.get(clientOrderId);
+  }
+
   // Snapshots and hashing -------------------------------------------------
 
   /** Captures the state between commands. `load` on a fresh exchange restores it exactly. */
   serialize(): ExchangeState {
+    const clientOrders = [...this.clientOrders].map(
+      ([accountId, seen]) => [accountId, [...seen.values()]] as const,
+    );
     return {
+      ...(clientOrders.length > 0 ? { clientOrders } : {}),
       seq: this.seq,
       accounts: this.accounts.serialize(),
       markets: [...this.markets.values()].map((m) => ({
@@ -189,6 +227,10 @@ export class Exchange {
       market.lastPrice = paise(saved.lastPrice);
       market.stops = saved.stops.map((id) => this.recordOf(id));
     }
+
+    for (const [accountId, remembered] of state.clientOrders ?? []) {
+      this.clientOrders.set(accountId, new Map(remembered.map((c) => [c.clientOrderId, c])));
+    }
   }
 
   /**
@@ -229,7 +271,61 @@ export class Exchange {
         h.str(symbol).int(available).int(reserved);
       }
     }
+
+    // Remembered client order ids decide how a retry is answered. Mixed in
+    // only when there are any, so a state without them hashes exactly as it
+    // did before they existed (logs written then still verify).
+    const remembered = [...this.clientOrders.keys()].sort();
+    if (remembered.length > 0) {
+      h.int(remembered.length);
+      for (const accountId of remembered) h.str(accountId).str(this.clientOrderDigest(accountId));
+    }
     return h.digest();
+  }
+
+  /** One account's remembered ids and outcomes, in order, as a digest (cached). */
+  private clientOrderDigest(accountId: string): string {
+    const cached = this.clientOrderDigests.get(accountId);
+    if (cached !== undefined) return cached;
+    const h = new StateHasher();
+    const seen = this.clientOrders.get(accountId) ?? new Map<string, ClientOrder>();
+    h.int(seen.size);
+    for (const c of seen.values()) {
+      h.str(c.clientOrderId)
+        .str(c.details)
+        .str(c.orderId ?? "")
+        .str(c.rejectReason ?? "");
+    }
+    const digest = h.digest();
+    this.clientOrderDigests.set(accountId, digest);
+    return digest;
+  }
+
+  /**
+   * Remembers what became of a place command with a client order id. The
+   * first outcome stands (the host never logs a second command with the same
+   * id, so a replay never meets one); past the limit, the oldest is forgotten.
+   */
+  private remember(command: PlaceCommand, orderId: OrderId | null, reason: RejectReason | null) {
+    const { accountId, clientOrderId } = command;
+    if (clientOrderId === undefined || !this.accounts.has(accountId)) return;
+    let seen = this.clientOrders.get(accountId);
+    if (!seen) {
+      seen = new Map();
+      this.clientOrders.set(accountId, seen);
+    }
+    if (seen.has(clientOrderId)) return;
+    seen.set(clientOrderId, {
+      clientOrderId,
+      details: orderDetails(command),
+      orderId,
+      rejectReason: reason,
+    });
+    if (seen.size > CLIENT_ORDER_IDS_PER_ACCOUNT) {
+      const oldest = seen.keys().next();
+      if (!oldest.done) seen.delete(oldest.value);
+    }
+    this.clientOrderDigests.delete(accountId);
   }
 
   // Commands -------------------------------------------------------------
@@ -287,6 +383,7 @@ export class Exchange {
   private place(command: PlaceCommand): void {
     const checked = this.validate(command);
     if ("reason" in checked) {
+      this.remember(command, null, checked.reason);
       this.reject(command, checked.reason);
       return;
     }
@@ -295,6 +392,7 @@ export class Exchange {
 
     const seq = this.seq + 1; // the sequence number the accepted event receives
     const order = toOrder(command, `ord_${String(seq)}` as OrderId, seq);
+    this.remember(command, order.id, null);
     this.emit({ type: "order.accepted", order });
 
     if (side === "sell") this.accounts.reserveShares(accountId, symbol, qty);

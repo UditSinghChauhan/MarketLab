@@ -1,15 +1,41 @@
 import type { EventView, OrderView } from "@marketlab/contracts";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ApiRequestError } from "./api";
 import {
   cancelMessage,
   confirmation,
   describeEvent,
+  newClientOrderId,
+  outcomeUnknown,
   rejectMessage,
   sideLabel,
   statusLabel,
   typeLabel,
 } from "./orders";
+
+describe("client order ids", () => {
+  const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("are version 4 UUIDs, also where crypto.randomUUID is missing (an insecure context)", () => {
+    expect(newClientOrderId()).toMatch(UUID_V4);
+    vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) });
+    const ids = Array.from({ length: 50 }, () => newClientOrderId());
+    for (const id of ids) expect(id).toMatch(UUID_V4);
+    expect(new Set(ids).size).toBe(50);
+  });
+
+  it("count an order's outcome as unknown with no response or a 5xx, and known on a 4xx", () => {
+    const status = (s: number) => new ApiRequestError(s, "x", "x", null);
+    expect(outcomeUnknown(new TypeError("Failed to fetch"))).toBe(true);
+    expect(outcomeUnknown(status(503))).toBe(true);
+    expect(outcomeUnknown(status(500))).toBe(true);
+    for (const s of [400, 401, 409, 429]) expect(outcomeUnknown(status(s))).toBe(false);
+  });
+});
 
 const at = { seq: 1, at: 0 };
 const accepted = (

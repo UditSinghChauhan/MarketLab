@@ -11,6 +11,8 @@
  * Needs TEST_DATABASE_URL (a role that may create databases); skipped without it.
  */
 
+import { randomUUID } from "node:crypto";
+
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -175,11 +177,12 @@ describe.skipIf(!testDatabaseUrl)("persistence failures on PostgreSQL", () => {
     await stopCleanly(next);
   }, 60_000);
 
-  it("unknown outcome: a committed order whose reply is lost answers 503, yet exists after a restart; a retry duplicates it", async () => {
+  it("unknown outcome: a committed order whose reply is lost answers 503, yet exists after a restart; a retry with its clientOrderId is answered with it, one without duplicates it", async () => {
     db = await createDatabase(admin);
     proxy = await startPgProxy(db.url);
     const server = await start({}, proxy.url);
     const token = await openGuest(server.base);
+    const clientOrderId = randomUUID();
 
     // The INSERT of this order's log entry commits; its reply never arrives.
     // The proxy withholds the whole reply and resolves only once that reply
@@ -188,7 +191,7 @@ describe.skipIf(!testDatabaseUrl)("persistence failures on PostgreSQL", () => {
       (result) => ({ result }),
       (error: unknown) => ({ error }),
     );
-    const status = await placeOrder(server.base, token, 77);
+    const status = await placeOrder(server.base, token, 77, clientOrderId);
     expect(await lost).toEqual({ result: { commandTag: "INSERT 0 1" } });
     console.info(`order whose reply was lost: ${String(status)}`);
     expect(status).toBe(503);
@@ -202,8 +205,14 @@ describe.skipIf(!testDatabaseUrl)("persistence failures on PostgreSQL", () => {
     expect(verified.seq).toBe((await logState(db.url)).head);
     expect((await ordersOf(next.base, token)).map((o) => o.qty)).toEqual([77]);
 
-    // Known limitation: nothing identifies the retry as the same order, so it
-    // is placed again. The fix is a client order id (idempotency key).
+    // The retry with the same clientOrderId is recognised: the replay rebuilt
+    // the remembered ids from the log. Nothing new is placed or logged.
+    expect(await placeOrder(next.base, token, 77, clientOrderId)).toBe(200);
+    expect((await ordersOf(next.base, token)).map((o) => o.qty)).toEqual([77]);
+    expect((await loggedCommands(db.url)).map((c) => c.qty)).toEqual([77]);
+
+    // Without one, nothing identifies the retry as the same order, so it is
+    // placed again: the limitation remains for clients that send no id.
     expect(await placeOrder(next.base, token, 77)).toBe(201);
     expect((await ordersOf(next.base, token)).map((o) => o.qty)).toEqual([77, 77]);
     expect((await loggedCommands(db.url)).map((c) => c.qty)).toEqual([77, 77]);
