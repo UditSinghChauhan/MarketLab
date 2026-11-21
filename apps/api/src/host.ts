@@ -23,6 +23,10 @@
  *   made while idle are logged when activity returns or on shutdown, and lost
  *   in a crash before then, which costs no user any order or balance. See
  *   docs/adr/0007-idle-aware-persistence.md.
+ * - Sessions. Once the session is `sessionMaxAgeMs` old and the host is idle,
+ *   the next beat of the clock ends it and starts a fresh one in place, so an
+ *   always-on server does not replay an ever-longer session. A restart does
+ *   the same for a session that aged while the process was down.
  */
 
 import { randomInt, randomUUID } from "node:crypto";
@@ -136,6 +140,11 @@ export class HostUnavailableError extends Error {
   override name = "HostUnavailableError";
 }
 
+/** A command for an account that is not in the current session (it has rolled over). */
+export class SessionEndedError extends Error {
+  override name = "SessionEndedError";
+}
+
 /** The session already has `maxGuests` guest accounts. */
 export class GuestLimitError extends Error {
   override name = "GuestLimitError";
@@ -190,17 +199,41 @@ class InstrumentedExchange extends CountingExchange {
   }
 }
 
-export class EngineHost {
-  readonly exchange: InstrumentedExchange;
-  readonly data: MarketData;
+/**
+ * Everything that belongs to one market session: replaced whole when the
+ * session rolls over, so no account, order or statistic outlives it.
+ */
+interface SessionParts {
   readonly session: Session;
+  readonly config: SessionConfig;
+  readonly engine: SessionEngine<InstrumentedExchange>;
+  readonly data: MarketData;
+}
+
+function sessionParts(options: HostOptions, session: Session, restored?: HostState): SessionParts {
+  const config: SessionConfig = {
+    seed: session.seed,
+    instruments: options.instruments,
+    guestCash: GUEST_CASH,
+  };
+  const engine = new SessionEngine(config, {
+    createExchange: (markets) => new InstrumentedExchange(markets),
+    ...(restored ? { state: restored.session } : {}),
+  });
+  const data = new MarketData(options.instruments);
+  if (restored) {
+    engine.exchange.commands = restored.commands;
+    data.load(restored.data);
+  }
+  return { session, config, engine, data };
+}
+
+export class EngineHost {
   readonly startedAt: number;
   /** How the last start rebuilt state: entries replayed, time taken, and the snapshot it began from (0: none). */
   replay = { entries: 0, ms: 0, snapshotSeq: 0 };
 
-  /** The seed and rules of this session: with the log, everything needed to rebuild it anywhere. */
-  readonly sessionConfig: SessionConfig;
-  private readonly engine: SessionEngine<InstrumentedExchange>;
+  private parts: SessionParts;
   private readonly now: () => number;
   private seq = 0;
   private pendingTicks = 0;
@@ -231,6 +264,7 @@ export class EngineHost {
   /** True from the host suspending the log until a write has resumed it. */
   private logSuspended = false;
   private readonly listeners = new Set<(update: HostUpdate) => void>();
+  private readonly sessionListeners = new Set<(sessionId: number) => void>();
 
   private constructor(
     private readonly options: HostOptions,
@@ -238,27 +272,33 @@ export class EngineHost {
     restored?: HostState,
   ) {
     this.now = options.now ?? Date.now;
-    this.session = session;
     this.startedAt = this.now();
     this.lastFlushAt = this.startedAt;
     this.lastSnapshotAt = this.startedAt;
     this.lastActivityAt = this.startedAt;
+    this.parts = sessionParts(options, session, restored);
+  }
 
-    this.sessionConfig = {
-      seed: session.seed,
-      instruments: options.instruments,
-      guestCash: GUEST_CASH,
-    };
-    this.engine = new SessionEngine(this.sessionConfig, {
-      createExchange: (markets) => new InstrumentedExchange(markets),
-      ...(restored ? { state: restored.session } : {}),
-    });
-    this.exchange = this.engine.exchange;
-    this.data = new MarketData(options.instruments);
-    if (restored) {
-      this.exchange.commands = restored.commands;
-      this.data.load(restored.data);
-    }
+  /** The market session being played. */
+  get session(): Session {
+    return this.parts.session;
+  }
+
+  /** The seed and rules of this session: with the log, everything needed to rebuild it anywhere. */
+  get sessionConfig(): SessionConfig {
+    return this.parts.config;
+  }
+
+  get exchange(): InstrumentedExchange {
+    return this.parts.engine.exchange;
+  }
+
+  get data(): MarketData {
+    return this.parts.data;
+  }
+
+  private get engine(): SessionEngine<InstrumentedExchange> {
+    return this.parts.engine;
   }
 
   /**
@@ -332,13 +372,20 @@ export class EngineHost {
       });
     }
 
-    const warmup = options.warmupTicks ?? 0;
-    if (session.entries.length === 0 && warmup > 0) {
-      const end = now();
-      for (let i = 0; i < warmup; i++) host.tick(end - (warmup - 1 - i) * options.tickMs);
-      await host.serial(() => host.maybeFlushTicks(true));
-    }
+    if (session.entries.length === 0) await host.serial(() => host.warmUp());
     return host;
+  }
+
+  /**
+   * Simulates `warmupTicks` of history for a new session, backdated so they
+   * end now, and logs them as one entry. Must run inside `serial`.
+   */
+  private async warmUp(): Promise<void> {
+    const warmup = this.options.warmupTicks ?? 0;
+    if (warmup === 0) return;
+    const end = this.now();
+    for (let i = 0; i < warmup; i++) this.tick(end - (warmup - 1 - i) * this.options.tickMs);
+    await this.maybeFlushTicks(true);
   }
 
   // Lifecycle --------------------------------------------------------------
@@ -371,11 +418,17 @@ export class EngineHost {
    * snapshot and suspends the log, so the database can scale to zero; it then
    * writes nothing until activity returns. Waking, it flushes the idle ticks
    * as one entry and stores a snapshot at once, so a restart soon after does
-   * not replay them. Never rejects: a failure stops the host (`onFatal`).
+   * not replay them. An idle session that has reached `sessionMaxAgeMs` is
+   * replaced by a new one (`rollover`). Never rejects: a failure stops the
+   * host (`onFatal`).
    */
   clockTick(): Promise<void> {
     return this.serial(async () => {
       if (this.failure !== undefined || this.superseded) return;
+      if (!this.active && this.now() - this.session.startedAt >= this.options.sessionMaxAgeMs) {
+        await this.rollover();
+        return;
+      }
       this.tick();
       const { log } = this.options;
       if (this.active) {
@@ -395,6 +448,73 @@ export class EngineHost {
     }).catch((error: unknown) => {
       if (!this.superseded) this.fail(error);
     });
+  }
+
+  /**
+   * Ends the current session and starts the next, in the write queue, so
+   * every command waits for it and none straddles the two. Only called while
+   * idle: nobody is watching and nobody has acted for `idleAfterMs`.
+   *
+   * 1. Takes the log back if it was suspended, logs the pending ticks and
+   *    stores a final snapshot of the old session, which stays in the log
+   *    unchanged.
+   * 2. Opens a new session with a new seed, and replaces the engine, the read
+   *    models and the latency windows: no account, balance or open order
+   *    carries over (play money). Tokens for the old session stop verifying.
+   * 3. Tells `onSessionStart` listeners (the stream hub ends its streams),
+   *    runs the warm-up, logs it and stores a snapshot at once.
+   * 4. Deletes sessions older than the retention period.
+   */
+  private async rollover(): Promise<void> {
+    const started = performance.now();
+    await this.claimLog();
+    await this.maybeFlushTicks(true);
+    await this.maybeSnapshot(true);
+    const ended = { session: this.session.id, seq: this.seq }; // the old session's last entry
+
+    const session = await this.options.log.openSession(
+      this.now(),
+      this.options.sessionMaxAgeMs,
+      this.options.seed ?? randomInt(1, 2 ** 31 - 1),
+    );
+    if (session.id === ended.session || session.entries.length > 0) {
+      throw new Error(`Rollover found session ${String(session.id)} already in use`);
+    }
+    this.parts = sessionParts(this.options, session);
+    this.seq = 0;
+    this.pendingTicks = 0;
+    this.pendingTicksHash = "";
+    this.hashMismatchReported = false;
+    this.lastSnapshotSeq = 0;
+    this.lastFlushAt = this.now();
+    this.lastSnapshotAt = this.now();
+    this.idleStretch = false;
+    for (const listener of this.sessionListeners) listener(session.id);
+
+    const warming = performance.now();
+    await this.warmUp();
+    const warmupMs = Math.round(performance.now() - warming);
+    await this.maybeSnapshot(true);
+    try {
+      await this.options.log.pruneSessions(this.now());
+    } catch (error) {
+      this.options.onWarning?.("Could not delete old sessions; the new one is unaffected", error);
+    }
+    this.options.onEvent?.("session_rolled_over", {
+      from: ended.session,
+      fromSeq: ended.seq,
+      session: session.id,
+      seq: this.seq,
+      warmupTicks: this.options.warmupTicks ?? 0,
+      warmupMs,
+      ms: Math.round(performance.now() - started),
+    });
+  }
+
+  /** Calls `listener` with the new session's id each time a session rolls over. */
+  onSessionStart(listener: (sessionId: number) => void): () => void {
+    this.sessionListeners.add(listener);
+    return () => this.sessionListeners.delete(listener);
   }
 
   /** True once another process has taken over the log: all work is refused, without a failure. */
@@ -520,6 +640,11 @@ export class EngineHost {
     this.lastActivityAt = receivedAt;
     const enqueued = performance.now();
     return this.serial(async () => {
+      // The session may have rolled over while this command waited in the
+      // queue: its account belongs to the old one. Refuse it before logging.
+      if (!this.exchange.accounts.has(command.accountId)) {
+        throw new SessionEndedError("That account belongs to a session that has ended");
+      }
       const queueMs = Math.round((performance.now() - enqueued) * 1000) / 1000;
       const at = this.now();
       const persistStart = performance.now();
@@ -670,17 +795,31 @@ export class EngineHost {
       await this.options.log.append(this.session.id, this.seq + 1, entry);
       this.seq += 1;
     } catch (error) {
-      if (error instanceof LockHeldError || error instanceof LogHeadMovedError) {
-        // Another process owns the log now (a deploy took it over while this
-        // one was idle): this one must never write again, but it has not failed.
-        this.supersede(error);
-        throw new HostUnavailableError("Another instance owns the command log");
-      }
-      // The engine may now hold ticks the log does not: stop accepting work and
-      // let the process restart, which replays the log into a consistent state.
-      this.fail(error);
-      throw new HostUnavailableError("The command log is unavailable");
+      this.lostLog(error);
     }
+  }
+
+  /** Takes the log back if it was suspended, with the same failure handling as a write. */
+  private async claimLog(): Promise<void> {
+    try {
+      await this.resumeLog();
+    } catch (error) {
+      this.lostLog(error);
+    }
+  }
+
+  /** A write or resume failed: stand down or stop, and tell the caller. */
+  private lostLog(error: unknown): never {
+    if (error instanceof LockHeldError || error instanceof LogHeadMovedError) {
+      // Another process owns the log now (a deploy took it over while this
+      // one was idle): this one must never write again, but it has not failed.
+      this.supersede(error);
+      throw new HostUnavailableError("Another instance owns the command log");
+    }
+    // The engine may now hold ticks the log does not: stop accepting work and
+    // let the process restart, which replays the log into a consistent state.
+    this.fail(error);
+    throw new HostUnavailableError("The command log is unavailable");
   }
 
   /** Refuses all further work and stops the clock; reports it once. */

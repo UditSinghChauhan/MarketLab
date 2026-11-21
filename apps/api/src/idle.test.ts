@@ -8,7 +8,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { buildApp } from "./app.js";
-import { EngineHost, HostUnavailableError, IDLE_AFTER_MS, type HostOptions } from "./host.js";
+import {
+  EngineHost,
+  HostUnavailableError,
+  IDLE_AFTER_MS,
+  SessionEndedError,
+  type HostOptions,
+} from "./host.js";
 import { INSTRUMENTS } from "./instruments.js";
 import { LogHeadMovedError, type CommandLog } from "./log/types.js";
 import { StreamHub } from "./stream.js";
@@ -187,28 +193,212 @@ describe("idle-aware persistence", () => {
     await beat(3 * TICK_MS);
     expect(log.connected).toBe(false);
   });
+});
 
-  it("keeps an idle session past its age until restart, then starts a fresh one", async () => {
-    const maxAge = 20 * MINUTE;
-    const log = new CountingLog();
-    const { host, beat, options } = await setup(log, { sessionMaxAgeMs: maxAge });
-    const guest = await host.openGuest();
-    await host.submit(buy(guest, "QNTA", 2));
-    await goIdle(host, beat, log);
-    await beat(maxAge); // idle past the session's age
+/** A log that can hold its next `openSession` until released: a known point inside a rollover. */
+class GatedLog extends CountingLog {
+  private next: { reached: () => void; gate: Promise<void> } | undefined;
 
-    // Sessions roll over only when a process starts; this one keeps going.
+  holdNextSession(): { reached: Promise<void>; release: () => void } {
+    let reached = (): void => undefined;
+    let release = (): void => undefined;
+    const reachedPromise = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.next = { reached, gate };
+    return { reached: reachedPromise, release };
+  }
+
+  override async openSession(...args: Parameters<CountingLog["openSession"]>) {
+    const next = this.next;
+    this.next = undefined;
+    if (next) {
+      next.reached();
+      await next.gate;
+    }
+    return super.openSession(...args);
+  }
+}
+
+describe("session rollover", () => {
+  const MAX_AGE = 20 * MINUTE;
+  const DAY = 24 * 60 * MINUTE;
+
+  /** A host whose sessions last MAX_AGE, recording its lifecycle events. */
+  async function aging(log: CountingLog = new CountingLog(), extra: Partial<HostOptions> = {}) {
+    const events: { event: string; fields: Record<string, unknown> }[] = [];
+    const context = await setup(log, {
+      sessionMaxAgeMs: MAX_AGE,
+      warmupTicks: 50,
+      onEvent: (event, fields) => events.push({ event, fields: { ...fields } }),
+      ...extra,
+    });
+    return { ...context, events };
+  }
+
+  it("waits while anyone watches or has just acted, then rolls over once idle", async () => {
+    const { host, time, beat } = await aging();
+    let watchers = 1;
+    host.watch(() => watchers);
+    time.advance(MAX_AGE);
+    await beat(TICK_MS);
+    expect(host.session.id).toBe(1); // watched: never
+
+    watchers = 0;
+    await host.openGuest(); // someone acted just now
+    await beat(IDLE_AFTER_MS - 2 * TICK_MS);
     expect(host.session.id).toBe(1);
-    await host.stop(); // SIGTERM: the idle ticks are flushed to the old session
-    const stoppedHash = host.exchange.stateHash();
+    await beat(3 * TICK_MS); // idle from here
+    expect(host.session.id).toBe(2);
+  });
 
-    const old = await EngineHost.start({ ...options, sessionMaxAgeMs: Infinity, snapshotMs: 0 });
-    expect(old.session.id).toBe(1);
-    expect(old.exchange.stateHash()).toBe(stoppedHash);
+  it("ends an idle session in place: the old log is kept as it was, the new session replays exactly", async () => {
+    const log = new CountingLog();
+    const { host, time, beat, options, events } = await aging(log);
+    const guest = await host.openGuest();
+    await host.submit(buy(guest, "ORBT", 5));
+    await goIdle(host, beat, log);
+    time.advance(MAX_AGE);
+    await beat(TICK_MS); // this beat rolls the session over
 
-    const fresh = await EngineHost.start(options);
-    expect(fresh.session.id).not.toBe(1);
-    expect(fresh.sequence).toBe(0);
+    const rolled = events.find((e) => e.event === "session_rolled_over")?.fields;
+    expect(rolled).toMatchObject({ from: 1, session: 2, seq: 1, warmupTicks: 50 });
+    // The old session ends with its idle ticks, and a snapshot at its last entry.
+    const oldEntries = await log.readEntries(1, 0, 100_000);
+    expect(oldEntries.length).toBe(rolled?.fromSeq);
+    expect(oldEntries.at(-1)).toMatchObject({ kind: "ticks" });
+    expect((await log.loadSnapshot(1))?.seq).toBe(oldEntries.length);
+
+    // Nothing carries over: accounts, orders, read models, latency windows.
+    expect(host.session.id).toBe(2);
+    expect(host.exchange.accounts.has(guest)).toBe(false);
+    expect(host.data.humanCount).toBe(0);
+    expect(host.data.ordersOf(guest)).toEqual([]);
+    expect(host.exchange.visitors.summary().samples).toBe(0);
+    expect(host.exchange.audit()).toEqual([]);
+    // The warm-up is logged as one entry, with a snapshot after it at once.
+    expect((await log.readEntries(2, 0, 10)).map((e) => e.kind)).toEqual(["ticks"]);
+    expect((await log.loadSnapshot(2))?.seq).toBe(1);
+
+    // The new session is played, then the process restarts: it resumes the
+    // new session and reaches the same state, from the whole log or a snapshot.
+    const fresh = await host.openGuest();
+    await host.submit(buy(fresh, "SOLR", 2));
+    await host.stop();
+    for (const snapshotMs of [0, SNAPSHOT_MS]) {
+      const restarted = await EngineHost.start({ ...options, snapshotMs });
+      expect(restarted.session.id).toBe(2);
+      expect(restarted.exchange.stateHash()).toBe(host.exchange.stateHash());
+    }
+    expect(await log.readEntries(1, 0, 100_000)).toEqual(oldEntries); // untouched
+  });
+
+  it("refuses, unlogged, a command that waited behind the rollover", async () => {
+    const log = new GatedLog();
+    const { host, time, beat } = await aging(log);
+    const guest = await host.openGuest();
+    await goIdle(host, beat, log);
+    time.advance(MAX_AGE);
+
+    const held = log.holdNextSession();
+    const rolling = host.clockTick();
+    await held.reached; // inside the rollover: the old session is closed, the new one not open
+    const queued = host.submit(buy(guest, "ORBT", 1)); // its token checked out a moment ago
+    held.release();
+    await rolling;
+
+    await expect(queued).rejects.toBeInstanceOf(SessionEndedError);
+    expect(host.session.id).toBe(2);
+    expect((await log.readEntries(2, 0, 10)).map((e) => e.kind)).toEqual(["ticks"]);
+  });
+
+  it("answers such a command with 401 session_expired", async () => {
+    const { host } = await aging();
+    const app = await buildApp({
+      config: testConfig(),
+      host,
+      hub: new StreamHub(host, INSTRUMENTS),
+      instruments: INSTRUMENTS,
+      persistence: "memory",
+    });
+    const { token } = (await app.inject({ method: "POST", url: "/api/session" })).json<{
+      token: string;
+    }>();
+    vi.spyOn(host, "submit").mockRejectedValue(new SessionEndedError("ended"));
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/orders",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { symbol: "ORBT", side: "buy", type: "market", qty: 1 },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toMatchObject({ error: { code: "session_expired" } });
+    await app.close();
+  });
+
+  it("ends a stream that connected during the rollover, before its account is gone", async () => {
+    const log = new GatedLog();
+    const { host, time, beat } = await aging(log);
+    const hub = new StreamHub(host, INSTRUMENTS, { marketsIntervalMs: 20 });
+    host.watch(() => hub.size);
+    hub.start();
+    const app = await buildApp({
+      config: testConfig(),
+      host,
+      hub,
+      instruments: INSTRUMENTS,
+      persistence: "memory",
+    });
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const address = app.server.address();
+    const base = `http://127.0.0.1:${String(typeof address === "object" && address ? address.port : 0)}`;
+    try {
+      const { token } = (await app.inject({ method: "POST", url: "/api/session" })).json<{
+        token: string;
+      }>();
+      await goIdle(host, beat, log);
+      time.advance(MAX_AGE);
+
+      const held = log.holdNextSession();
+      const rolling = host.clockTick();
+      await held.reached;
+      // A returning visitor opens the terminal right now: the old session still holds.
+      const stream = await fetch(`${base}/api/stream?symbol=ORBT&token=${token}`);
+      expect(stream.status).toBe(200);
+      expect(hub.size).toBe(1);
+      held.release();
+      await rolling;
+
+      // The server ended it (the browser reconnects and is told its session ended).
+      expect(hub.size).toBe(0);
+      const reader = (stream.body as ReadableStream<Uint8Array>).getReader();
+      const ended = async () => {
+        for (;;) if ((await reader.read()).done) return true;
+      };
+      await expect(ended()).resolves.toBe(true);
+      // Market pushes keep running (every 20 ms) without touching the old account.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(host.healthy).toBe(true);
+    } finally {
+      hub.stop();
+      await app.close();
+    }
+  });
+
+  it("deletes sessions that started more than seven days before", async () => {
+    const log = new CountingLog();
+    const { host, time, beat } = await aging(log, { sessionMaxAgeMs: 3 * DAY });
+    for (let i = 0; i < 3; i++) {
+      time.advance(3 * DAY);
+      await beat(TICK_MS);
+    }
+    expect(host.session.id).toBe(4); // sessions began at days 0, 3, 6 and 9
+    expect(await log.readEntries(1, 0, 10)).toEqual([]);
+    expect(await log.loadSnapshot(1)).toBeNull();
+    expect((await log.readEntries(2, 0, 10)).length).toBeGreaterThan(0); // six days old
   });
 });
 

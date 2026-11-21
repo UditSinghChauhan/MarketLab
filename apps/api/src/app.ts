@@ -31,7 +31,12 @@ import { ZodError } from "zod";
 
 import { issueToken, verifyToken } from "./auth.js";
 import type { Config } from "./config.js";
-import { GuestLimitError, HostUnavailableError, type EngineHost } from "./host.js";
+import {
+  GuestLimitError,
+  HostUnavailableError,
+  SessionEndedError,
+  type EngineHost,
+} from "./host.js";
 import type { InstrumentConfig } from "./instruments.js";
 import type { StreamHub } from "./stream.js";
 import { accountView, marketSummary, orderBook } from "./views.js";
@@ -288,6 +293,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     }
     if (error instanceof HostUnavailableError) {
       return reply.status(503).send(errorBody("unavailable", "The exchange is restarting"));
+    }
+    if (error instanceof SessionEndedError) {
+      return reply
+        .status(401)
+        .send(errorBody("session_expired", "Your session has ended; start a new one"));
     }
     if (error instanceof GuestLimitError) {
       return reply
