@@ -45,8 +45,9 @@ const Env = z.object({
     })
     .optional(),
   /**
-   * Guest accounts one market session accepts. Each costs little by itself;
-   * its orders cost about 0.7 KB of snapshot each (`npm run bench:guests`).
+   * Guest accounts one market session accepts. This bounds accounts only:
+   * the snapshot and command log grow with orders (about 0.7 KB of snapshot
+   * each, `npm run bench:guests`), which only the rate limit restrains.
    */
   MAX_GUESTS_PER_SESSION: z.coerce.number().int().min(1).default(500),
   /**

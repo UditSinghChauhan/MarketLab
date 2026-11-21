@@ -115,7 +115,7 @@ returns the addresses involved.
 | `LOG_LEVEL`              | `info`   | Fastify/pino log level.                                                                                                                                                                        |
 | `PUBLIC_URL`             | none     | The site's address, used for absolute URLs in link previews. On Render it defaults to the service's `onrender.com` address; set it when you add a custom domain.                               |
 | `CLIENT_IP_HEADER`       | none     | The header the proxy sets to the visitor's address, used to key rate limits. Set it only after [checking it](#check-the-client-address-header). `X-Forwarded-For` and `Forwarded` are refused. |
-| `MAX_GUESTS_PER_SESSION` | `500`    | Guest accounts one market session accepts; past it, new visitors get `503` "The demo is full until the market resets".                                                                         |
+| `MAX_GUESTS_PER_SESSION` | `500`    | Guest accounts one market session accepts; past it, new visitors get `503` "The demo is full until the market resets". Limits accounts only, not orders, snapshot size or command-log size.    |
 | `LOCK_WAIT_MS`           | `840000` | How long a starting instance waits for the previous one to release the command log before exiting with code 1. At most 900000: Render's 15-minute limit, assumed, not verified live.           |
 | `SHUTDOWN_DEADLINE_MS`   | `20000`  | Longest a graceful shutdown may take before the process exits with code 1. At most 29000, below Render's 30-second kill.                                                                       |
 | `IDLE_AFTER_MS`          | `300000` | Milliseconds without stream clients or activity before the engine suspends its log. Only the test suite lowers it.                                                                             |
@@ -156,9 +156,15 @@ previous instance"}` until the old one has gone idle (five minutes after the
 - **When the demo is full.** A session that reaches
   `MAX_GUESTS_PER_SESSION` guests keeps serving everyone who already has an
   account; new visitors see "The demo is full until the market resets" until
-  the next session starts. Each guest's orders cost about 0.7 KB of snapshot,
-  so 500 guests averaging 30 orders keep it near 10 MB
-  (`npm run bench:guests -w @marketlab/api`).
+  the next session starts.
+- **What the guest cap does not bound.** It limits accounts, not activity.
+  The snapshot and the command log grow with orders, and orders are limited
+  only by the per-address rate limit (30 every 10 seconds), so one scripted
+  guest can keep both growing for the whole session. Measured
+  (`npm run bench:guests -w @marketlab/api`): a guest without orders adds
+  85 B to the snapshot, each order about 0.7 KB. 500 guests averaging 10
+  orders came to 3.5 MB, and averaging 60 orders to 19 MB. Nothing caps the
+  log's size; sessions older than seven days are deleted at startup.
 - **Free-plan sleep.** Render's free plan stops the service after about 15
   minutes without traffic. The next visit wakes it (expect a cold start of
   roughly a minute), and startup replays the session's log, so no order or

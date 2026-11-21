@@ -146,10 +146,11 @@ it protects is the shared market, from abuse and from forged requests.
   ([DEPLOYMENT.md](DEPLOYMENT.md#check-the-client-address-header)). Limits are
   kept in memory, per process.
 - **Each market session accepts at most `MAX_GUESTS_PER_SESSION` guests**
-  (500), so memory and snapshot size stay bounded in guests. Past it, a new
-  visitor is told "The demo is full until the market resets". Orders are not
-  capped beyond the rate limit, and they are what a snapshot mostly holds
-  (about 0.7 KB each; `npm run bench:guests -w @marketlab/api`).
+  (500). Past it, a new visitor is told "The demo is full until the market
+  resets". This limits the number of accounts only. It does **not** bound the
+  snapshot or the command log: those grow with orders, which nothing caps
+  except the per-address rate limit (about 0.7 KB of snapshot per order;
+  `npm run bench:guests -w @marketlab/api`).
 - **Logs** never contain tokens (the event stream's token is removed from
   logged URLs) or client addresses.
 - **Headers:** CSP, `X-Frame-Options: DENY`, `nosniff`, a strict referrer
