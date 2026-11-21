@@ -128,6 +128,39 @@ the engine; spinning instead of sleeping for those 5 ms still leaves it at
 about 13 µs. A visitor's order in the running system spends milliseconds in
 the Postgres write and microseconds in matching, and the inspector shows both.
 
+## Security
+
+MarketLab holds no personal data: no sign-up, no email, no real money. What
+it protects is the shared market, from abuse and from forged requests.
+
+- **Guest tokens** are HMAC-SHA256 signed, name one account in one market
+  session, and expire after 24 hours or when the session rolls over. The
+  browser keeps its token in `localStorage`; the Content Security Policy
+  allows scripts from the site itself only.
+- **Every request body is validated** (zod, 16 KB limit), and someone else's
+  order is reported as missing, so order ids cannot be probed.
+- **Rate limits** key on the visitor's address. No proxy header is trusted by
+  default: `X-Forwarded-For` and `X-Forwarded-Host` are ignored, so a client
+  cannot pose as many visitors. Behind a proxy, `CLIENT_IP_HEADER` names the
+  one header the proxy sets, once checked on the live service
+  ([DEPLOYMENT.md](DEPLOYMENT.md#check-the-client-address-header)). Limits are
+  kept in memory, per process.
+- **Each market session accepts at most `MAX_GUESTS_PER_SESSION` guests**
+  (500). Past it, a new visitor is told "The demo is full until the market
+  resets". This limits the number of accounts only. It does **not** bound the
+  snapshot or the command log: those grow with orders, which nothing caps
+  except the per-address rate limit (about 0.7 KB of snapshot per order;
+  `npm run bench:guests -w @marketlab/api`).
+- **Logs** never contain tokens (the event stream's token is removed from
+  logged URLs) or client addresses.
+- **Headers:** CSP, `X-Frame-Options: DENY`, `nosniff`, a strict referrer
+  policy, and HSTS in production. Link previews take the site's address from
+  configuration, never from request headers.
+- **The database connection** verifies Neon's TLS certificate and host name
+  and uses SCRAM channel binding.
+- **Public by design:** the command log is readable by anyone, for verified
+  replay. It identifies visitors only by opaque guest ids.
+
 ## Run it locally
 
 Requires Node 22+ (`nvm use` reads [`.nvmrc`](.nvmrc)).

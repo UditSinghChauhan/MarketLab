@@ -9,6 +9,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { buildApp } from "./app.js";
+import { loadConfig } from "./config.js";
 import type { EngineHost } from "./host.js";
 import { INSTRUMENTS } from "./instruments.js";
 import { MemoryLog } from "./log/memory.js";
@@ -140,5 +141,65 @@ describe("production shape: the API serving the built web app", () => {
     const after = await served.inject({ url: "/api/health" });
     expect(after.statusCode).toBe(503);
     expect(after.json<HealthResponse>().status).toBe("degraded");
+  });
+});
+
+describe("link previews: the origin comes from configuration, never from request headers", () => {
+  const forged = {
+    host: "evil.example",
+    "x-forwarded-host": "evil.example",
+    "x-forwarded-proto": "https",
+  };
+
+  async function page(env: Record<string, string>) {
+    const dist = mkdtempSync(path.join(tmpdir(), "marketlab-web-"));
+    writeFileSync(
+      path.join(dist, "index.html"),
+      [
+        "<!doctype html><html><head>",
+        '<link rel="canonical" href="/" vite-ignore />',
+        '<meta property="og:url" content="/" vite-ignore />',
+        '<meta property="og:image" content="/og.png" />',
+        "</head><body></body></html>",
+      ].join(""),
+    );
+    const own = await startHost(new MemoryLog(), clock().now);
+    const app = await buildApp({
+      config: {
+        ...loadConfig({ NODE_ENV: "test", TOKEN_SECRET: "x".repeat(40), ...env }),
+        WEB_DIST: dist,
+      },
+      host: own,
+      hub: new StreamHub(own, INSTRUMENTS),
+      instruments: INSTRUMENTS,
+      persistence: "memory",
+    });
+    try {
+      return (await app.inject({ url: "/terminal/ORBT", headers: forged })).body;
+    } finally {
+      await app.close();
+    }
+  }
+
+  it("uses PUBLIC_URL, or Render's address, when set", async () => {
+    for (const env of [
+      { PUBLIC_URL: "https://marketlab.example/" },
+      { RENDER_EXTERNAL_URL: "https://marketlab.example" },
+    ]) {
+      const html = await page(env);
+      expect(html).toContain(
+        '<link rel="canonical" href="https://marketlab.example/terminal/ORBT"',
+      );
+      expect(html).toContain(
+        '<meta property="og:image" content="https://marketlab.example/og.png"',
+      );
+      expect(html).not.toContain("evil.example");
+    }
+  });
+
+  it("falls back to this server's own local address, not the request's Host", async () => {
+    const html = await page({ PORT: "8123" });
+    expect(html).toContain('<meta property="og:url" content="http://localhost:8123/terminal/ORBT"');
+    expect(html).not.toContain("evil.example");
   });
 });

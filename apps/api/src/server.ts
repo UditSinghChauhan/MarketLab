@@ -136,6 +136,7 @@ async function main(): Promise<void> {
     warmupTicks: Math.round((config.WARMUP_MINUTES * 60_000) / config.TICK_MS),
     snapshotMs: config.SNAPSHOT_MINUTES * 60_000,
     idleAfterMs: config.IDLE_AFTER_MS,
+    maxGuests: config.MAX_GUESTS_PER_SESSION,
     onFatal: fatal,
     onWarning: (message, error) => {
       console.warn(`${message}:`, error instanceof Error ? error.message : error);

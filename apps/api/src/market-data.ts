@@ -129,6 +129,11 @@ export class MarketData {
     this.humans.add(accountId);
   }
 
+  /** Guest accounts opened in this session. */
+  get humanCount(): number {
+    return this.humans.size;
+  }
+
   isHuman(accountId: string): boolean {
     return this.humans.has(accountId);
   }
