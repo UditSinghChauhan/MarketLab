@@ -144,6 +144,19 @@ export async function holdLogTable(url: string, name: string) {
   };
 }
 
+/** Sessions holding the command log's writer lock (an advisory lock) on that database. */
+export async function writerLockHolders(url: string): Promise<number> {
+  return withClient(url, async (db) => {
+    const { rows } = await db.query<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM pg_locks
+        WHERE locktype = 'advisory' AND granted AND objid = $1
+          AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`,
+      [WRITER_LOCK],
+    );
+    return rows[0]?.n ?? 0;
+  });
+}
+
 /** Logged user commands of the latest session, as `{ kind, qty }`. */
 export async function loggedCommands(url: string) {
   return withClient(url, async (db) => {
