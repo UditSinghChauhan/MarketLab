@@ -1,6 +1,14 @@
+import { randomUUID } from "node:crypto";
+
+import type { Command } from "@marketlab/engine";
 import { describe, expect, it, vi } from "vitest";
 
-import { EngineHost, GuestLimitError, HostUnavailableError } from "./host.js";
+import {
+  ClientOrderIdReusedError,
+  EngineHost,
+  GuestLimitError,
+  HostUnavailableError,
+} from "./host.js";
 import { INSTRUMENTS } from "./instruments.js";
 import { MemoryLog } from "./log/memory.js";
 import type { CommandLog } from "./log/types.js";
@@ -75,6 +83,111 @@ describe.each(logs)("engine host replay (%s log)", (_name, makeLog) => {
 
     // Both copies now advance the same way: determinism survives the restart.
     for (let i = 0; i < 20; i++) expect(b.tick(time.now())).toEqual(a.tick(time.now()));
+  });
+});
+
+/** A command carrying a client order id. */
+function withId(command: Command, clientOrderId: string = randomUUID()): Command {
+  if (command.kind !== "place") throw new Error("only a place command takes a client order id");
+  return { ...command, clientOrderId };
+}
+
+describe.each(logs)("client order ids (%s log)", (_name, makeLog) => {
+  it("answers a retry with the first outcome, and logs nothing for it", async () => {
+    const time = clock();
+    const host = await startHost(await makeLog(), time.now);
+    host.tick();
+    const guest = await host.openGuest();
+
+    const order = withId(buy(guest, "ORBT", 3, "1200.00"));
+    const first = await host.submit(order);
+    expect(first).toMatchObject({ ok: true });
+    expect(first.replayed).toBeUndefined();
+    const logged = host.sequence;
+    const cash = host.exchange.accounts.snapshot(guest).cash;
+
+    const retry = await host.submit(order);
+    expect(retry).toMatchObject({
+      ok: true,
+      orderId: first.orderId,
+      rejectReason: null,
+      events: [],
+      replayed: true,
+      order: host.data.order(first.orderId ?? ""),
+    });
+    expect(retry.order).toMatchObject({ id: first.orderId, qty: 3, status: "resting" });
+    expect(host.sequence).toBe(logged);
+    expect(host.exchange.accounts.snapshot(guest).cash).toEqual(cash);
+    expect(host.data.ordersOf(guest)).toHaveLength(1);
+
+    // A refused order is remembered too: the retry is refused the same way.
+    const tooMany = withId(sell(guest, "ORBT", 50, "1300.00"));
+    expect(await host.submit(tooMany)).toMatchObject({ ok: false });
+    expect(await host.submit(tooMany)).toMatchObject({
+      ok: false,
+      orderId: null,
+      rejectReason: "insufficient_shares",
+      replayed: true,
+      order: null,
+    });
+    expect(host.sequence).toBe(logged + 1);
+  });
+
+  it("refuses an id reused for a different order, logging nothing", async () => {
+    const time = clock();
+    const host = await startHost(await makeLog(), time.now);
+    const guest = await host.openGuest();
+    const id = randomUUID();
+    await host.submit(withId(buy(guest, "ORBT", 3, "1200.00"), id));
+    const logged = host.sequence;
+    await expect(host.submit(withId(buy(guest, "ORBT", 4, "1200.00"), id))).rejects.toBeInstanceOf(
+      ClientOrderIdReusedError,
+    );
+    expect(host.sequence).toBe(logged);
+    // The same id from another account is a different order.
+    const other = await host.openGuest();
+    expect((await host.submit(withId(buy(other, "ORBT", 4, "1200.00"), id))).replayed).toBe(
+      undefined,
+    );
+  });
+
+  it("places once when the retry arrives while the first request is still queued", async () => {
+    const time = clock();
+    const host = await startHost(await makeLog(), time.now);
+    host.tick();
+    const guest = await host.openGuest();
+    const order = withId(buy(guest, "SOLR", 2, "300.00"));
+    const [first, second] = await Promise.all([host.submit(order), host.submit(order)]);
+    expect(first.replayed).toBeUndefined();
+    expect(second).toMatchObject({ replayed: true, orderId: first.orderId });
+    expect(host.data.ordersOf(guest)).toHaveLength(1);
+  });
+
+  it("still recognises an id after a restart, from the whole log and from a snapshot", async () => {
+    const log = await makeLog();
+    const time = clock();
+    const options = { ...hostOptions(log, time.now), snapshotMs: 10 * 60_000 };
+    const first = await EngineHost.start(options);
+    first.tick();
+    const guest = await first.openGuest();
+    const order = withId(buy(guest, "ORBT", 3, "1200.00"));
+    const placed = await first.submit(order);
+    await first.stop(); // stores a snapshot at the head
+    const head = first.sequence;
+
+    const fromSnapshot = await EngineHost.start(options);
+    expect(fromSnapshot.replay).toMatchObject({ snapshotSeq: head, entries: 0 });
+    const fullReplay = await EngineHost.start({ ...options, snapshotMs: 0 });
+    expect(fullReplay.replay).toMatchObject({ snapshotSeq: 0, entries: head });
+    expect(fromSnapshot.exchange.stateHash()).toBe(fullReplay.exchange.stateHash());
+
+    for (const restarted of [fromSnapshot, fullReplay]) {
+      expect(await restarted.submit(order)).toMatchObject({
+        replayed: true,
+        orderId: placed.orderId,
+      });
+      expect(restarted.sequence).toBe(head);
+    }
   });
 });
 

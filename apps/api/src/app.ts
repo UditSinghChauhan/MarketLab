@@ -32,6 +32,7 @@ import { ZodError } from "zod";
 import { issueToken, verifyToken } from "./auth.js";
 import type { Config } from "./config.js";
 import {
+  ClientOrderIdReusedError,
   GuestLimitError,
   HostUnavailableError,
   SessionEndedError,
@@ -299,6 +300,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         .status(401)
         .send(errorBody("session_expired", "Your session has ended; start a new one"));
     }
+    if (error instanceof ClientOrderIdReusedError) {
+      return reply.status(409).send(errorBody("client_order_id_reused", error.message));
+    }
     if (error instanceof GuestLimitError) {
       return reply
         .status(503)
@@ -405,6 +409,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       symbol: market.symbol,
       side: body.side,
       qty: quantity(body.qty),
+      ...(body.clientOrderId === undefined ? {} : { clientOrderId: body.clientOrderId }),
     } as const;
 
     let command: Command;
@@ -421,7 +426,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     }
 
     const result = await host.submit(command);
-    return reply.status(result.ok ? 201 : 422).send(result);
+    // A replayed request created nothing: 200, or 422 as the first one was.
+    return reply.status(result.ok ? (result.replayed ? 200 : 201) : 422).send(result);
   });
 
   app.delete<{ Params: { id: string } }>(

@@ -370,6 +370,12 @@ export class MarketData {
       .map((v) => ({ ...v }));
   }
 
+  /** One order as it stands now. */
+  order(orderId: string): OrderView | undefined {
+    const view = this.orders.get(orderId)?.view;
+    return view ? { ...view } : undefined;
+  }
+
   symbolOf(orderId: string): string | undefined {
     return this.orders.get(orderId)?.view.symbol;
   }

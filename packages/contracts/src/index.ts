@@ -31,10 +31,17 @@ const qty = z
   .min(1, "Quantity must be at least 1")
   .max(MAX_ORDER_QTY, `Quantity can be at most ${String(MAX_ORDER_QTY)}`);
 
+/**
+ * The client's own id for an order, a UUID. Sending the same request again
+ * with the same id (a retry after a network error or a 503) does not place a
+ * second order: the server answers with the first one, marked `replayed`.
+ */
+const clientOrderId = z.uuid("clientOrderId must be a UUID").optional();
+
 export const PlaceOrderRequest = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("market"), symbol, side, qty }),
-  z.object({ type: z.literal("limit"), symbol, side, qty, price: Rupees }),
-  z.object({ type: z.literal("stop"), symbol, side, qty, stopPrice: Rupees }),
+  z.object({ type: z.literal("market"), symbol, side, qty, clientOrderId }),
+  z.object({ type: z.literal("limit"), symbol, side, qty, price: Rupees, clientOrderId }),
+  z.object({ type: z.literal("stop"), symbol, side, qty, stopPrice: Rupees, clientOrderId }),
 ]);
 export type PlaceOrderRequest = z.infer<typeof PlaceOrderRequest>;
 
@@ -203,6 +210,14 @@ export interface CommandResult {
   readonly rejectReason: string | null;
   readonly events: readonly EventView[];
   readonly timing: CommandTiming;
+  /**
+   * Present (true) when this request repeated a `clientOrderId` the exchange
+   * remembers: nothing new was placed or logged, `events` is empty, and
+   * `ok`, `orderId` and `rejectReason` describe the first request's outcome.
+   */
+  readonly replayed?: true;
+  /** With `replayed`: the order the first request created, as it stands now (null if it was rejected). */
+  readonly order?: OrderView | null;
 }
 
 /** One order's journey through the engine, for the inspector. */

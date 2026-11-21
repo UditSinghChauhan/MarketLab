@@ -40,7 +40,10 @@ import type {
 import {
   CountingExchange,
   SessionEngine,
+  orderDetails,
+  type ClientOrder,
   type Command,
+  type PlaceCommand,
   type EngineEvent,
   type SessionConfig,
   type SessionState,
@@ -143,6 +146,11 @@ export class HostUnavailableError extends Error {
 /** A command for an account that is not in the current session (it has rolled over). */
 export class SessionEndedError extends Error {
   override name = "SessionEndedError";
+}
+
+/** A client order id the account already used for an order with different details. */
+export class ClientOrderIdReusedError extends Error {
+  override name = "ClientOrderIdReusedError";
 }
 
 /** The session already has `maxGuests` guest accounts. */
@@ -646,6 +654,16 @@ export class EngineHost {
         throw new SessionEndedError("That account belongs to a session that has ended");
       }
       const queueMs = Math.round((performance.now() - enqueued) * 1000) / 1000;
+      // A retry of an order the exchange already has: answer with the first
+      // outcome and log nothing. Checked in the queue, after every earlier
+      // command was applied, so a retry sent while the first request is still
+      // queued finds it too.
+      if (command.kind === "place" && command.clientOrderId !== undefined) {
+        const prior = this.exchange.clientOrder(command.accountId, command.clientOrderId);
+        if (prior) {
+          return this.replayed(command, prior, { receivedAt, queueMs, persistMs: 0, engineUs: 0 });
+        }
+      }
       const at = this.now();
       const persistStart = performance.now();
       await this.maybeFlushTicks(true);
@@ -681,6 +699,28 @@ export class EngineHost {
   }
 
   // Internals --------------------------------------------------------------
+
+  /** The answer to a repeated client order id: the first request's outcome, as it stands now. */
+  private replayed(
+    command: PlaceCommand,
+    prior: ClientOrder,
+    timing: CommandTiming,
+  ): CommandResult {
+    if (prior.details !== orderDetails(command)) {
+      throw new ClientOrderIdReusedError(
+        "That clientOrderId was already used for a different order",
+      );
+    }
+    return {
+      ok: prior.rejectReason === null,
+      orderId: prior.orderId,
+      rejectReason: prior.rejectReason,
+      events: [],
+      timing,
+      replayed: true,
+      order: prior.orderId === null ? null : (this.data.order(prior.orderId) ?? null),
+    };
+  }
 
   /**
    * Replays one logged entry through the session engine, the same code a
