@@ -13,7 +13,8 @@
  *   (docs/adr/0007-idle-aware-persistence.md).
  * - (session_id, seq) is the primary key: the engine assigns gap-free sequence
  *   numbers, so a duplicate or out-of-order write is rejected by the database.
- * - Sessions older than seven days are pruned at startup.
+ * - Sessions older than seven days are pruned at startup and when a session
+ *   rolls over.
  * - Each session keeps at most one engine snapshot, so startup replays only the
  *   entries written after it (docs/adr/0006-startup-budget-and-snapshots.md).
  */
@@ -25,6 +26,7 @@ import {
   LockWaitTimeoutError,
   LogHeadMovedError,
   parseEntry,
+  retentionCutoff,
   type CommandLog,
   type LogEntry,
   type Session,
@@ -63,7 +65,6 @@ async function select<T>(db: Queryable, schema: z.ZodType<T>, text: string, para
 }
 
 const WRITER_LOCK = 0x6d6c6162; // "mlab"
-const RETENTION_DAYS = 7;
 
 const MIGRATION = [
   `CREATE TABLE IF NOT EXISTS sessions (
@@ -87,6 +88,19 @@ const MIGRATION = [
      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
    )`,
 ];
+
+/**
+ * Deletes the sessions that started before the retention cutoff for `now`,
+ * except the latest (the active one), at startup and at each rollover. The
+ * cutoff is computed in milliseconds, as the memory log does: subtracting
+ * days in SQL would follow the connection's time zone across daylight saving.
+ */
+async function pruneSessions(db: Queryable, now: number): Promise<void> {
+  await db.query(
+    "DELETE FROM sessions WHERE started_at < $1 AND id <> (SELECT MAX(id) FROM sessions)",
+    [new Date(retentionCutoff(now))],
+  );
+}
 
 async function tryWriterLock(db: Queryable): Promise<boolean> {
   const [lock] = await select(db, LockRow, "SELECT pg_try_advisory_lock($1) AS locked", [
@@ -194,9 +208,7 @@ export class PostgresLog<C extends Queryable = Queryable> implements CommandLog 
     try {
       waitedMs = await acquireWriterLock(db, wait);
       for (const statement of MIGRATION) await db.query(statement);
-      await db.query(`DELETE FROM sessions WHERE started_at < now() - make_interval(days => $1)`, [
-        RETENTION_DAYS,
-      ]);
+      await pruneSessions(db, Date.now());
     } catch (error) {
       await connector.disconnect(db);
       throw error;
@@ -343,6 +355,10 @@ export class PostgresLog<C extends Queryable = Queryable> implements CommandLog 
              state = EXCLUDED.state, created_at = now()`,
       [sessionId, snapshot.seq, snapshot.stateHash, snapshot.state],
     );
+  }
+
+  async pruneSessions(now: number): Promise<void> {
+    await pruneSessions(await this.db(), now);
   }
 
   async close(): Promise<void> {

@@ -110,7 +110,7 @@ returns the addresses involved.
 | `TOKEN_SECRET`           | none     | Required in production, 32+ characters. Rotating it signs every guest out.                                                                                                                     |
 | `TICK_MS`                | `600`    | Milliseconds between simulated market ticks.                                                                                                                                                   |
 | `WARMUP_MINUTES`         | `30`     | Minutes of history simulated when a new session starts.                                                                                                                                        |
-| `SESSION_HOURS`          | `24`     | A fresh market session starts after this long.                                                                                                                                                 |
+| `SESSION_HOURS`          | `24`     | A session this old ends at the next idle moment (or restart) and a fresh one starts; see [Market sessions](#operating-notes).                                                                  |
 | `SNAPSHOT_MINUTES`       | `10`     | Minutes between engine snapshots while the exchange is in use, which keep restarts fast. `0` turns them off.                                                                                   |
 | `LOG_LEVEL`              | `info`   | Fastify/pino log level.                                                                                                                                                                        |
 | `PUBLIC_URL`             | none     | The site's address, used for absolute URLs in link previews. On Render it defaults to the service's `onrender.com` address; set it when you add a custom domain.                               |
@@ -164,7 +164,8 @@ previous instance"}` until the old one has gone idle (five minutes after the
   (`npm run bench:guests -w @marketlab/api`): a guest without orders adds
   85 B to the snapshot, each order about 0.7 KB. 500 guests averaging 10
   orders came to 3.5 MB, and averaging 60 orders to 19 MB. Nothing caps the
-  log's size; sessions older than seven days are deleted at startup.
+  log's size; sessions older than seven days are deleted at startup and at
+  each rollover.
 - **Free-plan sleep.** Render's free plan stops the service after about 15
   minutes without traffic. The next visit wakes it (expect a cold start of
   roughly a minute), and startup replays the session's log, so no order or
@@ -176,6 +177,23 @@ previous instance"}` until the old one has gone idle (five minutes after the
   `BASE_URL=http://localhost:8080 npm run assets -w @marketlab/web`.
 - **Restarts and deploys** replay the log the same way. Guests keep their
   accounts until the session rolls over.
+- **Market sessions.** A session ends once it is `SESSION_HOURS` old and the
+  exchange is idle (no stream client and no activity for five minutes), or
+  at a restart after that age. It is not a fixed daily time: a session in
+  use carries on until the site goes quiet. The engine then:
+  - logs the old session's remaining ticks and a final snapshot;
+  - starts a new session with a new seed, runs the warm-up and snapshots it;
+  - deletes sessions older than seven days;
+  - logs `session_rolled_over` with both session ids, the old session's
+    last entry and the time taken.
+
+  Guest accounts, balances and open orders end with the old session. A
+  returning visitor's token is refused with `session_expired`, and the web
+  app opens a new guest account on its own. Requests that arrive during a
+  rollover wait for it. Measured against local PostgreSQL 16, with
+  production's 3,000 warm-up ticks: 0.6 s in all, 0.58 s of it the warm-up.
+  On Neon the rollover may first wake the database, which was not measured.
+
 - **Shutdown.** On `SIGTERM` the server stops taking work at once: every new
   request gets `503` with `Connection: close`, and `/api/health` answers
   `503` with `"status":"stopping"`. It then closes every event stream, lets
@@ -193,7 +211,8 @@ previous instance"}` until the old one has gone idle (five minutes after the
   `event` field (`engine_ready`, `log_suspended`, `shutdown_completed`, …), so
   they can be searched in Render's logs. They never contain tokens or client
   addresses.
-- **Data retention.** Sessions older than seven days are deleted at startup.
+- **Data retention.** Sessions that started more than seven days ago are
+  deleted at startup and at each rollover, except the current session.
 - **Snapshots.** Every ten minutes while the exchange is in use, when it goes
   idle, when it wakes and on shutdown, the engine stores a hash-checked
   snapshot, so a restart replays only the last few log entries: about half a

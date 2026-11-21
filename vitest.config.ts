@@ -11,6 +11,7 @@ const PROCESS_SUITES = [
   "apps/api/src/shutdown.test.ts",
   "apps/api/src/deploy.test.ts",
   "apps/api/src/startup.test.ts",
+  "apps/api/src/rollover.test.ts",
 ];
 
 export default defineConfig({

@@ -53,9 +53,19 @@ export class StreamHub {
   }
 
   start(): void {
-    this.unsubscribe = this.host.subscribe((update) => {
+    const unsubscribe = this.host.subscribe((update) => {
       this.onUpdate(update);
     });
+    // A new session: every stream's account (and market) belongs to the old
+    // one. End them all; browsers reconnect, and one whose token has expired
+    // is told so and starts a new guest account.
+    const unwatch = this.host.onSessionStart(() => {
+      this.endAll();
+    });
+    this.unsubscribe = () => {
+      unsubscribe();
+      unwatch();
+    };
     this.timers.push(
       setInterval(() => {
         this.flushBooks();
@@ -74,8 +84,13 @@ export class StreamHub {
     this.unsubscribe?.();
     for (const timer of this.timers) clearInterval(timer);
     this.timers.length = 0;
+    this.endAll();
+  }
+
+  private endAll(): void {
     for (const client of this.clients) client.res.end();
     this.clients.clear();
+    this.dirtyBooks.clear();
   }
 
   attach(res: ServerResponse, symbol: string, accountId: string | undefined): void {

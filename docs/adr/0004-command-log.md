@@ -65,10 +65,16 @@ trades and candles.
 
 ### Sessions
 
-A session is one simulated trading day with its own seed. After
-`SESSION_HOURS` (default 24) a new session starts with a fresh market; guest
-tokens carry the session id and expire with it. Sessions older than seven days
-are deleted at startup.
+A session is one simulated trading day with its own seed. Once it is
+`SESSION_HOURS` old (default 24), it ends when the engine is next idle (no
+stream client and no activity for five minutes), or at a restart, and a new
+session starts with a fresh market. Rolling over in the running process
+inside the write queue means an always-on server never replays more than one
+session's log, and no command straddles two sessions. Guest tokens carry the
+session id and expire with it; a command already queued for the old session
+is refused, not logged into the new one. Sessions that started more than
+seven days ago are deleted at startup and at each rollover; the current
+session never is.
 
 ## Verification
 
