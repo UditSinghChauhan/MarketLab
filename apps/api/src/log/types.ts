@@ -56,9 +56,15 @@ export const LogEntrySchema = z.discriminatedUnion("kind", [
 export const RETENTION_DAYS = 7;
 const RETENTION_MS = RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
+/**
+ * Sessions that started before this instant are past retention at `now`:
+ * plain milliseconds, so the rule cannot depend on a database time zone.
+ */
+export const retentionCutoff = (now: number): number => now - RETENTION_MS;
+
 /** True if a session that started at `startedAt` is past retention at `now`. */
 export const pastRetention = (startedAt: number, now: number): boolean =>
-  now - startedAt > RETENTION_MS;
+  startedAt < retentionCutoff(now);
 
 export interface Session {
   readonly id: number;

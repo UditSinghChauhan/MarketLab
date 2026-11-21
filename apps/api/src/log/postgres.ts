@@ -25,8 +25,8 @@ import {
   LockHeldError,
   LockWaitTimeoutError,
   LogHeadMovedError,
-  RETENTION_DAYS,
   parseEntry,
+  retentionCutoff,
   type CommandLog,
   type LogEntry,
   type Session,
@@ -88,6 +88,19 @@ const MIGRATION = [
      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
    )`,
 ];
+
+/**
+ * Deletes the sessions that started before the retention cutoff for `now`,
+ * except the latest (the active one), at startup and at each rollover. The
+ * cutoff is computed in milliseconds, as the memory log does: subtracting
+ * days in SQL would follow the connection's time zone across daylight saving.
+ */
+async function pruneSessions(db: Queryable, now: number): Promise<void> {
+  await db.query(
+    "DELETE FROM sessions WHERE started_at < $1 AND id <> (SELECT MAX(id) FROM sessions)",
+    [new Date(retentionCutoff(now))],
+  );
+}
 
 async function tryWriterLock(db: Queryable): Promise<boolean> {
   const [lock] = await select(db, LockRow, "SELECT pg_try_advisory_lock($1) AS locked", [
@@ -195,9 +208,7 @@ export class PostgresLog<C extends Queryable = Queryable> implements CommandLog 
     try {
       waitedMs = await acquireWriterLock(db, wait);
       for (const statement of MIGRATION) await db.query(statement);
-      await db.query(`DELETE FROM sessions WHERE started_at < now() - make_interval(days => $1)`, [
-        RETENTION_DAYS,
-      ]);
+      await pruneSessions(db, Date.now());
     } catch (error) {
       await connector.disconnect(db);
       throw error;
@@ -347,14 +358,7 @@ export class PostgresLog<C extends Queryable = Queryable> implements CommandLog 
   }
 
   async pruneSessions(now: number): Promise<void> {
-    await (
-      await this.db()
-    ).query(
-      `DELETE FROM sessions
-        WHERE started_at < $1::timestamptz - make_interval(days => $2)
-          AND id <> (SELECT MAX(id) FROM sessions)`,
-      [new Date(now), RETENTION_DAYS],
-    );
+    await pruneSessions(await this.db(), now);
   }
 
   async close(): Promise<void> {

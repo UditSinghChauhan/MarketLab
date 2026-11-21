@@ -211,8 +211,8 @@ previous instance"}` until the old one has gone idle (five minutes after the
   `event` field (`engine_ready`, `log_suspended`, `shutdown_completed`, …), so
   they can be searched in Render's logs. They never contain tokens or client
   addresses.
-- **Data retention.** Sessions older than seven days are deleted at startup
-  and at each rollover.
+- **Data retention.** Sessions that started more than seven days ago are
+  deleted at startup and at each rollover, except the current session.
 - **Snapshots.** Every ten minutes while the exchange is in use, when it goes
   idle, when it wakes and on shutdown, the engine stores a hash-checked
   snapshot, so a restart replays only the last few log entries: about half a

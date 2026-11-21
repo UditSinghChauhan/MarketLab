@@ -72,8 +72,9 @@ session starts with a fresh market. Rolling over in the running process
 inside the write queue means an always-on server never replays more than one
 session's log, and no command straddles two sessions. Guest tokens carry the
 session id and expire with it; a command already queued for the old session
-is refused, not logged into the new one. Sessions older than seven days are
-deleted at startup and at each rollover.
+is refused, not logged into the new one. Sessions that started more than
+seven days ago are deleted at startup and at each rollover; the current
+session never is.
 
 ## Verification
 
