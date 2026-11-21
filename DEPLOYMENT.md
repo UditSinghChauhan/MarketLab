@@ -68,21 +68,21 @@ How the parameters are read ([`connection.ts`](apps/api/src/log/connection.ts)):
 
 ## Configuration
 
-| Variable               | Default  | Notes                                                                                                                                                            |
-| ---------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`         | none     | Required in production. Direct Neon connection string.                                                                                                           |
-| `TOKEN_SECRET`         | none     | Required in production, 32+ characters. Rotating it signs every guest out.                                                                                       |
-| `TICK_MS`              | `600`    | Milliseconds between simulated market ticks.                                                                                                                     |
-| `WARMUP_MINUTES`       | `30`     | Minutes of history simulated when a new session starts.                                                                                                          |
-| `SESSION_HOURS`        | `24`     | A fresh market session starts after this long.                                                                                                                   |
-| `SNAPSHOT_MINUTES`     | `10`     | Minutes between engine snapshots while the exchange is in use, which keep restarts fast. `0` turns them off.                                                     |
-| `LOG_LEVEL`            | `info`   | Fastify/pino log level.                                                                                                                                          |
-| `PUBLIC_URL`           | none     | The site's address, used for absolute URLs in link previews. On Render it defaults to the service's `onrender.com` address; set it when you add a custom domain. |
-| `LOCK_WAIT_MS`         | `840000` | How long a starting instance waits for the previous one to release the command log before exiting with code 1. At most 900000, Render's 15-minute limit.         |
-| `SHUTDOWN_DEADLINE_MS` | `20000`  | Longest a graceful shutdown may take before the process exits with code 1. At most 29000, below Render's 30-second kill.                                         |
-| `IDLE_AFTER_MS`        | `300000` | Milliseconds without stream clients or activity before the engine suspends its log. Only the test suite lowers it.                                               |
-| `RATE_LIMIT_SCALE`     | `1`      | Multiplies every rate limit. Only the test suite raises it.                                                                                                      |
-| `PORT`                 | `8080`   | Render sets this automatically.                                                                                                                                  |
+| Variable               | Default  | Notes                                                                                                                                                                                |
+| ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`         | none     | Required in production. Direct Neon connection string.                                                                                                                               |
+| `TOKEN_SECRET`         | none     | Required in production, 32+ characters. Rotating it signs every guest out.                                                                                                           |
+| `TICK_MS`              | `600`    | Milliseconds between simulated market ticks.                                                                                                                                         |
+| `WARMUP_MINUTES`       | `30`     | Minutes of history simulated when a new session starts.                                                                                                                              |
+| `SESSION_HOURS`        | `24`     | A fresh market session starts after this long.                                                                                                                                       |
+| `SNAPSHOT_MINUTES`     | `10`     | Minutes between engine snapshots while the exchange is in use, which keep restarts fast. `0` turns them off.                                                                         |
+| `LOG_LEVEL`            | `info`   | Fastify/pino log level.                                                                                                                                                              |
+| `PUBLIC_URL`           | none     | The site's address, used for absolute URLs in link previews. On Render it defaults to the service's `onrender.com` address; set it when you add a custom domain.                     |
+| `LOCK_WAIT_MS`         | `840000` | How long a starting instance waits for the previous one to release the command log before exiting with code 1. At most 900000: Render's 15-minute limit, assumed, not verified live. |
+| `SHUTDOWN_DEADLINE_MS` | `20000`  | Longest a graceful shutdown may take before the process exits with code 1. At most 29000, below Render's 30-second kill.                                                             |
+| `IDLE_AFTER_MS`        | `300000` | Milliseconds without stream clients or activity before the engine suspends its log. Only the test suite lowers it.                                                                   |
+| `RATE_LIMIT_SCALE`     | `1`      | Multiplies every rate limit. Only the test suite raises it.                                                                                                                          |
+| `PORT`                 | `8080`   | Render sets this automatically.                                                                                                                                                      |
 
 ## Operating notes
 
@@ -106,6 +106,10 @@ previous instance"}` until the old one has gone idle (five minutes after the
   - This is deferral, not a zero-downtime handover
     ([ADR 0009](docs/adr/0009-deploys-with-a-single-writer.md)). To deploy at
     once, deploy when nobody is on the site.
+  - Render's sequence here (traffic switches once health is 200, a 15-minute
+    limit for that, and `SIGTERM` to the old instance 60 seconds after the
+    switch) is a platform assumption the design relies on, not something
+    verified on a live deploy.
 - **Free-plan sleep.** Render's free plan stops the service after about 15
   minutes without traffic. The next visit wakes it (expect a cold start of
   roughly a minute), and startup replays the session's log, so no order or

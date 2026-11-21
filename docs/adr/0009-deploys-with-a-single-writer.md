@@ -9,12 +9,15 @@ The engine is a single writer: one process holds a PostgreSQL advisory lock
 while it writes the command log (ADR 0004), and releases it only while the
 exchange is idle (ADR 0007).
 
-A Render deploy overlaps two processes:
+A Render deploy overlaps two processes. This design assumes the following
+platform behaviour; it has not been checked on a live Render deploy:
 
 1. Render starts the new instance while the old one keeps serving.
 2. It routes traffic to the new instance only once `/api/health` answers 200,
    and gives up on the deploy if that does not happen within 15 minutes.
 3. The old instance gets `SIGTERM` 60 seconds after the switch.
+
+The 15-minute and 60-second figures below come from these assumptions.
 
 Until this change, a new instance that found the lock taken exited at
 startup. Measured on the built server: exit code 1 after 238 ms, never
@@ -54,7 +57,11 @@ stopped.**
   lock taken, or the session's head moved, it is _superseded_:
   - it refuses every request with `503`, and health answers
     `503 {"status":"stopping","reason":"another instance owns the command log"}`;
-  - it closes its event streams, stops its clock and writes nothing;
+  - it closes its event streams, stops its clock and writes nothing. A
+    stream cannot be open when the old instance releases the lock (a watcher
+    keeps it active), but one can connect to it afterwards; that stream's own
+    wake-up is what finds the takeover, and it is closed straight away
+    (tested: closed 68 ms after it opened);
   - it does not exit. It logs one `persistence_failed` warning with
     `fatal: false` and waits for `SIGTERM`, then exits 0 without writing
     (`finalFlush: "owned-elsewhere"`).
@@ -63,8 +70,15 @@ stopped.**
   contend for the log again.
 
 - A signal while the new instance is still waiting or replaying closes the
-  server and exits 0 at once. It has written nothing, and PostgreSQL releases
-  the lock with the connection.
+  server and exits 0 at once, without serving and without writing. PostgreSQL
+  releases the writer lock when it notices the connection has gone: at once
+  if the backend is idle, otherwise when its current query ends. Tested with a
+  replay query held on a table lock: the lock was still held after the
+  process had exited, and freed 20–30 ms after the query could finish. A
+  successor waiting for the lock simply polls until then. The same holds for
+  a crash, so no cancellation is built for it. A signal that arrives while
+  the app is being built takes effect just after readiness (building the app
+  does not wait on I/O), through the normal graceful shutdown.
 
 ## Why waiting is safe
 
