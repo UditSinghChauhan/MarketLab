@@ -10,7 +10,7 @@
 
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { createServer } from "node:net";
+import { connect, createServer, type AddressInfo, type Socket } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -179,6 +179,101 @@ export async function connectionsTo(adminUrl: string, name: string): Promise<num
     );
     return rows[0]?.n ?? 0;
   });
+}
+
+/**
+ * Ends the server's connections to database `name`, as a network failure or a
+ * database restart would: every backend but the caller's own, or with
+ * `waitingOnly`, only those blocked on a lock (a write held by `holdLogTable`).
+ */
+export async function terminateConnections(
+  adminUrl: string,
+  name: string,
+  waitingOnly = false,
+): Promise<number> {
+  return withClient(adminUrl, async (db) => {
+    const { rows } = await db.query<{ n: number }>(
+      `SELECT COUNT(pg_terminate_backend(pid))::int AS n FROM pg_stat_activity
+        WHERE datname = $1 AND pid <> pg_backend_pid()
+          AND (NOT $2 OR wait_event_type = 'Lock')`,
+      [name, waitingOnly],
+    );
+    return rows[0]?.n ?? 0;
+  });
+}
+
+export interface PgProxy {
+  /** `databaseUrl`, pointed at the proxy. */
+  readonly url: string;
+  /**
+   * The next request containing `marker` is forwarded, but its reply is
+   * dropped and that connection closed: the database has done the work
+   * (an INSERT is committed before PostgreSQL replies) and the client never
+   * learns it. Resolves once the reply has been dropped.
+   */
+  loseReplyTo(marker: string): Promise<void>;
+  /** Closes every connection and stops listening: the database is unreachable. */
+  stop(): Promise<void>;
+}
+
+/**
+ * A TCP proxy in front of PostgreSQL, for the failures a local server never
+ * produces on its own: a lost reply, and a database that cannot be reached.
+ */
+export async function startPgProxy(databaseUrl: string): Promise<PgProxy> {
+  const target = new URL(databaseUrl);
+  const sockets = new Set<Socket>();
+  let trap: { marker: Buffer; sprung: () => void } | undefined;
+  const proxy = createServer((client) => {
+    const upstream = connect(Number(target.port || "5432"), target.hostname);
+    let losing: (() => void) | undefined;
+    const close = () => {
+      client.destroy();
+      upstream.destroy();
+      sockets.delete(client);
+      sockets.delete(upstream);
+    };
+    for (const socket of [client, upstream]) {
+      sockets.add(socket);
+      socket.on("error", close).on("close", close);
+    }
+    client.on("data", (chunk: Buffer) => {
+      if (trap && !losing && chunk.includes(trap.marker)) {
+        losing = trap.sprung;
+        trap = undefined;
+      }
+      upstream.write(chunk);
+    });
+    upstream.on("data", (chunk: Buffer) => {
+      if (losing) {
+        close();
+        losing();
+        return;
+      }
+      client.write(chunk);
+    });
+  });
+  await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
+  const url = new URL(databaseUrl);
+  url.hostname = "127.0.0.1";
+  url.port = String((proxy.address() as AddressInfo).port);
+  let stopped: Promise<void> | undefined;
+  return {
+    url: url.toString(),
+    loseReplyTo: (marker) =>
+      new Promise((resolve) => {
+        trap = { marker: Buffer.from(marker), sprung: resolve };
+      }),
+    stop: () => {
+      stopped ??= new Promise((resolve) => {
+        for (const socket of sockets) socket.destroy();
+        proxy.close(() => {
+          resolve();
+        });
+      });
+      return stopped;
+    },
+  };
 }
 
 /** Polls `check` until it returns true, or fails after `ms`. */
