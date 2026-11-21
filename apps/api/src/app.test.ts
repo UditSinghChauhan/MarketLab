@@ -232,6 +232,115 @@ describe("trading", () => {
   });
 });
 
+describe("client address", () => {
+  /** An app of its own, so rate-limit buckets from other tests do not interfere. */
+  async function served(
+    env: Record<string, string> = {},
+    logStream?: { write(line: string): void },
+  ) {
+    const own = await startHost(new MemoryLog(), clock().now);
+    return buildApp({
+      config: loadConfig({ NODE_ENV: "test", TOKEN_SECRET: "x".repeat(40), ...env }),
+      host: own,
+      hub: new StreamHub(own, INSTRUMENTS),
+      instruments: INSTRUMENTS,
+      persistence: "memory",
+      ...(logStream ? { logStream } : {}),
+    });
+  }
+
+  /** Statuses of 12 session requests (the limit is 10 a minute), each with its own headers. */
+  async function sessions(app: FastifyInstance, headers: (i: number) => Record<string, string>) {
+    const statuses: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/session",
+        remoteAddress: "10.0.0.1", // the proxy: every request arrives from it
+        headers: headers(i),
+      });
+      statuses.push(res.statusCode);
+    }
+    return statuses;
+  }
+
+  it("ignores a forged X-Forwarded-For: rate limits still apply", async () => {
+    const app = await served();
+    try {
+      const statuses = await sessions(app, (i) => ({
+        "x-forwarded-for": `198.51.100.${String(i)}`,
+      }));
+      expect(statuses.slice(0, 10).every((s) => s === 201)).toBe(true);
+      expect(statuses.slice(10)).toEqual([429, 429]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("keys rate limits on CLIENT_IP_HEADER when it is configured", async () => {
+    const app = await served({ CLIENT_IP_HEADER: "CF-Connecting-IP" });
+    try {
+      // One visitor, whatever X-Forwarded-For says: limited.
+      const one = await sessions(app, (i) => ({
+        "cf-connecting-ip": "203.0.113.7",
+        "x-forwarded-for": `198.51.100.${String(i)}`,
+      }));
+      expect(one.slice(10)).toEqual([429, 429]);
+      // Twelve visitors behind the same proxy: each has a bucket of its own.
+      const many = await sessions(app, (i) => ({
+        "cf-connecting-ip": `203.0.113.${String(100 + i)}`,
+      }));
+      expect(many.every((s) => s === 201)).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("falls back to the connecting address when the header is missing or not one address", async () => {
+    const app = await served({ CLIENT_IP_HEADER: "cf-connecting-ip" });
+    try {
+      const values = ["", "not-an-address", "203.0.113.7, 198.51.100.1"];
+      const statuses = await sessions(app, (i) => {
+        const value = values[i % values.length] ?? "";
+        return value ? { "cf-connecting-ip": `${value}${String(i)}` } : {};
+      });
+      expect(statuses.slice(10)).toEqual([429, 429]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("refuses a list header as CLIENT_IP_HEADER", () => {
+    for (const header of ["X-Forwarded-For", "forwarded"]) {
+      expect(() =>
+        loadConfig({ NODE_ENV: "test", TOKEN_SECRET: "x".repeat(40), CLIENT_IP_HEADER: header }),
+      ).toThrow(/single address/);
+    }
+  });
+
+  it("never logs a client address", async () => {
+    const lines: string[] = [];
+    const app = await served(
+      { CLIENT_IP_HEADER: "cf-connecting-ip", LOG_LEVEL: "info" },
+      { write: (line) => lines.push(line) },
+    );
+    try {
+      await app.inject({
+        url: "/api/markets",
+        remoteAddress: "10.0.0.1",
+        headers: { "cf-connecting-ip": "203.0.113.7", "x-forwarded-for": "198.51.100.9" },
+      });
+    } finally {
+      await app.close();
+    }
+    const logged = lines.join("\n");
+    expect(logged).toContain("/api/markets"); // the request was logged
+    for (const address of ["10.0.0.1", "203.0.113.7", "198.51.100.9"]) {
+      expect(logged).not.toContain(address);
+    }
+  });
+});
+
 describe("withInitialMarkets", () => {
   it("adds an inert JSON block that no value can break out of", () => {
     const market = { symbol: "ORBT", name: "</script><script>alert(1)</script>" };

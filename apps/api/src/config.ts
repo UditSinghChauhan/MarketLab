@@ -29,6 +29,22 @@ const Env = z.object({
   PUBLIC_URL: z.url().optional(),
   RENDER_EXTERNAL_URL: z.url().optional(),
   /**
+   * The request header that carries the visitor's address, set by the proxy
+   * in front of the service (for example `CF-Connecting-IP`), used to key rate
+   * limits. Trust it only after checking that the proxy overwrites it
+   * (DEPLOYMENT.md). Unset, no header is trusted: limits key on the connecting
+   * address, which behind a proxy is the proxy's, shared by every visitor.
+   */
+  CLIENT_IP_HEADER: z
+    .string()
+    .regex(/^[\w-]+$/, "CLIENT_IP_HEADER must be a header name")
+    .transform((name) => name.toLowerCase())
+    .refine((name) => name !== "x-forwarded-for" && name !== "forwarded", {
+      message:
+        "CLIENT_IP_HEADER must name a header holding a single address; X-Forwarded-For and Forwarded are lists whose first entry the client can write",
+    })
+    .optional(),
+  /**
    * Milliseconds without stream clients or activity before the engine goes
    * idle and suspends its log (ADR 0007). Process tests shorten it; leave it
    * at five minutes otherwise.

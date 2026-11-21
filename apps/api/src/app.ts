@@ -5,6 +5,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import { isIP } from "node:net";
 import path from "node:path";
 
 import compress from "@fastify/compress";
@@ -112,6 +113,18 @@ export function redactUrl(url: string): string {
 }
 
 /**
+ * The visitor's address, for rate limits only (it is never logged). It is
+ * `header`'s value when that is one valid address, as the proxy in front sets
+ * it; otherwise the connecting address. Nothing else a client sends is
+ * trusted.
+ */
+export function clientAddress(request: FastifyRequest, header: string | undefined): string {
+  const value = header === undefined ? undefined : request.headers[header];
+  if (typeof value === "string" && isIP(value.trim()) !== 0) return value.trim();
+  return request.ip;
+}
+
+/**
  * Link previews (Open Graph) need absolute URLs, and the built page cannot
  * know its own address. Given the public origin, this rewrites the page's
  * root-relative preview image, page URL and canonical link for one path.
@@ -201,24 +214,23 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   const logger = {
     level: config.LOG_LEVEL,
-    // The request fields Fastify logs by default, with the token taken out of the URL.
+    // The request fields Fastify logs by default, with the token taken out of
+    // the URL and without the client's address or port.
     serializers: {
-      req: (request: FastifyRequest) => {
-        const port = request.socket.remotePort;
-        return {
-          method: request.method,
-          url: redactUrl(request.url),
-          host: request.host,
-          remoteAddress: request.ip,
-          ...(port === undefined ? {} : { remotePort: port }),
-        };
-      },
+      req: (request: FastifyRequest) => ({
+        method: request.method,
+        url: redactUrl(request.url),
+        host: request.host,
+      }),
     },
     ...(logStream ? { stream: logStream } : {}),
   };
   const app = Fastify({
     logger: config.NODE_ENV === "test" && !logStream ? false : logger,
-    trustProxy: true,
+    // No proxy header is trusted: request.ip, host and protocol are the
+    // connection's own. The visitor's address for rate limits comes from
+    // CLIENT_IP_HEADER (clientAddress), and page links from configuration.
+    trustProxy: false,
     bodyLimit: 16 * 1024,
     // On close, destroy every connection, not only those idle at that moment;
     // the shutdown sequence has already drained the work they were waiting for.
@@ -242,8 +254,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // the reply pipeline, so it is never buffered by compression.
   await app.register(compress, { threshold: 1024 });
 
+  if (config.NODE_ENV === "production" && !config.CLIENT_IP_HEADER) {
+    app.log.warn(
+      "CLIENT_IP_HEADER is not set: rate limits key on the connecting address, which behind a proxy is shared by every visitor (DEPLOYMENT.md)",
+    );
+  }
   await app.register(rateLimit, {
     global: false,
+    keyGenerator: (request) => clientAddress(request, config.CLIENT_IP_HEADER),
     errorResponseBuilder: (_request, context) => ({
       statusCode: 429,
       ...errorBody("rate_limited", `Too many requests; try again in ${context.after}`),
@@ -508,16 +526,15 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     const preloadsFor = existsSync(manifestFile)
       ? routePreloads(JSON.parse(readFileSync(manifestFile, "utf8")) as ViteManifest)
       : () => "";
-    // The configured origin wins. Without one (local runs), the request's own
-    // host is used, so the canonical link and preview image are always absolute.
-    const configured = (config.PUBLIC_URL ?? config.RENDER_EXTERNAL_URL)?.replace(/\/+$/, "");
-    const originOf = (request: FastifyRequest) =>
-      configured ??
-      (/^[\w.-]+(:\d+)?$/.test(request.host) ? `${request.protocol}://${request.host}` : undefined);
+    // From configuration only: request headers (Host, X-Forwarded-Host) are
+    // the client's to write. Without a configured origin (local runs), this
+    // server's own local address.
+    const origin =
+      (config.PUBLIC_URL ?? config.RENDER_EXTERNAL_URL)?.replace(/\/+$/, "") ??
+      `http://localhost:${String(config.PORT)}`;
     const sendPage = (request: FastifyRequest, reply: FastifyReply) => {
-      const origin = originOf(request);
       const { pathname } = new URL(request.url, "http://localhost");
-      let html = origin ? absoluteLinks(indexHtml, origin, pathname) : indexHtml;
+      let html = absoluteLinks(indexHtml, origin, pathname);
       const preload = preloadsFor(pathname);
       if (preload) html = html.replace("</head>", `${preload}</head>`);
       // The terminal's price heading is its largest paint; with the prices in
