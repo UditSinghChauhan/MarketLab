@@ -375,6 +375,38 @@ describe("while shutting down", () => {
     }
   });
 
+  it("refuses everything, fast, once another instance has taken over the log", async () => {
+    const { served, host: old, log, token } = await drainable();
+    // While this instance was idle, a new one took over and wrote to the session.
+    await log.suspend();
+    await log.append(old.session.id, old.sequence + 1, { kind: "ticks", count: 1, from: 0, at: 0 });
+    try {
+      const started = performance.now();
+      const res = await served.inject({
+        method: "POST",
+        url: "/api/orders",
+        headers: auth(token),
+        payload: order,
+      });
+      expect(res.statusCode).toBe(503);
+      expect(performance.now() - started).toBeLessThan(1_000);
+      expect(old.superseded).toBe(true);
+      expect(old.healthy).toBe(true); // not a failure: the process waits to be stopped
+
+      const health = await served.inject("/api/health");
+      expect(health.statusCode).toBe(503);
+      expect(health.json<HealthResponse>()).toMatchObject({
+        status: "stopping",
+        reason: "another instance owns the command log",
+      });
+      const markets = await served.inject("/api/markets");
+      expect(markets.statusCode).toBe(503);
+      expect(markets.headers.connection).toBe("close");
+    } finally {
+      await served.close();
+    }
+  });
+
   it("refuses an event stream that arrives after the hub stopped", async () => {
     const { served, hub } = await drainable();
     hub.stop();

@@ -72,7 +72,9 @@ write. Three things keep that from corrupting the log: the gap-free
 `(session_id, seq)` primary key rejects an out-of-order write; `resume`
 retakes the lock without waiting and fails if another process has it; and it
 refuses to continue if the session's head moved. Each failure ends in a
-restart and a replay of whatever the log holds.
+restart and a replay of whatever the log holds. (Since ADR 0009, finding the
+lock taken or the head moved means a newer instance owns the log: the old
+instance refuses all work and waits to be stopped instead of restarting.)
 
 ## The trade-off, stated plainly
 

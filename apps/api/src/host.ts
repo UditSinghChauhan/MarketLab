@@ -111,6 +111,13 @@ export interface HostOptions {
   readonly onEvent?: EmitEvent;
   /** How long without watchers or activity before the host goes idle; default `IDLE_AFTER_MS`. */
   readonly idleAfterMs?: number;
+  /**
+   * Called once if, waking from an idle stretch, the host finds that another
+   * process has taken over the log (a deploy, ADR 0009). The host then refuses
+   * all work but is not failed: the process should wait to be stopped, not
+   * restart and contend for the log.
+   */
+  readonly onSuperseded?: (error: unknown) => void;
 }
 
 /**
@@ -200,6 +207,8 @@ export class EngineHost {
   private failure: unknown;
   /** Set when shutdown begins: new work is refused, queued work still runs. */
   private closing = false;
+  /** Set when another process has taken over the log; see `onSuperseded`. */
+  private supersededBy: unknown;
   /** How many stream clients are watching; set by `watch`. */
   private watchers: () => number = () => 0;
   /** The last user command, guest account or replay read. */
@@ -356,7 +365,7 @@ export class EngineHost {
    */
   clockTick(): Promise<void> {
     return this.serial(async () => {
-      if (this.failure !== undefined) return;
+      if (this.failure !== undefined || this.superseded) return;
       this.tick();
       const { log } = this.options;
       if (this.active) {
@@ -374,8 +383,13 @@ export class EngineHost {
         this.options.onEvent?.("log_suspended", { session: this.session.id, seq: this.seq });
       }
     }).catch((error: unknown) => {
-      this.fail(error);
+      if (!this.superseded) this.fail(error);
     });
+  }
+
+  /** True once another process has taken over the log: all work is refused, without a failure. */
+  get superseded(): boolean {
+    return this.supersededBy !== undefined;
   }
 
   /**
@@ -408,6 +422,7 @@ export class EngineHost {
    */
   finalFlush(): Promise<FinalFlush> {
     return this.serial(async () => {
+      if (this.superseded) return "owned-elsewhere";
       if (this.failure !== undefined) {
         throw new HostUnavailableError("The command log is unavailable");
       }
@@ -640,11 +655,26 @@ export class EngineHost {
       await this.options.log.append(this.session.id, this.seq + 1, entry);
       this.seq += 1;
     } catch (error) {
+      if (error instanceof LockHeldError || error instanceof LogHeadMovedError) {
+        // Another process owns the log now (a deploy took it over while this
+        // one was idle): this one must never write again, but it has not failed.
+        this.supersede(error);
+        throw new HostUnavailableError("Another instance owns the command log");
+      }
       // The engine may now hold ticks the log does not: stop accepting work and
       // let the process restart, which replays the log into a consistent state.
       this.fail(error);
       throw new HostUnavailableError("The command log is unavailable");
     }
+  }
+
+  /** Refuses all further work and stops the clock; reports it once. */
+  private supersede(error: unknown): void {
+    if (this.superseded) return;
+    this.supersededBy = error;
+    this.closing = true;
+    this.stopClock();
+    this.options.onSuperseded?.(error);
   }
 
   /** Resumes the log if it was suspended (a no-op otherwise); throws if it cannot. */

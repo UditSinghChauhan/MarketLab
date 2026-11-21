@@ -8,9 +8,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { buildApp } from "./app.js";
-import { EngineHost, IDLE_AFTER_MS, type HostOptions } from "./host.js";
+import { EngineHost, HostUnavailableError, IDLE_AFTER_MS, type HostOptions } from "./host.js";
 import { INSTRUMENTS } from "./instruments.js";
-import type { CommandLog } from "./log/types.js";
+import { LogHeadMovedError, type CommandLog } from "./log/types.js";
 import { StreamHub } from "./stream.js";
 import { CountingLog, buy, clock, hostOptions, pgliteLog, testConfig } from "./test/fixtures.js";
 
@@ -228,10 +228,11 @@ describe("idle-aware persistence on PostgreSQL (PGlite)", () => {
     expect(restarted.exchange.stateHash()).toBe(host.exchange.stateHash());
   });
 
-  it("stops the host if another writer added to the session while it was idle", async () => {
+  it("stands down, without failing, if another writer added to the session while it was idle", async () => {
     const { log } = await pgliteLog();
     const onFatal = vi.fn();
-    const { host, beat } = await setup(log, { onFatal });
+    const onSuperseded = vi.fn();
+    const { host, beat } = await setup(log, { onFatal, onSuperseded });
     await goIdle(host, beat, log);
     // Another process appends while this one holds no lock.
     await log.append(host.session.id, host.sequence + 1, {
@@ -244,9 +245,16 @@ describe("idle-aware persistence on PostgreSQL (PGlite)", () => {
     host.watch(() => 1);
     const seq = host.sequence;
     await beat(TICK_MS); // waking: resume finds the log changed
-    expect(onFatal).toHaveBeenCalledOnce();
-    expect(host.healthy).toBe(false);
-    expect(host.sequence).toBe(seq); // and it wrote nothing
+    expect(onSuperseded).toHaveBeenCalledOnce();
+    expect(onSuperseded.mock.calls[0]?.[0]).toBeInstanceOf(LogHeadMovedError);
+    expect(onFatal).not.toHaveBeenCalled();
+    expect(host.superseded).toBe(true);
+    expect(host.sequence).toBe(seq); // it wrote nothing...
+    await beat(10 * TICK_MS);
+    expect(host.sequence).toBe(seq); // ...and never tries again
+    await expect(host.openGuest()).rejects.toThrow(HostUnavailableError);
+    expect(await host.stop()).toBe("owned-elsewhere");
+    expect(onFatal).not.toHaveBeenCalled();
   });
 
   it("on shutdown, skips the final flush without failing if another writer took over while idle", async () => {

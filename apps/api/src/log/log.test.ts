@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { DAY_MS, pgliteLog } from "../test/fixtures.js";
 import { MemoryLog } from "./memory.js";
 import { PostgresLog } from "./postgres.js";
-import type { CommandLog, LogEntry } from "./types.js";
+import { LockHeldError, LockWaitTimeoutError, type CommandLog, type LogEntry } from "./types.js";
 
 const T0 = Date.UTC(2026, 10, 14);
 const entry = (n: number): LogEntry => ({ kind: "ticks", count: n, from: T0, at: T0 + n });
@@ -196,5 +196,74 @@ describe.skipIf(!url)("postgres single-writer lock", () => {
     clearTimeout(timer);
     expect(first.connected).toBe(false);
     await second.close();
+  });
+
+  /** Ends a client the test opened, and stops `afterEach` from ending it again. */
+  const release = (client: pg.Client) => {
+    clients.splice(clients.indexOf(client), 1);
+    return client.end();
+  };
+
+  it("can wait for the lock, reading nothing until it holds it", async () => {
+    const holder = await connect();
+    await PostgresLog.open(holder);
+
+    const queries: string[] = [];
+    const waits: number[] = [];
+    let waiter: pg.Client | undefined;
+    const waiting = PostgresLog.connect(
+      {
+        connect: async () => {
+          waiter = await connect();
+          const client = waiter;
+          return {
+            query: (text: string, params?: unknown[]) => {
+              queries.push(text);
+              return client.query(text, params);
+            },
+          };
+        },
+        disconnect: () => (waiter ? release(waiter) : Promise.resolve()),
+      },
+      { timeoutMs: 10_000, pollMs: 50, reportEveryMs: 200, onWaiting: (ms) => waits.push(ms) },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    // Still waiting: it has only asked for the lock, never read or migrated anything.
+    expect(queries.length).toBeGreaterThan(3);
+    expect(queries.every((q) => q.includes("pg_try_advisory_lock"))).toBe(true);
+    expect(waits[0]).toBeLessThan(50); // reported at once...
+    expect(waits.length).toBeGreaterThanOrEqual(2); // ...and again every reportEveryMs
+
+    await release(holder); // the other process lets go
+    const log = await waiting;
+    // Measured from its first attempt, which follows connecting.
+    expect(log.lockWaitedMs).toBeGreaterThanOrEqual(400);
+    expect(queries.some((q) => q.includes("CREATE TABLE"))).toBe(true);
+    await expect(PostgresLog.open(await connect())).rejects.toThrow(LockHeldError);
+    await log.close();
+  });
+
+  it("gives up waiting after timeoutMs, and closes its connection", async () => {
+    const holder = await connect();
+    await PostgresLog.open(holder);
+    let disconnected = 0;
+    const started = Date.now();
+    await expect(
+      PostgresLog.connect(
+        {
+          connect,
+          disconnect: (client) => {
+            disconnected += 1;
+            return release(client);
+          },
+        },
+        { timeoutMs: 400, pollMs: 100 },
+      ),
+    ).rejects.toThrow(LockWaitTimeoutError);
+    const waited = Date.now() - started;
+    expect(waited).toBeGreaterThanOrEqual(400);
+    expect(waited).toBeLessThan(2_000);
+    expect(disconnected).toBe(1);
+    await release(holder);
   });
 });

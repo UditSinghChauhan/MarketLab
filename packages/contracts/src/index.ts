@@ -250,8 +250,13 @@ export interface EngineStats {
 }
 
 export interface HealthResponse {
-  /** `stopping`: shutting down (answered with 503), so no new traffic should arrive. */
+  /**
+   * `stopping` (answered with 503, so no new traffic should arrive): shutting
+   * down, or another instance has taken over the command log.
+   */
   readonly status: "ok" | "degraded" | "stopping";
+  /** Why the status is not `ok`, when there is more to say. */
+  readonly reason?: string;
   readonly session: number;
   readonly seq: number;
   readonly uptimeS: number;
@@ -267,6 +272,15 @@ export interface HealthResponse {
     readonly snapshotSeq: number;
   };
   readonly engine: EngineStats;
+}
+
+/**
+ * /api/health (always with 503) before the engine is ready: waiting for the
+ * previous instance to release the command log, or replaying it.
+ */
+export interface HealthStarting {
+  readonly status: "starting";
+  readonly reason: string;
 }
 
 // Verified replay -----------------------------------------------------------

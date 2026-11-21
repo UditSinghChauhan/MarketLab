@@ -2,8 +2,10 @@
  * PostgreSQL command log.
  *
  * - One dedicated connection, holding a session-level advisory lock, so only
- *   one engine process can ever write to the log. A second instance fails at
- *   startup instead of corrupting the log.
+ *   one engine process can ever write to the log. A second instance either
+ *   fails at startup or, given a `LockWait`, waits a bounded time for the lock
+ *   (a deploy, docs/adr/0009-deploys-with-a-single-writer.md). It reads nothing
+ *   from the log until it holds the lock.
  * - While nobody uses the exchange, the host suspends the log: the lock is
  *   released and the connection closed, so the database can scale to zero.
  *   The next use reconnects, retakes the lock without waiting, and `resume`
@@ -20,6 +22,7 @@ import { z } from "zod";
 
 import {
   LockHeldError,
+  LockWaitTimeoutError,
   LogHeadMovedError,
   parseEntry,
   type CommandLog,
@@ -85,12 +88,55 @@ const MIGRATION = [
    )`,
 ];
 
-/** Takes the single-writer lock without waiting; throws if another session holds it. */
-async function takeWriterLock(db: Queryable): Promise<void> {
+async function tryWriterLock(db: Queryable): Promise<boolean> {
   const [lock] = await select(db, LockRow, "SELECT pg_try_advisory_lock($1) AS locked", [
     WRITER_LOCK,
   ]);
-  if (!lock?.locked) throw new LockHeldError("Another engine process holds the command-log lock");
+  return lock?.locked === true;
+}
+
+/** Takes the single-writer lock without waiting; throws if another session holds it. */
+async function takeWriterLock(db: Queryable): Promise<void> {
+  if (!(await tryWriterLock(db))) {
+    throw new LockHeldError("Another engine process holds the command-log lock");
+  }
+}
+
+/** How long startup may wait for another process to release the writer lock. */
+export interface LockWait {
+  /** Give up (with `LockWaitTimeoutError`) after this long. */
+  readonly timeoutMs: number;
+  /** Between attempts; default two seconds. */
+  readonly pollMs?: number;
+  /** Between `onWaiting` calls; default thirty seconds. The first call is at once. */
+  readonly reportEveryMs?: number;
+  /** Called while waiting, with the time waited so far. */
+  readonly onWaiting?: (waitedMs: number) => void;
+}
+
+/**
+ * Takes the writer lock, polling with `pg_try_advisory_lock` (never blocking
+ * in the database) until `wait.timeoutMs`. Returns the milliseconds waited.
+ */
+async function acquireWriterLock(db: Queryable, wait: LockWait | undefined): Promise<number> {
+  const started = Date.now();
+  let reportedAt = -Infinity;
+  for (;;) {
+    if (await tryWriterLock(db)) return Date.now() - started;
+    if (!wait) throw new LockHeldError("Another engine process holds the command-log lock");
+    const waited = Date.now() - started;
+    if (waited >= wait.timeoutMs) {
+      throw new LockWaitTimeoutError(
+        `Gave up after waiting ${String(waited)} ms for another engine process to release the command-log lock`,
+      );
+    }
+    if (waited - reportedAt >= (wait.reportEveryMs ?? 30_000)) {
+      reportedAt = waited;
+      wait.onWaiting?.(waited);
+    }
+    const pause = Math.min(wait.pollMs ?? 2_000, wait.timeoutMs - waited);
+    await new Promise((resolve) => setTimeout(resolve, pause));
+  }
 }
 
 export class PostgresLog<C extends Queryable = Queryable> implements CommandLog {
@@ -98,6 +144,8 @@ export class PostgresLog<C extends Queryable = Queryable> implements CommandLog 
   /** True after a reconnect until `resume` has checked the log's head. */
   private headUnchecked = false;
   private connecting: Promise<C> | undefined;
+  /** How long startup waited for the writer lock. */
+  lockWaitedMs = 0;
 
   private constructor(
     private readonly connector: Connector<C>,
@@ -123,19 +171,28 @@ export class PostgresLog<C extends Queryable = Queryable> implements CommandLog 
   /**
    * Opens the log through a connector: suspending releases the lock and
    * closes the connection, and the log connects again when it is next used.
+   * Without `wait`, it fails at once if another process holds the lock.
    */
-  static connect<D extends Queryable>(connector: Connector<D>): Promise<PostgresLog<D>> {
-    return PostgresLog.start(connector, () => Promise.resolve());
+  static connect<D extends Queryable>(
+    connector: Connector<D>,
+    wait?: LockWait,
+  ): Promise<PostgresLog<D>> {
+    return PostgresLog.start(connector, () => Promise.resolve(), wait);
   }
 
-  /** Connects, takes the single-writer lock, migrates the schema and prunes old sessions. */
+  /**
+   * Connects and takes the single-writer lock (waiting for it if allowed);
+   * only then migrates the schema and prunes old sessions.
+   */
   private static async start<D extends Queryable>(
     connector: Connector<D>,
     onClose: () => Promise<void>,
+    wait?: LockWait,
   ): Promise<PostgresLog<D>> {
     const db = await connector.connect();
+    let waitedMs: number;
     try {
-      await takeWriterLock(db);
+      waitedMs = await acquireWriterLock(db, wait);
       for (const statement of MIGRATION) await db.query(statement);
       await db.query(`DELETE FROM sessions WHERE started_at < now() - make_interval(days => $1)`, [
         RETENTION_DAYS,
@@ -144,7 +201,9 @@ export class PostgresLog<C extends Queryable = Queryable> implements CommandLog 
       await connector.disconnect(db);
       throw error;
     }
-    return new PostgresLog(connector, db, onClose);
+    const log = new PostgresLog(connector, db, onClose);
+    log.lockWaitedMs = waitedMs;
+    return log;
   }
 
   get connected(): boolean {

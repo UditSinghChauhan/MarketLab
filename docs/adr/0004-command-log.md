@@ -44,7 +44,8 @@ regenerates them. A busy session is thousands of rows, not millions.
   database.
 - On startup the process takes a session-level PostgreSQL advisory lock. A
   second instance (a bad deploy, two replicas) fails at startup instead of
-  interleaving writes.
+  interleaving writes. (Since ADR 0009 it first waits a bounded time for the
+  lock, as a deploy needs; it still never writes without it.)
 
 ### Ticks are counted, not logged one by one
 
