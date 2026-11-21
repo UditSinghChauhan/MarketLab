@@ -182,9 +182,14 @@ describe.skipIf(!testDatabaseUrl)("persistence failures on PostgreSQL", () => {
     const token = await openGuest(server.base);
 
     // The INSERT of this order's log entry commits; its reply never arrives.
-    const lost = proxy.loseReplyTo('"qty":77');
+    // The proxy withholds the whole reply and resolves only once that reply
+    // shows the commit (INSERT 0 1, then ReadyForQuery, idle).
+    const lost = proxy.loseReplyTo('"qty":77').then(
+      (result) => ({ result }),
+      (error: unknown) => ({ error }),
+    );
     const status = await placeOrder(server.base, token, 77);
-    await lost;
+    expect(await lost).toEqual({ result: { commandTag: "INSERT 0 1" } });
     console.info(`order whose reply was lost: ${String(status)}`);
     expect(status).toBe(503);
     await expectFatalExit(server);
