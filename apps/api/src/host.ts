@@ -112,6 +112,11 @@ export interface HostOptions {
   /** How long without watchers or activity before the host goes idle; default `IDLE_AFTER_MS`. */
   readonly idleAfterMs?: number;
   /**
+   * Guest accounts this session accepts; `openGuest` refuses more with
+   * `GuestLimitError`. Guests already in the log are replayed regardless.
+   */
+  readonly maxGuests?: number;
+  /**
    * Called once if, waking from an idle stretch, the host finds that another
    * process has taken over the log (a deploy, ADR 0009). The host then refuses
    * all work but is not failed: the process should wait to be stopped, not
@@ -129,6 +134,11 @@ export type FinalFlush = "saved" | "owned-elsewhere";
 
 export class HostUnavailableError extends Error {
   override name = "HostUnavailableError";
+}
+
+/** The session already has `maxGuests` guest accounts. */
+export class GuestLimitError extends Error {
+  override name = "GuestLimitError";
 }
 
 /** The most recent engine times of one kind of command, microseconds. */
@@ -485,6 +495,11 @@ export class EngineHost {
     const accountId = `${GUEST_PREFIX}${randomUUID().replaceAll("-", "").slice(0, 16)}`;
     this.lastActivityAt = this.now();
     await this.serial(async () => {
+      // Checked in the queue, so concurrent requests cannot both take the last place.
+      const max = this.options.maxGuests;
+      if (max !== undefined && this.data.humanCount >= max) {
+        throw new GuestLimitError(`The session already has ${String(max)} guests`);
+      }
       await this.maybeFlushTicks(true); // keep the log in application order
       const entry: LogEntry = {
         kind: "open",

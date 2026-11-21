@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { EngineHost, HostUnavailableError } from "./host.js";
+import { EngineHost, GuestLimitError, HostUnavailableError } from "./host.js";
 import { INSTRUMENTS } from "./instruments.js";
 import { MemoryLog } from "./log/memory.js";
 import type { CommandLog } from "./log/types.js";
@@ -114,6 +114,27 @@ describe("engine host", () => {
     const { entries } = await log.openSession(time.now(), Infinity, 1);
     expect(entries.map((e) => e.kind)).toEqual(["open", "ticks", "command"]);
     expect(entries[1]).toMatchObject({ count: 7 });
+  });
+
+  it("refuses guests past maxGuests without logging them; a restart replays every guest logged", async () => {
+    const log = new MemoryLog();
+    const time = clock();
+    const options = { ...hostOptions(log, time.now), maxGuests: 2 };
+    const host = await EngineHost.start(options);
+    const guests = [await host.openGuest(), await host.openGuest()];
+    const seq = host.sequence;
+    const all = Array.from({ length: 3 }, () => host.openGuest());
+    for (const refused of await Promise.allSettled(all)) {
+      expect(refused.status).toBe("rejected");
+      if (refused.status === "rejected") expect(refused.reason).toBeInstanceOf(GuestLimitError);
+    }
+    expect(host.sequence).toBe(seq);
+    expect((await log.readEntries(host.session.id, 0, 100)).length).toBe(seq);
+
+    // The limit lowered between deploys: the guests already in the log are kept.
+    const restarted = await EngineHost.start({ ...options, maxGuests: 1 });
+    for (const guest of guests) expect(restarted.exchange.accounts.has(guest)).toBe(true);
+    await expect(restarted.openGuest()).rejects.toBeInstanceOf(GuestLimitError);
   });
 
   it("reports timing and the events a command caused", async () => {

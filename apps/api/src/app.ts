@@ -31,7 +31,7 @@ import { ZodError } from "zod";
 
 import { issueToken, verifyToken } from "./auth.js";
 import type { Config } from "./config.js";
-import { HostUnavailableError, type EngineHost } from "./host.js";
+import { GuestLimitError, HostUnavailableError, type EngineHost } from "./host.js";
 import type { InstrumentConfig } from "./instruments.js";
 import type { StreamHub } from "./stream.js";
 import { accountView, marketSummary, orderBook } from "./views.js";
@@ -288,6 +288,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     }
     if (error instanceof HostUnavailableError) {
       return reply.status(503).send(errorBody("unavailable", "The exchange is restarting"));
+    }
+    if (error instanceof GuestLimitError) {
+      return reply
+        .status(503)
+        .send(errorBody("demo_full", "The demo is full until the market resets"));
     }
     const status = (error as { statusCode?: number }).statusCode;
     if (status !== undefined && status >= 400 && status < 500) {

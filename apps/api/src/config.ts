@@ -45,6 +45,11 @@ const Env = z.object({
     })
     .optional(),
   /**
+   * Guest accounts one market session accepts. Each costs little by itself;
+   * its orders cost about 0.7 KB of snapshot each (`npm run bench:guests`).
+   */
+  MAX_GUESTS_PER_SESSION: z.coerce.number().int().min(1).default(500),
+  /**
    * Milliseconds without stream clients or activity before the engine goes
    * idle and suspends its log (ADR 0007). Process tests shorten it; leave it
    * at five minutes otherwise.

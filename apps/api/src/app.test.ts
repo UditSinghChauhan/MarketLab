@@ -9,11 +9,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { absoluteLinks, buildApp, redactUrl, withInitialMarkets } from "./app.js";
 import { loadConfig } from "./config.js";
-import type { EngineHost } from "./host.js";
+import { EngineHost } from "./host.js";
 import { INSTRUMENTS } from "./instruments.js";
 import { MemoryLog } from "./log/memory.js";
 import { StreamHub } from "./stream.js";
-import { buy, clock, startHost, testConfig } from "./test/fixtures.js";
+import { buy, clock, hostOptions, startHost, testConfig } from "./test/fixtures.js";
 
 let app: FastifyInstance;
 let host: EngineHost;
@@ -337,6 +337,34 @@ describe("client address", () => {
     expect(logged).toContain("/api/markets"); // the request was logged
     for (const address of ["10.0.0.1", "203.0.113.7", "198.51.100.9"]) {
       expect(logged).not.toContain(address);
+    }
+  });
+});
+
+describe("guest limit", () => {
+  it("answers 503 'the demo is full' once the session has MAX_GUESTS_PER_SESSION guests", async () => {
+    const own = await EngineHost.start({
+      ...hostOptions(new MemoryLog(), clock().now),
+      maxGuests: 2,
+    });
+    const app = await buildApp({
+      config: testConfig(),
+      host: own,
+      hub: new StreamHub(own, INSTRUMENTS),
+      instruments: INSTRUMENTS,
+      persistence: "memory",
+    });
+    try {
+      const open = () => app.inject({ method: "POST", url: "/api/session" });
+      expect((await open()).statusCode).toBe(201);
+      expect((await open()).statusCode).toBe(201);
+      const full = await open();
+      expect(full.statusCode).toBe(503);
+      expect(full.json()).toEqual({
+        error: { code: "demo_full", message: "The demo is full until the market resets" },
+      });
+    } finally {
+      await app.close();
     }
   });
 });
