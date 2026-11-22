@@ -33,7 +33,7 @@ export function ChartPanel({
     <Panel
       title={
         <span className="flex items-baseline gap-2">
-          <span className="text-sm font-semibold text-text">{symbol}</span>
+          <span className="text-sm font-semibold text-text">{symbol}</span>{" "}
           <span>{summary?.name}</span>
         </span>
       }
@@ -59,6 +59,7 @@ export function ChartPanel({
       }
       className="order-1 h-[420px] md:col-span-2 xl:order-none xl:col-span-1 xl:h-auto"
       bodyClassName="flex flex-col"
+      headingLevel={1}
     >
       <div className="flex items-baseline gap-3 px-3 pt-2">
         {summary ? (

@@ -78,6 +78,20 @@ test("every market is one tap away, with its price and change", async ({ page })
   await expect(page.getByRole("button", { name: /Buy 10 HLXB/ })).toBeEnabled();
 });
 
+test("the terminal still fits a phone once there are positions to list", async ({ page }) => {
+  await page.goto("/terminal/ORBT");
+  await page.getByRole("button", { name: /Buy 10 ORBT/ }).click();
+  await expect(page.getByRole("cell", { name: "ORBT", exact: true })).toBeAttached();
+  // The positions table is wider than a phone: it scrolls inside its panel.
+  // Compared with the device's width: on a phone the layout viewport, and with
+  // it innerWidth, grows to fit content that overflows.
+  const device = page.viewportSize()?.width ?? 0;
+  expect(device).toBeGreaterThan(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+    device,
+  );
+});
+
 test("touch screens get no keyboard hints, and the guide says tap", async ({ page }) => {
   await page.goto("/terminal/ORBT");
   await expect(page.getByRole("button", { name: /Buy 10 ORBT/ })).toBeEnabled();
@@ -86,7 +100,7 @@ test("touch screens get no keyboard hints, and the guide says tap", async ({ pag
   await expect(page.getByRole("button", { name: "Keyboard shortcuts" })).toBeHidden();
 
   const guide = page.getByRole("region", { name: "Getting started" });
-  await expect(guide).toContainText("Tap a price in the order book");
+  await expect(guide).toContainText("Tap a sell-side price to set a limit buy");
   await expect(guide).toContainText("Open the inspector to trace your order");
 });
 

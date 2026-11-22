@@ -84,19 +84,23 @@ export function TerminalHeader({
       <div aria-hidden="true" className="flex-1 lg:hidden" />
       <div className="hidden items-center gap-5 text-xs md:flex">
         <Status status={status} exchange={exchange} />
-        {account ? (
-          <div className="text-right leading-tight">
-            <div className="num font-medium">{rupees(account.equity)}</div>
-            <div className={`num ${changeTone(account.pnl)}`}>
-              {signedRupees(account.pnl)} ({pct(account.pnlPct)})
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-col items-end gap-0.5 leading-tight">
-            <SkeletonText sample="₹10,00,000.00" />
-            <SkeletonText sample="₹0.00 (0.00%)" />
-          </div>
-        )}
+        <div role="group" aria-label="Your account">
+          {/* Labels in the loading state too, so nothing moves when the account arrives. */}
+          <dl className="grid grid-cols-[auto_auto] items-baseline gap-x-2 text-right leading-tight">
+            <dt className="text-2xs text-muted">Account value</dt>
+            <dd className="num font-medium">
+              {account ? rupees(account.equity) : <SkeletonText sample="₹10,00,000.00" />}
+            </dd>
+            <dt className="text-2xs text-muted">P&amp;L</dt>
+            <dd className={`num ${account ? changeTone(account.pnl) : ""}`}>
+              {account ? (
+                `${signedRupees(account.pnl)} (${pct(account.pnlPct)})`
+              ) : (
+                <SkeletonText sample="₹0.00 (0.00%)" />
+              )}
+            </dd>
+          </dl>
+        </div>
       </div>
       <Link
         to="/replay"

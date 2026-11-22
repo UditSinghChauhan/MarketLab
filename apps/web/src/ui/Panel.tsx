@@ -7,6 +7,7 @@ export function Panel({
   className = "",
   bodyClassName = "",
   scrollable = false,
+  headingLevel = 2,
 }: {
   title: ReactNode;
   aside?: ReactNode;
@@ -15,17 +16,20 @@ export function Panel({
   bodyClassName?: string;
   /** The body scrolls and has no controls of its own, so it must be reachable by keyboard. */
   scrollable?: boolean;
+  /** 1 for the panel that names the page (the terminal's instrument); 2 otherwise. */
+  headingLevel?: 1 | 2;
 }) {
   const id = useId();
+  const Heading = headingLevel === 1 ? "h1" : "h2";
   return (
     <section
       aria-labelledby={id}
       className={`flex min-h-0 min-w-0 flex-col bg-surface ${className}`}
     >
       <header className="flex h-9 shrink-0 items-center justify-between gap-3 border-b border-line px-3">
-        <h2 id={id} className="text-xs font-medium text-muted">
+        <Heading id={id} className="text-xs font-medium text-muted">
           {title}
-        </h2>
+        </Heading>
         {aside}
       </header>
       <div

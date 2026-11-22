@@ -1,8 +1,29 @@
 import AxeBuilder from "@axe-core/playwright";
+import type { Page } from "@playwright/test";
 
 import { expect, test, trackLayoutShift } from "./fixtures";
 
 const VERIFIED = /Your browser replayed [\d,]+ engine commands and matched the server exactly/;
+
+/**
+ * A side of the book is full: it shows as many levels as fit its half of the
+ * column (whole rows of at least 28 px), or nearly, as a deep book does, and
+ * never more than fit.
+ */
+async function expectFullSide(page: Page, side: "Asks" | "Bids") {
+  const group = page.getByRole("group", { name: side });
+  await expect
+    .poll(() =>
+      group.evaluate((el) => {
+        const fit = Math.min(15, Math.floor(el.clientHeight / 28));
+        const rows = el.children.length;
+        return rows <= fit && rows >= Math.min(fit, 10)
+          ? "full"
+          : `${String(rows)} of ${String(fit)}`;
+      }),
+    )
+    .toBe("full");
+}
 
 test.describe("verified replay", () => {
   test("replays the session in a worker and matches the server's state hash", async ({ page }) => {
@@ -11,7 +32,8 @@ test.describe("verified replay", () => {
     await expect(page.getByText(/State hash [0-9a-f]{16} after log entry [\d,]+/)).toBeVisible();
 
     // The market shown was rebuilt here: a two-sided book, a chart and a tape.
-    await expect(page.getByRole("group", { name: "Asks" }).locator("> *")).toHaveCount(12);
+    await expectFullSide(page, "Asks");
+    await expectFullSide(page, "Bids");
     await expect(page.getByRole("img", { name: /Price chart/ })).toBeVisible();
     await expect(
       page.getByRole("table", { name: "Recent trades" }).getByRole("row"),
@@ -47,7 +69,7 @@ test.describe("verified replay", () => {
 
     // The middle of the session has a full book again.
     await slider.fill(String(Math.floor(max / 2)));
-    await expect(page.getByRole("group", { name: "Bids" }).locator("> *")).toHaveCount(12);
+    await expectFullSide(page, "Bids");
     await expect(page.getByText(/^Showing \d\d:\d\d:\d\d$/)).toBeVisible();
 
     // Play moves the timeline on its own; pause stops it.
@@ -95,9 +117,7 @@ test.describe("verified replay", () => {
     await expect(page.getByText(VERIFIED)).toBeVisible();
   });
 
-  test("has no serious accessibility violations and does not shift while loading", async ({
-    page,
-  }) => {
+  test("has no accessibility violations and does not shift while loading", async ({ page }) => {
     const shift = await trackLayoutShift(page);
     await page.goto("/replay");
     await expect(page.getByText(VERIFIED)).toBeVisible();
@@ -106,9 +126,7 @@ test.describe("verified replay", () => {
 
     const { violations } = await new AxeBuilder({ page }).analyze();
     expect(
-      violations
-        .filter((v) => v.impact === "serious" || v.impact === "critical")
-        .map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`),
+      violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`),
     ).toEqual([]);
   });
 });

@@ -75,13 +75,29 @@ function respond(status: number, body: unknown) {
   fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(body), { status }));
 }
 
-function setup(prefill: Prefill | null = null) {
+const holding: AccountView = {
+  ...account,
+  positions: [
+    {
+      symbol: "ORBT",
+      qty: 50,
+      reserved: 10,
+      avgPrice: "1240.50",
+      last: "1250.00",
+      marketValue: "62500.00",
+      unrealizedPnl: "475.00",
+      realizedPnl: "0.00",
+    },
+  ],
+};
+
+function setup(prefill: Prefill | null = null, withAccount: AccountView = account) {
   const onResult = vi.fn();
   const user = userEvent.setup();
   const view = render(
     <OrderTicket
       market={market}
-      account={account}
+      account={withAccount}
       token="t"
       prefill={prefill}
       onResult={onResult}
@@ -89,6 +105,9 @@ function setup(prefill: Prefill | null = null) {
   );
   return { user, onResult, view };
 }
+
+const shares = () => screen.getByRole("textbox", { name: /Shares/ });
+const placeButton = () => screen.getByRole("button", { name: /^(Buy|Sell)\b/ });
 
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
@@ -278,16 +297,124 @@ describe("OrderTicket", () => {
     expect(screen.getByRole("radio", { name: /Buy/ })).toHaveAttribute("aria-checked", "true");
   });
 
-  it("shows the shared schema's message instead of sending an invalid order", async () => {
-    const { user } = setup();
-    await user.keyboard("l");
-    await user.click(screen.getByRole("button", { name: /Buy 10 ORBT/ }));
-    expect(await screen.findByText("Enter a rupee amount like 1250.05")).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+  describe("checks each field as it is typed", () => {
+    it("asks for a missing limit price, and can't be placed until it has one", async () => {
+      const { user } = setup();
+      await user.keyboard("l");
+      expect(screen.getByText("Enter a limit price.")).toBeInTheDocument();
+      // A hint, not an error: nothing has been typed wrong yet.
+      expect(screen.getByRole("textbox", { name: /Limit price/ })).not.toHaveAttribute(
+        "aria-invalid",
+      );
+      expect(placeButton()).toBeDisabled();
+      await user.keyboard("{Enter}");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("names the two nearest valid prices for an off-tick price", async () => {
+      const { user } = setup();
+      await user.keyboard("l");
+      const input = screen.getByRole("textbox", { name: /Limit price/ });
+      await user.type(input, "1250.07");
+      expect(input).toHaveAttribute("aria-invalid", "true");
+      expect(input).toHaveAccessibleDescription(
+        "Prices move in steps of ₹0.05. The nearest are ₹1,250.05 and ₹1,250.10.",
+      );
+      expect(placeButton()).toBeDisabled();
+      await user.clear(input);
+      await user.type(input, "1250.10");
+      expect(input).not.toHaveAttribute("aria-invalid");
+      expect(placeButton()).toBeEnabled();
+    });
+
+    it.each([
+      ["", "Enter a number of shares."],
+      ["0", "Enter at least 1 share."],
+    ])("never offers to buy zero shares: %j reads “Buy ORBT”", async (typed, message) => {
+      const { user } = setup();
+      await user.clear(shares());
+      if (typed) await user.type(shares(), typed);
+      expect(placeButton()).toHaveAccessibleName(/^Buy ORBT\s*Enter$/);
+      expect(placeButton()).toBeDisabled();
+      expect(shares()).toHaveAccessibleDescription(message);
+    });
+
+    it("caps one order at 1,00,000 shares, in the app's number format", async () => {
+      const { user } = setup();
+      await user.clear(shares());
+      await user.type(shares(), "100001");
+      expect(shares()).toHaveAccessibleDescription("One order can be at most 1,00,000 shares.");
+      expect(placeButton()).toBeDisabled();
+    });
+
+    it("blocks a buy the available cash can't cover, and says how many shares fit", async () => {
+      const { user } = setup();
+      await user.click(screen.getByRole("button", { name: /Best ask/ }));
+      await user.clear(shares());
+      await user.type(shares(), "1000");
+      expect(shares()).toHaveAccessibleDescription(
+        "That costs ₹12,50,050.00, more than your ₹10,00,000.00 cash. Up to 799 shares fit.",
+      );
+      expect(placeButton()).toBeDisabled();
+    });
+
+    it("blocks selling shares the account doesn't hold, before anything is sent", async () => {
+      const { user } = setup();
+      await user.keyboard("s");
+      expect(shares()).toHaveAccessibleDescription("You have no ORBT to sell.");
+      expect(placeButton()).toBeDisabled();
+      await user.keyboard("{Enter}");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("counts only shares not already promised to open sell orders", async () => {
+      const { user } = setup(null, holding);
+      await user.keyboard("s");
+      expect(placeButton()).toBeEnabled(); // 10 of the 40 sellable
+      await user.clear(shares());
+      await user.type(shares(), "41");
+      expect(shares()).toHaveAccessibleDescription("You can sell up to 40 ORBT.");
+      expect(placeButton()).toBeDisabled();
+    });
   });
 
-  it("explains an engine rejection", async () => {
-    const { user } = setup();
+  it("shows the holding in this market, with its average price", () => {
+    setup(null, holding);
+    expect(screen.getByText(/You hold/)).toHaveTextContent("You hold 50 ORBT at avg ₹1,240.50");
+  });
+
+  it("shows no holding line without a position", () => {
+    setup();
+    expect(screen.queryByText(/You hold/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["the side", async (user: ReturnType<typeof userEvent.setup>) => user.keyboard("s")],
+    ["the type", async (user: ReturnType<typeof userEvent.setup>) => user.keyboard("l")],
+    [
+      "the quantity",
+      async (user: ReturnType<typeof userEvent.setup>) => {
+        await user.type(shares(), "0");
+      },
+    ],
+    [
+      "the price",
+      async (user: ReturnType<typeof userEvent.setup>) => {
+        await user.click(screen.getByRole("button", { name: /Best bid/ }));
+      },
+    ],
+  ])("clears the last order's outcome when %s changes", async (_name, change) => {
+    const { user } = setup(null, holding);
+    respond(201, accepted);
+    await user.click(placeButton());
+    expect(await screen.findByText("Bought 10 ORBT")).toBeInTheDocument();
+    await change(user);
+    expect(screen.queryByText("Bought 10 ORBT")).not.toBeInTheDocument();
+  });
+
+  it("still explains a rejection the exchange makes after the checks passed (a race)", async () => {
+    // The ticket saw 40 sellable shares; by the time the order arrived, they were gone.
+    const { user } = setup(null, holding);
     respond(422, {
       ...accepted,
       ok: false,

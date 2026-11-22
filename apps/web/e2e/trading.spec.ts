@@ -56,13 +56,43 @@ test.describe("terminal", () => {
     await expect(row.getByText("Cancelled")).toBeVisible();
   });
 
-  test("explains a rejected order", async ({ page }) => {
+  test("checks the ticket as it is typed, and won't send an order the exchange would refuse", async ({
+    page,
+  }) => {
     await page.goto("/terminal/HLXB");
     // Wait for the ticket before typing, as a person would.
     await expect(page.getByRole("button", { name: /Buy 10 HLXB/ })).toBeEnabled();
+    let sent = 0;
+    page.on("request", (request) => {
+      if (request.method() === "POST" && request.url().endsWith("/api/orders")) sent += 1;
+    });
+
+    // Selling shares not held.
     await page.keyboard.press("s");
-    await page.getByRole("button", { name: /Sell 10 HLXB/ }).click();
-    await expect(page.getByText("You don't hold enough shares to sell that many.")).toBeVisible();
+    const shares = page.getByRole("textbox", { name: "Shares" });
+    await expect(shares).toHaveAccessibleDescription("You have no HLXB to sell.");
+    await expect(page.getByRole("button", { name: /Sell 10 HLXB/ })).toBeDisabled();
+    await page.keyboard.press("Enter");
+
+    // An off-tick price, then a quantity over the limit.
+    await page.keyboard.press("b");
+    await page.keyboard.press("l");
+    const limit = page.getByRole("textbox", { name: /Limit price/ });
+    await limit.fill("2000.03");
+    await expect(limit).toHaveAccessibleDescription(
+      "Prices move in steps of ₹0.05. The nearest are ₹2,000.00 and ₹2,000.05.",
+    );
+    await limit.fill("2000.05");
+    await shares.fill("100001");
+    await expect(shares).toHaveAccessibleDescription("One order can be at most 1,00,000 shares.");
+    await shares.fill("");
+    await expect(page.getByRole("button", { name: /^Buy HLXB/ })).toBeDisabled();
+    expect(sent).toBe(0);
+
+    await shares.fill("1");
+    await page.getByRole("button", { name: /Buy 1 HLXB/ }).click();
+    await expect(page.getByText(/^(Bought 1 HLXB|Limit order placed for HLXB)$/)).toBeVisible();
+    expect(sent).toBe(1);
   });
 
   test("switches markets from the top bar", async ({ page }) => {
@@ -97,8 +127,10 @@ test.describe("terminal", () => {
   test("redirects an unknown market and serves a 404 page for unknown routes", async ({ page }) => {
     await page.goto("/terminal/NOPE");
     await expect(page).toHaveURL(/\/terminal\/ORBT$/);
-    await page.goto("/no-such-page");
+    const response = await page.goto("/no-such-page");
+    expect(response?.status()).toBe(404);
     await expect(page.getByRole("heading", { name: "This page doesn't exist" })).toBeVisible();
+    await expect(page).toHaveTitle("Page not found · MarketLab");
   });
 });
 

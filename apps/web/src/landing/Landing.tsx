@@ -3,7 +3,17 @@ import { Link } from "react-router";
 
 import { duration, qty } from "../lib/format";
 import { useExchange } from "../lib/health";
-import { DECISIONS, EMAIL, GITHUB, LINKEDIN, REPO } from "../lib/links";
+import {
+  BENCHMARKS,
+  COMMAND_LOG_ADR,
+  DECISIONS,
+  EMAIL,
+  GITHUB,
+  HEALTH,
+  LINKEDIN,
+  REPO,
+  STREAM_SOURCE,
+} from "../lib/links";
 import { prefetchOnIntent, prefetchWhenIdle } from "../lib/routes";
 import { Logo } from "../ui/Logo";
 import { Architecture } from "./Architecture";
@@ -46,7 +56,9 @@ export function Landing() {
       </header>
 
       <main>
-        <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-24 pt-12 lg:grid-cols-[minmax(0,1fr)_440px] lg:pt-20">
+        {/* The row is at least as tall as the hero card showing the book (508 px), so the
+            page below stays put when the card shortens to an order's trace. */}
+        <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-24 pt-12 lg:grid-cols-[minmax(0,1fr)_440px] lg:grid-rows-[minmax(32rem,auto)] lg:pt-20">
           <div>
             <h1 className="max-w-[16ch] text-3xl font-semibold leading-[1.05] tracking-[-0.035em] sm:text-4xl">
               A stock exchange you can watch work.
@@ -71,9 +83,10 @@ export function Landing() {
                 Read the source
               </a>
             </div>
-            <dl className="mt-12 grid max-w-lg grid-cols-3 gap-6 border-t border-line pt-6">
+            {/* Two shared rows (labels, values), so the values sit on one baseline however the labels wrap. */}
+            <dl className="mt-12 grid max-w-lg grid-cols-3 grid-rows-[auto_auto] gap-x-6 gap-y-1 border-t border-line pt-6">
               <Stat
-                label="Engine time per bot command (median)"
+                label="Bot command, median"
                 value={h ? duration(h.engine.bots.p50Us) : "—"}
                 note="The simulated traders' commands: mostly quotes and cancels that never trade. A visitor's own order takes longer; the engine inspector shows both."
               />
@@ -124,6 +137,7 @@ export function Landing() {
             <Feature
               title="A deterministic engine"
               fact="About 700,000 commands a second on one core"
+              evidence={BENCHMARKS}
             >
               The engine reads no clock and no random numbers, so the same inputs always produce the
               same trades. Any bug can be replayed exactly, and the simulated traders reproduce from
@@ -136,6 +150,7 @@ export function Landing() {
                   ? `Last start replayed ${qty(h.replay.entries)} log entries in ${String(h.replay.ms)} ms`
                   : "Replays its log on every start"
               }
+              evidence={COMMAND_LOG_ADR}
             >
               Each order is stored in Postgres before the engine sees it. On restart the server
               replays the log and arrives at exactly the same state. One writer holds a database
@@ -148,6 +163,7 @@ export function Landing() {
                   ? `${String(h.invariantViolations)} violations right now`
                   : "Audited on every health check"
               }
+              evidence={HEALTH}
             >
               Cash and shares are integers of paise and shares, never floats. Property-based tests
               throw thousands of random orders at the engine and check, after every one, that no
@@ -156,6 +172,7 @@ export function Landing() {
             <Feature
               title="One live connection per screen"
               fact="At most four book updates a second per viewer"
+              evidence={STREAM_SOURCE}
             >
               Prices, trades and your own fills stream over server-sent events. Bursts of engine
               activity are merged into single book snapshots, and a viewer that falls behind is
@@ -245,9 +262,9 @@ export function Landing() {
 
 function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
-    <div title={note}>
-      <dt className="text-xs text-muted">{label}</dt>
-      <dd className="num mt-1 text-xl font-semibold tracking-[-0.02em]">{value}</dd>
+    <div title={note} className="row-span-2 grid grid-rows-subgrid">
+      <dt className="self-end text-xs text-muted">{label}</dt>
+      <dd className="num text-xl font-semibold tracking-[-0.02em]">{value}</dd>
     </div>
   );
 }
@@ -261,12 +278,30 @@ function Rule({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Feature({ title, fact, children }: { title: string; fact: string; children: ReactNode }) {
+/** A claim and, under it, the fact that backs it, linked to where it can be checked. */
+function Feature({
+  title,
+  fact,
+  evidence,
+  children,
+}: {
+  title: string;
+  fact: string;
+  evidence: string;
+  children: ReactNode;
+}) {
   return (
     <article className="flex flex-col bg-surface p-7">
       <h3 className="font-semibold">{title}</h3>
       <p className="mt-3 flex-1 text-sm leading-relaxed text-muted">{children}</p>
-      <p className="num mt-6 border-t border-line pt-4 text-sm text-accent">{fact}</p>
+      <p className="mt-6 border-t border-line pt-4 text-sm">
+        <a
+          href={evidence}
+          className="num text-accent underline decoration-accent/40 underline-offset-4 hover:decoration-accent"
+        >
+          {fact}
+        </a>
+      </p>
     </article>
   );
 }

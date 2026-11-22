@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from "react-router";
 
 import { Landing } from "./landing/Landing";
@@ -40,6 +40,13 @@ function Pages() {
 }
 
 function NotFound() {
+  useEffect(() => {
+    const previous = document.title;
+    document.title = "Page not found · MarketLab";
+    return () => {
+      document.title = previous;
+    };
+  }, []);
   return (
     <main className="grid min-h-dvh place-items-center px-6">
       <div className="max-w-sm text-center">

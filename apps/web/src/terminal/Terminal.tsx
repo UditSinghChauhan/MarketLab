@@ -11,7 +11,7 @@ import { Panel } from "../ui/Panel";
 import { useAfterFirstPaint } from "../ui/useAfterFirstPaint";
 import { Blotter } from "./Blotter";
 import { ChartPanel } from "./ChartPanel";
-import { Guide, useGuide } from "./Guide";
+import { Guide, stepsDoneBy, useGuide } from "./Guide";
 import { Inspector } from "./Inspector";
 import { MarketStrip } from "./MarketStrip";
 import { SYMBOLS } from "./markets";
@@ -96,7 +96,7 @@ function Terminal({ symbol }: { symbol: string }) {
   const onResult = (result: CommandResult) => {
     markOwn(result.events);
     if (result.orderId) setInspected(result.orderId);
-    if (result.ok) completeStep("order");
+    for (const step of stepsDoneBy(result, prefill)) completeStep(step);
     void queryClient.invalidateQueries({ queryKey: ["orders"] });
   };
 
@@ -196,15 +196,16 @@ function Terminal({ symbol }: { symbol: string }) {
             myPrices={myPrices}
             onPick={(p, side) => {
               setPrefill({ price: p, side, nonce: Date.now() });
-              completeStep("price");
             }}
           />
         </Panel>
 
+        {/* At xl the panel has a fixed height: a size container, so the ticket can tell
+            whether it has room for its optional holding line. */}
         <Panel
           title="Place an order"
           className="order-2 xl:order-none"
-          bodyClassName="overflow-y-auto"
+          bodyClassName="overflow-y-auto xl:[container-type:size]"
         >
           <OrderTicket
             key={symbol}
@@ -216,7 +217,8 @@ function Terminal({ symbol }: { symbol: string }) {
           />
         </Panel>
 
-        <div className="order-5 flex h-[320px] md:col-span-2 xl:order-none xl:col-span-1 xl:col-start-1 xl:row-start-2 xl:h-auto">
+        {/* min-w-0: the positions table scrolls inside its panel, never widening the page. */}
+        <div className="order-5 flex h-[320px] min-w-0 md:col-span-2 xl:order-none xl:col-span-1 xl:col-start-1 xl:row-start-2 xl:h-auto">
           <Blotter
             account={account}
             orders={orderList}
