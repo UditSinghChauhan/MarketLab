@@ -62,7 +62,8 @@ export function Inspector({
         }
       }}
     >
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-line px-4">
+      {/* A div, not a header: inside a dialog a header would be a second page banner. */}
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-line px-4">
         <div>
           <h2 className="text-sm font-semibold">Engine inspector</h2>
           <p className="text-xs text-muted">What happened to your order, step by step</p>
@@ -75,7 +76,7 @@ export function Inspector({
         >
           Close <Kbd>I</Kbd>
         </button>
-      </header>
+      </div>
 
       {orders.length === 0 ? (
         <div className="p-5 text-sm leading-relaxed text-muted">

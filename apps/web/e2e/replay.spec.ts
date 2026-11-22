@@ -95,9 +95,7 @@ test.describe("verified replay", () => {
     await expect(page.getByText(VERIFIED)).toBeVisible();
   });
 
-  test("has no serious accessibility violations and does not shift while loading", async ({
-    page,
-  }) => {
+  test("has no accessibility violations and does not shift while loading", async ({ page }) => {
     const shift = await trackLayoutShift(page);
     await page.goto("/replay");
     await expect(page.getByText(VERIFIED)).toBeVisible();
@@ -106,9 +104,7 @@ test.describe("verified replay", () => {
 
     const { violations } = await new AxeBuilder({ page }).analyze();
     expect(
-      violations
-        .filter((v) => v.impact === "serious" || v.impact === "critical")
-        .map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`),
+      violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`),
     ).toEqual([]);
   });
 });

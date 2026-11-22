@@ -165,6 +165,8 @@ export function Replay() {
           <LogoMark className="size-5 text-muted" />
           <span className="hidden sm:inline">MarketLab</span>
         </Link>
+        {/* The verdict under the header says what this page is; this names it for screen readers. */}
+        <h1 className="sr-only">Verified replay</h1>
         <nav
           ref={attachTabs}
           style={tabsFade}
@@ -209,8 +211,7 @@ export function Replay() {
         <Panel
           title={
             <span className="flex items-baseline gap-2">
-              <span className="text-sm font-semibold text-text">{symbol}</span>
-              <span>{name}</span>
+              <span className="text-sm font-semibold text-text">{symbol}</span> <span>{name}</span>
             </span>
           }
           aside={
