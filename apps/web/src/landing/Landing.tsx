@@ -3,7 +3,17 @@ import { Link } from "react-router";
 
 import { duration, qty } from "../lib/format";
 import { useExchange } from "../lib/health";
-import { DECISIONS, EMAIL, GITHUB, LINKEDIN, REPO } from "../lib/links";
+import {
+  BENCHMARKS,
+  COMMAND_LOG_ADR,
+  DECISIONS,
+  EMAIL,
+  GITHUB,
+  HEALTH,
+  LINKEDIN,
+  REPO,
+  STREAM_SOURCE,
+} from "../lib/links";
 import { prefetchOnIntent, prefetchWhenIdle } from "../lib/routes";
 import { Logo } from "../ui/Logo";
 import { Architecture } from "./Architecture";
@@ -124,6 +134,7 @@ export function Landing() {
             <Feature
               title="A deterministic engine"
               fact="About 700,000 commands a second on one core"
+              evidence={BENCHMARKS}
             >
               The engine reads no clock and no random numbers, so the same inputs always produce the
               same trades. Any bug can be replayed exactly, and the simulated traders reproduce from
@@ -136,6 +147,7 @@ export function Landing() {
                   ? `Last start replayed ${qty(h.replay.entries)} log entries in ${String(h.replay.ms)} ms`
                   : "Replays its log on every start"
               }
+              evidence={COMMAND_LOG_ADR}
             >
               Each order is stored in Postgres before the engine sees it. On restart the server
               replays the log and arrives at exactly the same state. One writer holds a database
@@ -148,6 +160,7 @@ export function Landing() {
                   ? `${String(h.invariantViolations)} violations right now`
                   : "Audited on every health check"
               }
+              evidence={HEALTH}
             >
               Cash and shares are integers of paise and shares, never floats. Property-based tests
               throw thousands of random orders at the engine and check, after every one, that no
@@ -156,6 +169,7 @@ export function Landing() {
             <Feature
               title="One live connection per screen"
               fact="At most four book updates a second per viewer"
+              evidence={STREAM_SOURCE}
             >
               Prices, trades and your own fills stream over server-sent events. Bursts of engine
               activity are merged into single book snapshots, and a viewer that falls behind is
@@ -261,12 +275,30 @@ function Rule({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Feature({ title, fact, children }: { title: string; fact: string; children: ReactNode }) {
+/** A claim and, under it, the fact that backs it, linked to where it can be checked. */
+function Feature({
+  title,
+  fact,
+  evidence,
+  children,
+}: {
+  title: string;
+  fact: string;
+  evidence: string;
+  children: ReactNode;
+}) {
   return (
     <article className="flex flex-col bg-surface p-7">
       <h3 className="font-semibold">{title}</h3>
       <p className="mt-3 flex-1 text-sm leading-relaxed text-muted">{children}</p>
-      <p className="num mt-6 border-t border-line pt-4 text-sm text-accent">{fact}</p>
+      <p className="mt-6 border-t border-line pt-4 text-sm">
+        <a
+          href={evidence}
+          className="num text-accent underline decoration-accent/40 underline-offset-4 hover:decoration-accent"
+        >
+          {fact}
+        </a>
+      </p>
     </article>
   );
 }

@@ -121,8 +121,10 @@ smoke test of the built server against Postgres (health, JSON 404, deep links,
 headers, compression, restart from a snapshot, exit when the log is
 unwritable), and Playwright on every pull request.
 
-**Engine time, and what each number measures.** All of these time
-`Exchange.submit` alone, the matching engine's work for one command.
+### Engine time, and what each number measures
+
+All of these time `Exchange.submit` alone, the matching engine's work for one
+command.
 
 | Measured                                                                          | Median     | Where                                                              |
 | --------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------ |
