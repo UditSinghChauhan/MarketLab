@@ -217,7 +217,8 @@ function Terminal({ symbol }: { symbol: string }) {
           />
         </Panel>
 
-        <div className="order-5 flex h-[320px] md:col-span-2 xl:order-none xl:col-span-1 xl:col-start-1 xl:row-start-2 xl:h-auto">
+        {/* min-w-0: the positions table scrolls inside its panel, never widening the page. */}
+        <div className="order-5 flex h-[320px] min-w-0 md:col-span-2 xl:order-none xl:col-span-1 xl:col-start-1 xl:row-start-2 xl:h-auto">
           <Blotter
             account={account}
             orders={orderList}

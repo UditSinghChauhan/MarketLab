@@ -34,7 +34,8 @@ export function Blotter({
   const open = orders.filter((o) => o.status === "resting" || o.status === "pending_stop").length;
 
   return (
-    <section aria-label="Account" className="flex min-h-0 flex-1 flex-col bg-surface">
+    // min-w-0: the tables scroll sideways inside it on a phone instead of widening the page.
+    <section aria-label="Account" className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface">
       <div
         role="tablist"
         aria-label="Account views"
