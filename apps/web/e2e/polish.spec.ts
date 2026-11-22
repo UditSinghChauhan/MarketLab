@@ -218,13 +218,81 @@ test.describe("keyboard", () => {
   });
 });
 
+test.describe("keyboard: the order book", () => {
+  test("is one tab stop on the way to the ticket; arrows move, Enter uses the price", async ({
+    page,
+  }) => {
+    await page.goto("/terminal/ORBT");
+    await expect(page.getByRole("button", { name: /Buy 10 ORBT/ })).toBeEnabled();
+    const ticket = page.getByRole("region", { name: "Place an order" });
+    const focused = () =>
+      page.evaluate(() => {
+        const el = document.activeElement;
+        const section = el?.closest("section");
+        return {
+          name: el?.getAttribute("aria-label") ?? el?.textContent.trim() ?? "",
+          inTicket: section?.querySelector("h2")?.textContent === "Place an order",
+        };
+      });
+
+    // From the top of the page, every tab stop up to the ticket: the book is one of them.
+    const stops: string[] = [];
+    for (let presses = 0; presses < 20; presses++) {
+      await page.keyboard.press("Tab");
+      const now = await focused();
+      if (now.inTicket) break;
+      stops.push(now.name);
+    }
+    await expect(ticket.getByRole("radio", { name: /Buy/ })).toBeFocused();
+    expect(stops.filter((s) => /^(Ask|Bid) ₹/.test(s))).toHaveLength(1);
+    expect(stops.length).toBeLessThanOrEqual(13);
+
+    // Back into the book: it starts on the best ask.
+    await page.keyboard.press("Shift+Tab");
+    expect((await focused()).name).toMatch(
+      /^Ask ₹[\d,]+\.\d\d, [\d,]+ shares?, [\d,]+ total(, including your order)?\. Use this price\.$/,
+    );
+    await page.keyboard.press("ArrowUp");
+    expect((await focused()).name).toMatch(/^Ask ₹/);
+    await page.keyboard.press("End");
+    expect((await focused()).name).toMatch(/^Bid ₹/);
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowDown");
+    expect((await focused()).name).toMatch(/^Bid ₹/);
+
+    // Enter uses the bid's price: a limit sell, and the ticket is one Tab away.
+    await page.keyboard.press("Enter");
+    await expect(ticket.getByRole("radio", { name: /Sell/ })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await expect(ticket.getByRole("textbox", { name: /Limit price/ })).toHaveValue(/^\d+\.\d{2}$/);
+    await page.keyboard.press("Tab");
+    await expect(ticket.getByRole("radio", { name: /Buy/ })).toBeFocused();
+  });
+});
+
 test.describe("accessibility (axe)", () => {
+  // Every rule, whatever its impact.
   const audit = async (page: import("@playwright/test").Page) => {
     const { violations } = await new AxeBuilder({ page }).analyze();
-    return violations
-      .filter((v) => v.impact === "serious" || v.impact === "critical")
-      .map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`);
+    return violations.map(
+      (v) =>
+        `${v.id} (${String(v.impact)}): ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`,
+    );
   };
+
+  test("replay page", async ({ page }) => {
+    await page.goto("/replay");
+    await expect(page.getByText(/Your browser replayed [\d,]+ engine commands/)).toBeVisible();
+    expect(await audit(page)).toEqual([]);
+  });
+
+  test("404 page", async ({ page }) => {
+    await page.goto("/no-such-page");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("This page doesn't exist");
+    expect(await audit(page)).toEqual([]);
+  });
 
   test("landing page", async ({ page }) => {
     await page.goto("/");
