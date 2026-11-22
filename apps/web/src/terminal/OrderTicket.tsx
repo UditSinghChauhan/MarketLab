@@ -1,7 +1,9 @@
 /**
  * Order ticket, mounted once per symbol (its parent keys it by symbol, so
- * switching markets starts a clean ticket). Validation uses the same zod schema the server enforces, so a
- * message shown here is exactly the rule the API applies.
+ * switching markets starts a clean ticket). Each field is checked as it is
+ * typed, with the exchange's own rules (lib/orderChecks), and the order can't
+ * be placed until they pass. The shared zod schema still guards the request,
+ * and the exchange's answer is shown for whatever changed in between.
  *
  * Keyboard: B / S choose the side, M / L / T the order type, Enter places the
  * order, Esc clears it. Up / Down in a price field moves one tick.
@@ -19,6 +21,7 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { ApiRequestError, api } from "../lib/api";
 import { price as fmtPrice, qty as fmtQty, rupees, stepPrice } from "../lib/format";
+import { checkOrder, type FieldIssue } from "../lib/orderChecks";
 import {
   UNCONFIRMED_ORDER,
   confirmation,
@@ -74,7 +77,6 @@ export function OrderTicket({
   const [qty, setQty] = useState("10");
   const [limit, setLimit] = useState("");
   const [stop, setStop] = useState("");
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [pending, setPending] = useState(false);
   const clientOrderIds = useClientOrderId();
@@ -90,15 +92,22 @@ export function OrderTicket({
       setSide(prefill.side);
       setType("limit");
       setLimit(prefill.price);
-      setErrors({});
     }
+  }
+
+  // The last order's outcome describes that order: once the side, type,
+  // quantity or price changes, it no longer applies to what is on screen.
+  const draftKey = [side, type, qty, limit, stop].join("|");
+  const [feedbackFor, setFeedbackFor] = useState(draftKey);
+  if (feedbackFor !== draftKey) {
+    setFeedbackFor(draftKey);
+    setFeedback(null);
   }
 
   const reset = () => {
     setQty("10");
     setLimit("");
     setStop("");
-    setErrors({});
     setFeedback(null);
   };
 
@@ -140,25 +149,23 @@ export function OrderTicket({
     };
   }, []);
 
-  const reference =
-    type === "limit"
-      ? limit
-      : type === "stop"
-        ? stop
-        : side === "buy"
-          ? (market?.ask ?? null)
-          : (market?.bid ?? null);
-  const shares = Number(qty);
-  const estimate =
-    reference && Number.isInteger(shares) && shares > 0
-      ? (Number(reference) * shares).toFixed(2)
-      : null;
   const position = account?.positions.find((p) => p.symbol === symbol);
   const sellable = position ? position.qty - position.reserved : 0;
+  const check = checkOrder(
+    { side, type, qty, price: type === "stop" ? stop : limit },
+    {
+      symbol,
+      tick,
+      marketPrice: (side === "buy" ? market?.ask : market?.bid) ?? null,
+      cash: account?.cash.available ?? null,
+      sellable: account ? sellable : null,
+    },
+  );
+  const { shares } = check;
 
   const submit = async (event: { preventDefault: () => void }) => {
     event.preventDefault();
-    if (pending || !token || !market) return;
+    if (pending || !token || !market || !check.ok || shares === null) return;
     const parsed = PlaceOrderRequest.safeParse({
       symbol,
       side,
@@ -168,10 +175,10 @@ export function OrderTicket({
       ...(type === "stop" ? { stopPrice: stop.trim() } : {}),
     });
     if (!parsed.success) {
-      setErrors(Object.fromEntries(parsed.error.issues.map((i) => [String(i.path[0]), i.message])));
+      // Unreachable while orderChecks agrees with the schema (its tests hold it to that).
+      setFeedback({ tone: "error", text: parsed.error.issues[0]?.message ?? "Check the order." });
       return;
     }
-    setErrors({});
     setPending(true);
     try {
       const result = await api<CommandResult>("/api/orders", {
@@ -216,7 +223,14 @@ export function OrderTicket({
         {label}
         <span className="num">Tick {fmtPrice(tick)}</span>
       </span>
-      <div className="flex h-9 items-center rounded-md border border-line bg-bg focus-within:border-accent">
+      <div
+        // An error stays red while it is being fixed; focus then thickens the edge.
+        className={`flex h-9 items-center rounded-md border bg-bg ${
+          check.price?.tone === "error"
+            ? "border-ask focus-within:ring-1 focus-within:ring-ask"
+            : "border-line focus-within:border-accent"
+        }`}
+      >
         <span className="pl-3 text-sm text-muted">₹</span>
         <input
           name={name}
@@ -235,16 +249,11 @@ export function OrderTicket({
             }
             if (e.key === "Escape") (e.target as HTMLInputElement).blur();
           }}
-          aria-invalid={errors[name] ? true : undefined}
-          aria-describedby={errors[name] ? `${id}-${name}` : undefined}
+          {...fieldAria(check.price, `${id}-${name}`)}
           className="num h-full w-full bg-transparent px-2 text-sm outline-none"
         />
       </div>
-      {errors[name] && (
-        <span id={`${id}-${name}`} className="mt-1 block text-xs text-ask">
-          {errors[name]}
-        </span>
-      )}
+      <FieldNote issue={check.price} id={`${id}-${name}`} />
     </label>
   );
 
@@ -252,7 +261,7 @@ export function OrderTicket({
     <form
       ref={formRef}
       onSubmit={(e) => void submit(e)}
-      className="flex min-h-full flex-col gap-3 p-3"
+      className="flex flex-col gap-3 p-3"
       noValidate
     >
       <div
@@ -334,15 +343,14 @@ export function OrderTicket({
           onChange={(e) => {
             setQty(e.target.value.replace(/\D/g, ""));
           }}
-          aria-invalid={errors.qty ? true : undefined}
-          aria-describedby={errors.qty ? `${id}-qty` : undefined}
-          className="num h-9 w-full rounded-md border border-line bg-bg px-3 text-sm outline-none focus:border-accent"
+          {...fieldAria(check.qty, `${id}-qty`)}
+          className={`num h-9 w-full rounded-md border bg-bg px-3 text-sm outline-none ${
+            check.qty?.tone === "error"
+              ? "border-ask focus:ring-1 focus:ring-ask"
+              : "border-line focus:border-accent"
+          }`}
         />
-        {errors.qty && (
-          <span id={`${id}-qty`} className="mt-1 block text-xs text-ask">
-            {errors.qty}
-          </span>
-        )}
+        <FieldNote issue={check.qty} id={`${id}-qty`} />
       </label>
 
       {type === "limit" && priceField("Limit price", limit, setLimit, "price")}
@@ -364,7 +372,6 @@ export function OrderTicket({
               setSide(forSide);
               setType("limit");
               setLimit(value);
-              setErrors({});
             }}
             className="rounded-md border border-line px-3 py-2 text-left hover:border-muted disabled:opacity-50"
           >
@@ -388,25 +395,39 @@ export function OrderTicket({
           `Waits until a trade reaches the stop price, then ${side === "buy" ? "buys" : "sells"} at market.`}
       </p>
 
-      <div className="mt-auto space-y-2">
+      {position && position.qty > 0 && (
+        // Fills space the ticket has spare. In the fixed-height desktop panel
+        // (a size container) it shows only when the ticket fits with it.
+        <p className="hidden border-t border-line pt-3 text-xs text-muted max-xl:block [@container(min-height:32rem)]:block">
+          You hold{" "}
+          <span className="num font-medium text-text">
+            {fmtQty(position.qty)} {symbol}
+          </span>{" "}
+          at avg <span className="num font-medium text-text">{rupees(position.avgPrice)}</span>
+        </p>
+      )}
+
+      <div className="space-y-2">
         <div className="flex justify-between text-sm">
           <span className="text-muted">Estimated {side === "buy" ? "cost" : "proceeds"}</span>
           {market ? (
-            <span className="num font-medium">{rupees(estimate)}</span>
+            <span className="num font-medium">{rupees(check.estimate)}</span>
           ) : (
             <SkeletonText sample="₹12,500.00" className="font-medium" />
           )}
         </div>
         <button
           type="submit"
-          disabled={pending || !token || !market}
+          disabled={pending || !token || !market || !check.ok}
           className={`flex h-10 w-full items-center justify-center gap-2 rounded-md text-sm font-semibold text-bg transition-opacity disabled:opacity-50 ${
             side === "buy" ? "bg-bid" : "bg-ask"
           }`}
         >
           {pending
             ? "Placing order"
-            : `${side === "buy" ? "Buy" : "Sell"} ${fmtQty(shares || 0)} ${symbol}`}
+            : [side === "buy" ? "Buy" : "Sell", shares === null ? null : fmtQty(shares), symbol]
+                .filter(Boolean)
+                .join(" ")}
           {!pending && <Kbd>Enter</Kbd>}
         </button>
         <p
@@ -418,5 +439,24 @@ export function OrderTicket({
         </p>
       </div>
     </form>
+  );
+}
+
+/** Ties a field to its note: described by it always, invalid only for an error, not a hint. */
+const fieldAria = (issue: FieldIssue | null, id: string) => ({
+  "aria-invalid": issue?.tone === "error" ? true : undefined,
+  "aria-describedby": issue ? id : undefined,
+});
+
+/** What a field still needs (muted) or what is wrong with it (red), right under it. */
+function FieldNote({ issue, id }: { issue: FieldIssue | null; id: string }) {
+  if (!issue) return null;
+  return (
+    <span
+      id={id}
+      className={`mt-1 block text-xs ${issue.tone === "error" ? "text-ask" : "text-muted"}`}
+    >
+      {issue.text}
+    </span>
   );
 }

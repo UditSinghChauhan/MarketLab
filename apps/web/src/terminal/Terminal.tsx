@@ -201,10 +201,12 @@ function Terminal({ symbol }: { symbol: string }) {
           />
         </Panel>
 
+        {/* At xl the panel has a fixed height: a size container, so the ticket can tell
+            whether it has room for its optional holding line. */}
         <Panel
           title="Place an order"
           className="order-2 xl:order-none"
-          bodyClassName="overflow-y-auto"
+          bodyClassName="overflow-y-auto xl:[container-type:size]"
         >
           <OrderTicket
             key={symbol}
