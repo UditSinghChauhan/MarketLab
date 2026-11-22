@@ -92,6 +92,13 @@
     min-height: 100dvh;
   }
 
+  /* Even line lengths, so no heading ends on a lone word. */
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
   :focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;

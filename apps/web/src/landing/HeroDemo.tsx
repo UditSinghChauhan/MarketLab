@@ -151,8 +151,9 @@ export function HeroDemo() {
 
 function Trace({ result, onReset }: { result: CommandResult; onReset: () => void }) {
   const id = result.orderId ?? "";
+  // As tall as the trace, up to the book's height; a long trace (many fills) scrolls.
   return (
-    <div className="h-[372px] overflow-y-auto px-4 py-4">
+    <div className="max-h-[372px] overflow-y-auto px-4 py-4">
       <div className="mb-4 flex items-baseline justify-between">
         <h3 className="text-sm font-semibold">What the exchange did with {id}</h3>
         <button type="button" onClick={onReset} className="text-xs text-muted hover:text-text">

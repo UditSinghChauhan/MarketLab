@@ -56,7 +56,9 @@ export function Landing() {
       </header>
 
       <main>
-        <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-24 pt-12 lg:grid-cols-[minmax(0,1fr)_440px] lg:pt-20">
+        {/* The row is at least as tall as the hero card showing the book (508 px), so the
+            page below stays put when the card shortens to an order's trace. */}
+        <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-24 pt-12 lg:grid-cols-[minmax(0,1fr)_440px] lg:grid-rows-[minmax(32rem,auto)] lg:pt-20">
           <div>
             <h1 className="max-w-[16ch] text-3xl font-semibold leading-[1.05] tracking-[-0.035em] sm:text-4xl">
               A stock exchange you can watch work.
@@ -81,9 +83,10 @@ export function Landing() {
                 Read the source
               </a>
             </div>
-            <dl className="mt-12 grid max-w-lg grid-cols-3 gap-6 border-t border-line pt-6">
+            {/* Two shared rows (labels, values), so the values sit on one baseline however the labels wrap. */}
+            <dl className="mt-12 grid max-w-lg grid-cols-3 grid-rows-[auto_auto] gap-x-6 gap-y-1 border-t border-line pt-6">
               <Stat
-                label="Engine time per bot command (median)"
+                label="Bot command, median"
                 value={h ? duration(h.engine.bots.p50Us) : "—"}
                 note="The simulated traders' commands: mostly quotes and cancels that never trade. A visitor's own order takes longer; the engine inspector shows both."
               />
@@ -259,9 +262,9 @@ export function Landing() {
 
 function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
-    <div title={note}>
-      <dt className="text-xs text-muted">{label}</dt>
-      <dd className="num mt-1 text-xl font-semibold tracking-[-0.02em]">{value}</dd>
+    <div title={note} className="row-span-2 grid grid-rows-subgrid">
+      <dt className="self-end text-xs text-muted">{label}</dt>
+      <dd className="num text-xl font-semibold tracking-[-0.02em]">{value}</dd>
     </div>
   );
 }
