@@ -56,12 +56,40 @@ describe("production shape: the API serving the built web app", () => {
   afterAll(() => served.close());
 
   it("serves the app for deep links, so a refresh on any page works", async () => {
-    for (const url of ["/", "/terminal/ORBT", "/some/unknown/page"]) {
+    for (const url of [
+      "/",
+      "/terminal",
+      "/terminal/ORBT",
+      "/terminal/NOPE", // the app redirects an unknown market
+      "/replay",
+      "/replay/",
+      "/Replay", // the app's router ignores case
+      "/replay?from=menu",
+    ]) {
       const res = await served.inject({ url });
-      expect(res.statusCode).toBe(200);
+      expect(res.statusCode, url).toBe(200);
       expect(res.headers["content-type"]).toContain("text/html");
       expect(res.headers["cache-control"]).toBe("no-cache");
       expect(res.body).toContain('<div id="root">');
+    }
+  });
+
+  it("answers an unknown page with 404, and still serves the app to say so", async () => {
+    for (const url of ["/some/unknown/page", "/terminal/ORBT/extra", "/replays"]) {
+      const res = await served.inject({ url });
+      expect(res.statusCode, url).toBe(404);
+      expect(res.headers["content-type"]).toContain("text/html");
+      expect(res.headers["cache-control"]).toBe("no-cache");
+      expect(res.body).toContain('<div id="root">');
+    }
+  });
+
+  it("answers a missing file with a plain 404, not the app's HTML", async () => {
+    for (const url of ["/assets/gone-a1.js", "/favicon.ico", "/terminal/ORBT.json"]) {
+      const res = await served.inject({ url });
+      expect(res.statusCode, url).toBe(404);
+      expect(res.headers["content-type"]).toContain("application/json");
+      expect(res.body).not.toContain('<div id="root">');
     }
   });
 

@@ -184,6 +184,25 @@ const PAGE_CHUNKS: readonly {
 ];
 
 /**
+ * The web app's pages, as its router (apps/web/src/App.tsx) defines them: the
+ * landing page, the terminal (any symbol; the app redirects an unknown one)
+ * and the replay, each with or without a trailing slash and in any case (the
+ * router ignores case). Any other path is served the app, which shows its
+ * "page not found" screen, with status 404.
+ */
+export function isAppPage(pathname: string): boolean {
+  return /^\/(?:terminal(?:\/[^/]+)?|replay)?\/?$/i.test(pathname);
+}
+
+/**
+ * A request for a file rather than a page: an asset path, or a name with an
+ * extension ("/favicon.ico"). When no such file exists, the answer is a plain
+ * 404, never the app's HTML, which a script or image tag can't use.
+ */
+const isFilePath = (pathname: string) =>
+  pathname.startsWith("/assets/") || /\.[a-z0-9]+$/i.test(pathname);
+
+/**
  * Module-preload links for a page's own chunk and every chunk it imports, so
  * the browser fetches the page's code alongside the main bundle instead of
  * only once the main bundle has run. The entry chunk is skipped: the page's
@@ -566,12 +585,17 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           instruments.map((i) => marketSummary(host, i)),
         );
       }
-      return reply.header("cache-control", "no-cache").type("text/html; charset=utf-8").send(html);
+      return reply
+        .status(isAppPage(pathname) ? 200 : 404)
+        .header("cache-control", "no-cache")
+        .type("text/html; charset=utf-8")
+        .send(html);
     };
 
     app.get("/", sendPage);
     app.get("/*", (request, reply) => {
-      if (request.url.startsWith("/api/")) {
+      const { pathname } = new URL(request.url, "http://localhost");
+      if (pathname.startsWith("/api/") || isFilePath(pathname)) {
         return reply.status(404).send(errorBody("not_found", "No such endpoint"));
       }
       return sendPage(request, reply);

@@ -127,8 +127,10 @@ test.describe("terminal", () => {
   test("redirects an unknown market and serves a 404 page for unknown routes", async ({ page }) => {
     await page.goto("/terminal/NOPE");
     await expect(page).toHaveURL(/\/terminal\/ORBT$/);
-    await page.goto("/no-such-page");
+    const response = await page.goto("/no-such-page");
+    expect(response?.status()).toBe(404);
     await expect(page.getByRole("heading", { name: "This page doesn't exist" })).toBeVisible();
+    await expect(page).toHaveTitle("Page not found · MarketLab");
   });
 });
 

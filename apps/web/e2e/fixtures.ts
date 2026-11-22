@@ -14,6 +14,9 @@ export const test = base.extend<{ allowConsoleErrors: boolean; consoleGuard: und
         // The browser itself logs any 4xx response. A rejected order answers 422 by
         // design (the ticket explains it), so that one line is expected.
         if (/status of 422/.test(message.text())) return;
+        // An unknown page is served with 404 on purpose; only the page's own
+        // document may answer 404, never an API call or an asset.
+        if (/status of 404/.test(message.text()) && message.location().url === page.url()) return;
         if (message.type() === "error" || message.type() === "warning") {
           problems.push(`${message.type()}: ${message.text()}`);
         }
