@@ -39,14 +39,24 @@ test.describe("cold start", () => {
 });
 
 test.describe("first run", () => {
-  test("the guide ticks off steps and never returns once dismissed", async ({ page }) => {
+  test("the guide ticks a step only once its order is accepted, and never returns once dismissed", async ({
+    page,
+  }) => {
     await page.goto("/terminal/SOLR");
     const guide = page.getByRole("region", { name: "Getting started" });
     await expect(guide).toBeVisible();
     await expect(guide.getByRole("listitem")).toHaveCount(3);
+    await expect(guide).toContainText("Click a sell-side price to set a limit buy");
+    const done = guide.getByRole("img", { name: "Done" });
 
-    await page.getByRole("button", { name: /^Ask / }).first().click();
-    await expect(guide.getByRole("img", { name: "Done" })).toHaveCount(1);
+    // Picking a price sets up the order; nothing is done until it is accepted.
+    await page.getByRole("button", { name: /^Ask / }).last().click();
+    await expect(page.getByRole("textbox", { name: /Limit price/ })).not.toHaveValue("");
+    await expect(done).toHaveCount(0);
+
+    await page.getByRole("button", { name: /Buy 10 SOLR/ }).click();
+    await expect(page.getByText(/^(Bought \d+ SOLR|Limit order placed for SOLR)$/)).toBeVisible();
+    await expect(done).toHaveCount(2); // placed an order, and a limit buy from the book
 
     await guide.getByRole("button", { name: "Dismiss" }).click();
     await expect(guide).toBeHidden();
@@ -60,9 +70,17 @@ test.describe("first run", () => {
     const guide = page.getByRole("region", { name: "Getting started" });
     await expect(page.getByRole("button", { name: /Buy 10 SOLR/ })).toBeEnabled();
 
+    // A limit sell from a bid places an order, but isn't step two.
     await page.getByRole("button", { name: /Buy 10 SOLR/ }).click();
     await expect(page.getByText("Bought 10 SOLR")).toBeVisible();
     await page.getByRole("button", { name: /^Bid / }).first().click();
+    await page.getByRole("button", { name: /Sell 10 SOLR/ }).click();
+    await expect(page.getByText(/^(Sold \d+ SOLR|Limit order placed for SOLR)$/)).toBeVisible();
+    await expect(guide.getByRole("img", { name: "Done" })).toHaveCount(1);
+
+    await page.getByRole("button", { name: /^Ask / }).last().click();
+    await page.getByRole("button", { name: /Buy 10 SOLR/ }).click();
+    await expect(guide.getByRole("img", { name: "Done" })).toHaveCount(2);
     await page.keyboard.press("i");
     await expect(page.getByRole("dialog", { name: "Engine inspector" })).toBeVisible();
     await expect(guide).toBeHidden();

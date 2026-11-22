@@ -1,15 +1,37 @@
 /**
  * First-run guide: three things worth trying, in one quiet row under the
- * header. Each step ticks itself off when the visitor does it. Dismissed (or
+ * header. An order step ticks itself off only once the exchange accepts that
+ * order; the inspector step when it opens. Dismissed (or
  * completed) once, it never comes back on this browser.
  */
 
+import type { CommandResult } from "@marketlab/contracts";
 import { useCallback, useEffect, useState } from "react";
 
 import { useTouch } from "../lib/useTouch";
 import { Kbd } from "../ui/Panel";
 
 export type GuideStep = "order" | "price" | "inspector";
+
+/**
+ * The order steps an order result completes: any accepted order is step one;
+ * step two is a limit buy, accepted, at the sell-side price picked from the
+ * book (`picked` is the ticket's last prefill). A rejection completes nothing.
+ */
+export function stepsDoneBy(
+  result: CommandResult,
+  picked: { readonly price: string; readonly side: "buy" | "sell" } | null,
+): GuideStep[] {
+  if (!result.ok) return [];
+  const accepted = result.events.find((e) => e.type === "order.accepted");
+  const fromAsk =
+    picked?.side === "buy" &&
+    accepted?.type === "order.accepted" &&
+    accepted.side === "buy" &&
+    accepted.orderType === "limit" &&
+    accepted.price === picked.price;
+  return fromAsk ? ["order", "price"] : ["order"];
+}
 
 const KEY = "marketlab.guide";
 const STEPS: readonly GuideStep[] = ["order", "price", "inspector"];
@@ -103,7 +125,7 @@ export function Guide({
       <h2 className="font-medium text-muted">New here? Three things to try</h2>
       <ol className="col-span-2 row-start-2 flex flex-col gap-x-6 gap-y-1.5 sm:flex-row sm:flex-wrap sm:items-center lg:col-span-1 lg:col-start-2 lg:row-start-1">
         {step("order", 1, "Place an order from the ticket")}
-        {step("price", 2, `${touch ? "Tap" : "Click"} a price in the order book`)}
+        {step("price", 2, `${touch ? "Tap" : "Click"} a sell-side price to set a limit buy`)}
         {step(
           "inspector",
           3,

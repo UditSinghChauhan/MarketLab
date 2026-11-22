@@ -11,7 +11,7 @@ import { Panel } from "../ui/Panel";
 import { useAfterFirstPaint } from "../ui/useAfterFirstPaint";
 import { Blotter } from "./Blotter";
 import { ChartPanel } from "./ChartPanel";
-import { Guide, useGuide } from "./Guide";
+import { Guide, stepsDoneBy, useGuide } from "./Guide";
 import { Inspector } from "./Inspector";
 import { MarketStrip } from "./MarketStrip";
 import { SYMBOLS } from "./markets";
@@ -96,7 +96,7 @@ function Terminal({ symbol }: { symbol: string }) {
   const onResult = (result: CommandResult) => {
     markOwn(result.events);
     if (result.orderId) setInspected(result.orderId);
-    if (result.ok) completeStep("order");
+    for (const step of stepsDoneBy(result, prefill)) completeStep(step);
     void queryClient.invalidateQueries({ queryKey: ["orders"] });
   };
 
@@ -196,7 +196,6 @@ function Terminal({ symbol }: { symbol: string }) {
             myPrices={myPrices}
             onPick={(p, side) => {
               setPrefill({ price: p, side, nonce: Date.now() });
-              completeStep("price");
             }}
           />
         </Panel>

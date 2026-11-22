@@ -86,7 +86,7 @@ test("touch screens get no keyboard hints, and the guide says tap", async ({ pag
   await expect(page.getByRole("button", { name: "Keyboard shortcuts" })).toBeHidden();
 
   const guide = page.getByRole("region", { name: "Getting started" });
-  await expect(guide).toContainText("Tap a price in the order book");
+  await expect(guide).toContainText("Tap a sell-side price to set a limit buy");
   await expect(guide).toContainText("Open the inspector to trace your order");
 });
 
