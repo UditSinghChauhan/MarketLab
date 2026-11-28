@@ -82,20 +82,15 @@ test.describe("terminal", () => {
     await expect(page.getByRole("button", { name: /Buy 10 ORBT/ })).toBeEnabled();
     await page.waitForTimeout(2_000);
 
-    const tape = await rows.evaluateAll((trs) =>
-      trs.map((tr) => ({
-        seq: Number(tr.getAttribute("data-seq")),
-        time: tr.lastElementChild?.textContent ?? "",
-      })),
+    // Seqs, not clock times: a tick's trades share a time, and the clock wraps at midnight.
+    const seqs = await rows.evaluateAll((trs) =>
+      trs.map((tr) => Number(tr.getAttribute("data-seq"))),
     );
-    expect(tape.length).toBeGreaterThan(0);
-    expect(tape.length).toBeLessThanOrEqual(60);
-    expect(new Set(tape.map((t) => t.seq)).size).toBe(tape.length);
-    for (let i = 1; i < tape.length; i++) {
-      const [newer, older] = [tape[i - 1], tape[i]];
-      expect(older?.seq).toBeLessThan(newer?.seq ?? 0);
-      // Clock times (HH:MM:SS): trades from one engine tick share a time.
-      expect((older?.time ?? "") <= (newer?.time ?? "")).toBe(true);
+    expect(seqs.length).toBeGreaterThan(0);
+    expect(seqs.length).toBeLessThanOrEqual(60);
+    // Strictly falling seqs: each trade once, newest first.
+    for (let i = 1; i < seqs.length; i++) {
+      expect(seqs[i]).toBeLessThan(seqs[i - 1] ?? 0);
     }
   });
 

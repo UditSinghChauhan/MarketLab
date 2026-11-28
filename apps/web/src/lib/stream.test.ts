@@ -47,6 +47,32 @@ describe("stream reducer", () => {
     expect(state.trades[0]?.seq).toBe(69);
   });
 
+  it("starts the tape over when the market session rolls over, and only then", () => {
+    const hello = (session: number): StreamMessage => ({ type: "hello", session, serverTime: 0 });
+    const prints = (...seqs: number[]): StreamMessage => ({
+      type: "trades",
+      symbol: "ORBT",
+      trades: seqs.map((s) => trade(s)),
+    });
+    const send = (state: MarketState, message: StreamMessage) =>
+      reducer(state, { type: "message", message });
+
+    let state = start();
+    state = send(state, hello(7));
+    state = send(state, prints(5002, 5001, 5000));
+    // A reconnect within the same session merges, as before.
+    state = send(state, hello(7));
+    state = send(state, prints(5003, 5002));
+    expect(state.trades.map((t) => t.seq)).toEqual([5003, 5002, 5001, 5000]);
+
+    // A new session numbers its trades from 1 again: the old tape goes.
+    state = send(state, hello(8));
+    expect(state.trades).toEqual([]);
+    expect(state.tradesLoaded).toBe(false);
+    state = send(state, prints(3, 2, 1));
+    expect(state.trades.map((t) => t.seq)).toEqual([3, 2, 1]);
+  });
+
   it("merges a reconnect's snapshot by seq: no repeats, newest first, at most 60", () => {
     const trades = (from: number, to: number) =>
       Array.from({ length: to - from + 1 }, (_, i) => trade(to - i)); // newest first

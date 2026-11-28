@@ -28,6 +28,8 @@ export type ConnectionStatus = "connecting" | "live" | "reconnecting";
 
 export interface MarketState {
   readonly status: ConnectionStatus;
+  /** The market session the stream last greeted with; null before the first hello. */
+  readonly session: number | null;
   readonly symbol: string;
   readonly markets: readonly MarketSummary[];
   readonly book: OrderBook | null;
@@ -51,6 +53,7 @@ type Action =
 
 const initial = (symbol: string): MarketState => ({
   status: "connecting",
+  session: null,
   symbol,
   markets: initialMarkets(),
   book: null,
@@ -104,7 +107,20 @@ export function reducer(state: MarketState, action: Action): MarketState {
       const m = action.message;
       switch (m.type) {
         case "hello":
-          return { ...state, status: "live" };
+          // A new market session numbers its trades from 1 again, so merging by seq
+          // would bury its trades under the old session's: the tape starts over and
+          // shows its skeleton until the new snapshot arrives. Candles are keyed by
+          // time, so they carry on.
+          if (state.session !== null && m.session !== state.session) {
+            return {
+              ...state,
+              status: "live",
+              session: m.session,
+              trades: [],
+              tradesLoaded: false,
+            };
+          }
+          return { ...state, status: "live", session: m.session };
         case "markets":
           return { ...state, markets: m.markets };
         case "book":
