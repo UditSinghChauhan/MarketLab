@@ -139,6 +139,22 @@
   }
 }
 
+/* The hero: an order's trace (or the book again) fades in where the other was. */
+.hero-swap {
+  animation: hero-in 180ms ease-out;
+}
+@keyframes hero-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-swap {
+    animation: none;
+  }
+}
+
 /* The replay timeline: native controls, drawn in the product's colours. */
 .scrubber {
   accent-color: var(--accent);

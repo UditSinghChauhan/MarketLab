@@ -4,7 +4,7 @@
  */
 
 import type { CommandResult } from "@marketlab/contracts";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { ApiRequestError, api } from "../lib/api";
@@ -28,7 +28,19 @@ export function HeroDemo() {
   const [result, setResult] = useState<CommandResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  // The swap between the book and a trace fades in; the first view appears without it.
+  const [swapped, setSwapped] = useState(false);
+  const buyRef = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef(false);
   const clientOrderIds = useClientOrderId();
+
+  // Back from a trace, focus returns to the button that opened it.
+  useEffect(() => {
+    if (returnFocus.current && !result) {
+      returnFocus.current = false;
+      buyRef.current?.focus();
+    }
+  }, [result]);
 
   const tryOrder = async () => {
     setPending(true);
@@ -46,6 +58,7 @@ export function HeroDemo() {
         allow: [422],
         validate: isCommandResult,
       });
+      setSwapped(true);
       setResult(placed);
       clientOrderIds.settled(); // only once a valid result is in hand
     } catch (e) {
@@ -99,26 +112,32 @@ export function HeroDemo() {
         </span>
       </div>
 
-      {result ? (
-        <Trace
-          result={result}
-          onReset={() => {
-            setResult(null);
-          }}
-        />
-      ) : (
-        <div className="relative h-[372px]">
-          <OrderBookLadder book={market.book} compact />
-          {starting && !market.book && (
-            <div className="absolute inset-0 grid place-items-center p-4">
-              <StartingNotice
-                since={exchange.waitingSince}
-                className="rounded-lg border border-line bg-surface px-6 py-5"
-              />
-            </div>
+      {/* One fixed height for the book and the trace, so the card never changes size. */}
+      <div className="relative h-[372px] overflow-hidden">
+        <div key={result ? "trace" : "book"} className={`h-full ${swapped ? "hero-swap" : ""}`}>
+          {result ? (
+            <Trace
+              result={result}
+              onReset={() => {
+                returnFocus.current = true;
+                setResult(null);
+              }}
+            />
+          ) : (
+            <>
+              <OrderBookLadder book={market.book} compact />
+              {starting && !market.book && (
+                <div className="absolute inset-0 grid place-items-center p-4">
+                  <StartingNotice
+                    since={exchange.waitingSince}
+                    className="rounded-lg border border-line bg-surface px-6 py-5"
+                  />
+                </div>
+              )}
+            </>
           )}
         </div>
-      )}
+      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3">
         {result ? (
@@ -135,6 +154,7 @@ export function HeroDemo() {
           <>
             <span className="text-xs text-muted">{error ?? "Play money, no signup."}</span>
             <button
+              ref={buyRef}
               type="button"
               onClick={() => void tryOrder()}
               disabled={pending || market.status !== "live"}
@@ -151,11 +171,18 @@ export function HeroDemo() {
 
 function Trace({ result, onReset }: { result: CommandResult; onReset: () => void }) {
   const id = result.orderId ?? "";
-  // As tall as the trace, up to the book's height; a long trace (many fills) scrolls.
+  // The button that placed the order is gone, so focus moves to what replaced it.
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    heading.current?.focus();
+  }, []);
+  // As tall as the book it replaces; a long trace (many fills) scrolls.
   return (
-    <div className="max-h-[372px] overflow-y-auto px-4 py-4">
-      <div className="mb-4 flex items-baseline justify-between">
-        <h3 className="text-sm font-semibold">What the exchange did with {id}</h3>
+    <div className="h-full overflow-y-auto px-4 py-4">
+      <div className="mb-4 flex items-baseline justify-between gap-3">
+        <h3 ref={heading} tabIndex={-1} className="text-sm font-semibold">
+          What the exchange did with {id}
+        </h3>
         <button type="button" onClick={onReset} className="text-xs text-muted hover:text-text">
           Back to the book
         </button>
