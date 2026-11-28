@@ -129,6 +129,16 @@
   }
 }
 
+/* The landing tour: a chosen screenshot fades in, answering the click (off with reduced motion). */
+.tour-image {
+  animation: tour-in 180ms ease-out;
+}
+@keyframes tour-in {
+  from {
+    opacity: 0;
+  }
+}
+
 /* The replay timeline: native controls, drawn in the product's colours. */
 .scrubber {
   accent-color: var(--accent);

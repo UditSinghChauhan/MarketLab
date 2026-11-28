@@ -19,6 +19,7 @@ import { Logo } from "../ui/Logo";
 import { Architecture } from "./Architecture";
 import { HeroDemo } from "./HeroDemo";
 import { MatchingDiagram } from "./MatchingDiagram";
+import { ProductTour } from "./ProductTour";
 
 export function Landing() {
   // Everything on this page except the live numbers renders without the API.
@@ -100,6 +101,8 @@ export function Landing() {
           </div>
           <HeroDemo />
         </section>
+
+        <ProductTour />
 
         <section id="matching" className="border-t border-line bg-surface">
           <div className="mx-auto grid max-w-6xl gap-12 px-6 py-24 lg:grid-cols-2">
