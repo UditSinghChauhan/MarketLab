@@ -81,7 +81,8 @@ chart, so a phone user never scrolls past the whole book to trade.
 **Landing page:** hero (headline, live stats, live order book with the
 one-click order), a product tour (the terminal, the inspector and verified
 replay as real screenshots, one tab at a time), how price-time priority works
-with a worked example, the engineering, an architecture diagram, an honest list
+with a worked example, the engineering, an architecture diagram (drawn top to
+bottom on a phone, so it never scrolls sideways), an honest list
 of what is simulated, and a closing band in the terminal's dark theme with the
 way in. The tour's screenshots come from the product itself
 (`npm run assets -w @marketlab/web`), so they are regenerated, not drawn.
