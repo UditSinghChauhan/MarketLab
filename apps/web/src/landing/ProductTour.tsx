@@ -96,10 +96,10 @@ export function ProductTour() {
 
   return (
     <section id="tour" aria-labelledby={`${id}-heading`} className="border-t border-line">
-      <div className="mx-auto max-w-6xl px-6 py-24">
+      <div className="mx-auto max-w-6xl px-6 py-28 lg:py-32">
         <h2
           id={`${id}-heading`}
-          className="max-w-[26ch] text-2xl font-semibold tracking-[-0.025em]"
+          className="max-w-[26ch] text-2xl font-semibold tracking-[-0.025em] lg:text-3xl lg:tracking-[-0.03em]"
         >
           One engine, three ways to look at it.
         </h2>

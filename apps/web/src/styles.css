@@ -67,7 +67,9 @@
   --color-bid-wash: var(--bid-wash);
   --color-ask-wash: var(--ask-wash);
 
-  /* Type scale (perfect fourth from 13px), tight for a dense terminal. */
+  /* Type scale (perfect fourth from 13px), tight for a dense terminal. The top
+     two steps are for the landing page: section headings (3xl at lg) and the
+     hero headline (5xl at xl). */
   --text-2xs: 0.6875rem;
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
@@ -77,6 +79,7 @@
   --text-2xl: 1.875rem;
   --text-3xl: 2.5rem;
   --text-4xl: 3.375rem;
+  --text-5xl: 4rem;
 }
 
 @layer base {

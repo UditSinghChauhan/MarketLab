@@ -63,7 +63,7 @@ export function Landing() {
             tall as the card (32rem plus its padding). */}
         <section className="mx-auto grid max-w-6xl gap-x-12 px-6 pb-24 pt-12 lg:min-h-[43rem] lg:grid-cols-[minmax(0,1fr)_440px] lg:grid-rows-[minmax(0,1fr)_auto_auto_minmax(0,1fr)] lg:pt-20">
           <div className="lg:col-start-1 lg:row-start-2">
-            <h1 className="max-w-[16ch] text-3xl font-semibold leading-[1.05] tracking-[-0.035em] sm:text-4xl">
+            <h1 className="max-w-[16ch] text-3xl font-semibold leading-[1.05] tracking-[-0.035em] sm:text-4xl xl:text-5xl">
               A stock exchange you can watch work.
             </h1>
             <p className="mt-6 max-w-[52ch] text-lg leading-relaxed text-muted">
@@ -109,9 +109,9 @@ export function Landing() {
         <ProductTour />
 
         <section id="matching" className="border-t border-line bg-surface">
-          <div className="mx-auto grid max-w-6xl gap-12 px-6 py-24 lg:grid-cols-2">
+          <div className="mx-auto grid max-w-6xl gap-12 px-6 py-28 lg:grid-cols-2 lg:py-32">
             <div>
-              <h2 className="text-2xl font-semibold tracking-[-0.025em]">
+              <h2 className="text-2xl font-semibold tracking-[-0.025em] lg:text-3xl lg:tracking-[-0.03em]">
                 Best price first. Then first come, first served.
               </h2>
               <p className="mt-5 max-w-[56ch] leading-relaxed text-muted">
@@ -136,8 +136,8 @@ export function Landing() {
           </div>
         </section>
 
-        <section id="engineering" className="mx-auto max-w-6xl px-6 py-24">
-          <h2 className="max-w-[24ch] text-2xl font-semibold tracking-[-0.025em]">
+        <section id="engineering" className="mx-auto max-w-6xl px-6 py-28 lg:py-32">
+          <h2 className="max-w-[24ch] text-2xl font-semibold tracking-[-0.025em] lg:text-3xl lg:tracking-[-0.03em]">
             Built the way exchanges are built, at the scale of one server.
           </h2>
           <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-line bg-line md:grid-cols-2">
@@ -208,8 +208,10 @@ export function Landing() {
         </section>
 
         <section className="border-t border-line bg-surface">
-          <div className="mx-auto grid max-w-6xl gap-10 px-6 py-20 lg:grid-cols-[1fr_2fr]">
-            <h2 className="text-xl font-semibold tracking-[-0.02em]">What is simulated</h2>
+          <div className="mx-auto grid max-w-6xl gap-10 px-6 py-24 lg:grid-cols-[1fr_2fr] lg:py-28">
+            <h2 className="text-xl font-semibold tracking-[-0.02em] lg:text-2xl lg:tracking-[-0.025em]">
+              What is simulated
+            </h2>
             <ul className="grid gap-x-10 gap-y-4 text-sm leading-relaxed text-muted sm:grid-cols-2">
               <li>
                 The four companies are fictional, and their prices come from simulated traders, not
@@ -230,9 +232,12 @@ export function Landing() {
 
         {/* The page ends where the product starts: the terminal's own dark theme and one action. */}
         <section aria-labelledby="try-it" className="dark-ui bg-bg text-text">
-          <div className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-20 md:flex-row md:items-end md:justify-between">
+          <div className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-24 md:flex-row md:items-end md:justify-between lg:py-28">
             <div>
-              <h2 id="try-it" className="text-2xl font-semibold tracking-[-0.025em]">
+              <h2
+                id="try-it"
+                className="text-2xl font-semibold tracking-[-0.025em] lg:text-3xl lg:tracking-[-0.03em]"
+              >
                 Place an order and watch where it goes.
               </h2>
               <p className="mt-4 max-w-[52ch] leading-relaxed text-muted">
