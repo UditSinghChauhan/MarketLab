@@ -13,18 +13,22 @@ import { useExchange } from "../lib/health";
 import { describeEvent, isCommandResult, outcomeUnknown, replayedMessage } from "../lib/orders";
 import { ensureSession } from "../lib/session";
 import { useClientOrderId } from "../lib/useClientOrderId";
+import { useMediaQuery } from "../lib/useMediaQuery";
 import { useMarketStream } from "../lib/stream";
 import { OrderBookLadder } from "../terminal/OrderBookLadder";
 import { SkeletonText } from "../ui/Skeleton";
 import { StartingNotice } from "../ui/StartingNotice";
 
 const SYMBOL = "ORBT";
+/** Below 640 px the ladder shows five rows a side, not six, so the button stays near the top. */
+const WIDE = "(min-width: 640px)";
 
 export function HeroDemo() {
   const exchange = useExchange();
   const starting = exchange.state === "starting";
   const market = useMarketStream(SYMBOL, null, { enabled: exchange.state === "ready" });
   const summary = market.markets.find((m) => m.symbol === SYMBOL);
+  const wide = useMediaQuery(WIDE);
   const [result, setResult] = useState<CommandResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -112,8 +116,9 @@ export function HeroDemo() {
         </span>
       </div>
 
-      {/* One fixed height for the book and the trace, so the card never changes size. */}
-      <div className="relative h-[372px] overflow-hidden">
+      {/* One fixed height for the book and the trace, so the card never changes size:
+          the ladder's header, mid row and 5 or 6 rows a side. */}
+      <div className="relative h-[320px] overflow-hidden sm:h-[372px]">
         <div key={result ? "trace" : "book"} className={`h-full ${swapped ? "hero-swap" : ""}`}>
           {result ? (
             <Trace
@@ -125,7 +130,7 @@ export function HeroDemo() {
             />
           ) : (
             <>
-              <OrderBookLadder book={market.book} compact />
+              <OrderBookLadder book={market.book} compact compactRows={wide ? 6 : 5} />
               {starting && !market.book && (
                 <div className="absolute inset-0 grid place-items-center p-4">
                   <StartingNotice
@@ -174,7 +179,8 @@ function Trace({ result, onReset }: { result: CommandResult; onReset: () => void
   // The button that placed the order is gone, so focus moves to what replaced it.
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    heading.current?.focus();
+    // Already on screen: it replaces the book in the card that held the button.
+    heading.current?.focus({ preventScroll: true });
   }, []);
   // As tall as the book it replaces; a long trace (many fills) scrolls.
   return (
@@ -183,7 +189,11 @@ function Trace({ result, onReset }: { result: CommandResult; onReset: () => void
         <h3 ref={heading} tabIndex={-1} className="text-sm font-semibold">
           What the exchange did with {id}
         </h3>
-        <button type="button" onClick={onReset} className="text-xs text-muted hover:text-text">
+        <button
+          type="button"
+          onClick={onReset}
+          className="shrink-0 whitespace-nowrap text-xs text-muted hover:text-text"
+        >
           Back to the book
         </button>
       </div>

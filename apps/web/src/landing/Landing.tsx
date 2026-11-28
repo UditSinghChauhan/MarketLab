@@ -57,10 +57,12 @@ export function Landing() {
       </header>
 
       <main>
-        {/* The row is at least as tall as the hero card showing the book (508 px), so the
-            page below stays put when the card shortens to an order's trace. */}
-        <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-24 pt-12 lg:grid-cols-[minmax(0,1fr)_440px] lg:grid-rows-[minmax(32rem,auto)] lg:pt-20">
-          <div>
+        {/* On a phone the live book and its button come straight after the pitch, and the
+            stats follow. From lg the card sits beside the pitch and stats, which stay
+            centred against it between two equal spacer rows; the section is at least as
+            tall as the card (32rem plus its padding). */}
+        <section className="mx-auto grid max-w-6xl gap-x-12 px-6 pb-24 pt-12 lg:min-h-[43rem] lg:grid-cols-[minmax(0,1fr)_440px] lg:grid-rows-[minmax(0,1fr)_auto_auto_minmax(0,1fr)] lg:pt-20">
+          <div className="lg:col-start-1 lg:row-start-2">
             <h1 className="max-w-[16ch] text-3xl font-semibold leading-[1.05] tracking-[-0.035em] sm:text-4xl">
               A stock exchange you can watch work.
             </h1>
@@ -84,22 +86,24 @@ export function Landing() {
                 Read the source
               </a>
             </div>
-            {/* Two shared rows (labels, values), so the values sit on one baseline however the labels wrap. */}
-            <dl className="mt-12 grid max-w-lg grid-cols-3 grid-rows-[auto_auto] gap-x-6 gap-y-1 border-t border-line pt-6">
-              <Stat
-                label="Bot command, median"
-                value={h ? duration(h.engine.bots.p50Us) : "—"}
-                note="The simulated traders' commands: mostly quotes and cancels that never trade. A visitor's own order takes longer; the engine inspector shows both."
-              />
-              <Stat label="Commands this session" value={h ? qty(h.engine.commands) : "—"} />
-              <Stat
-                label="Invariant violations"
-                value={h ? String(h.invariantViolations) : "—"}
-                note="Checked live, on every load of this page"
-              />
-            </dl>
           </div>
-          <HeroDemo />
+          <div className="mt-12 lg:col-start-2 lg:row-span-4 lg:row-start-1 lg:mt-0 lg:self-center">
+            <HeroDemo />
+          </div>
+          {/* Two shared rows (labels, values), so the values sit on one baseline however the labels wrap. */}
+          <dl className="mt-12 grid max-w-lg grid-cols-3 grid-rows-[auto_auto] gap-x-6 gap-y-1 border-t border-line pt-6 lg:col-start-1 lg:row-start-3">
+            <Stat
+              label="Bot command, median"
+              value={h ? duration(h.engine.bots.p50Us) : "—"}
+              note="The simulated traders' commands: mostly quotes and cancels that never trade. A visitor's own order takes longer; the engine inspector shows both."
+            />
+            <Stat label="Commands this session" value={h ? qty(h.engine.commands) : "—"} />
+            <Stat
+              label="Invariant violations"
+              value={h ? String(h.invariantViolations) : "—"}
+              note="Checked live, on every load of this page"
+            />
+          </dl>
         </section>
 
         <ProductTour />
