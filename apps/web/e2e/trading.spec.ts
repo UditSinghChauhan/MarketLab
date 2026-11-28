@@ -170,6 +170,8 @@ test.describe("terminal", () => {
     expect(response?.status()).toBe(404);
     await expect(page.getByRole("heading", { name: "This page doesn't exist" })).toBeVisible();
     await expect(page).toHaveTitle("Page not found · MarketLab");
+    await page.getByRole("link", { name: "Back to the home page" }).click();
+    await expect(page).toHaveURL(/\/$/);
   });
 });
 
