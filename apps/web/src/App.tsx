@@ -60,7 +60,7 @@ function NotFound() {
           >
             Open the terminal
           </Link>
-          <Link to="/" className="text-sm text-muted hover:text-text">
+          <Link to="/" className="inline-flex h-10 items-center text-sm text-muted hover:text-text">
             Back to the home page
           </Link>
         </div>

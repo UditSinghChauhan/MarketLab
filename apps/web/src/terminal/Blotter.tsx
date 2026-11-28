@@ -104,7 +104,9 @@ function Empty({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="flex h-full flex-col items-center justify-center px-4 py-6 text-center">
       <p className="text-sm font-medium">{title}</p>
-      <div className="mt-1 max-w-[46ch] text-xs leading-relaxed text-muted">{children}</div>
+      <div className="mt-1 max-w-[46ch] text-xs leading-relaxed text-pretty text-muted">
+        {children}
+      </div>
     </div>
   );
 }

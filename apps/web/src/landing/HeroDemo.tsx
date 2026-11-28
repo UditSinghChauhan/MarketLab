@@ -197,7 +197,8 @@ function Trace({ result, onReset }: { result: CommandResult; onReset: () => void
         <button
           type="button"
           onClick={onReset}
-          className="shrink-0 whitespace-nowrap text-xs text-muted hover:text-text"
+          // The padding widens the target; the negative margin keeps the text where it was.
+          className="-m-2 shrink-0 whitespace-nowrap p-2 text-xs text-muted hover:text-text"
         >
           Back to the book
         </button>

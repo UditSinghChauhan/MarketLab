@@ -29,6 +29,8 @@
   --ask-wash: rgb(200 50 58 / 0.1);
   /* The terminal's header; the inspector opens below it, beside the account figures. */
   --header-h: 3rem;
+  /* Content that appears in answer to a click: a quick start that settles (ease-out cubic). */
+  --ease-out: cubic-bezier(0.215, 0.61, 0.355, 1);
   color-scheme: light;
 }
 
@@ -140,7 +142,7 @@
 
 /* The landing tour: a chosen screenshot fades in, answering the click (off with reduced motion). */
 .tour-image {
-  animation: tour-in 180ms ease-out;
+  animation: tour-in 180ms var(--ease-out);
 }
 @keyframes tour-in {
   from {
@@ -150,7 +152,7 @@
 
 /* The hero: an order's trace (or the book again) fades in where the other was. */
 .hero-swap {
-  animation: hero-in 180ms ease-out;
+  animation: hero-in 180ms var(--ease-out);
 }
 @keyframes hero-in {
   from {
