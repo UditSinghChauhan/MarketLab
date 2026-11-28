@@ -68,16 +68,18 @@ export function OrderBookLadder({
   myPrices,
   onPick,
   compact = false,
+  compactRows = 6,
 }: {
   book: OrderBook | null;
   /** Prices where the user has resting orders, per side. Marked only on a ladder that picks. */
   myPrices?: { buy: ReadonlySet<string>; sell: ReadonlySet<string> };
   onPick?: (price: string, side: Side) => void;
   compact?: boolean;
+  /** Rows a side on a compact ladder, which is exactly as tall as its rows (26 px each). */
+  compactRows?: number;
 }) {
-  // The landing page's compact ladder is exactly as tall as its six rows a side.
   const { rows: fittedRows, attach: attachAsks } = useFittedRows(!compact);
-  const rows = compact ? 6 : fittedRows;
+  const rows = compact ? compactRows : fittedRows;
   // In the terminal, rows share their half of the column exactly. Below md the
   // rows are tap targets, so they get the 24 px WCAG 2.2 asks for.
   const rowH = compact

@@ -4,7 +4,7 @@
  */
 
 import type { CommandResult } from "@marketlab/contracts";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { ApiRequestError, api } from "../lib/api";
@@ -13,22 +13,38 @@ import { useExchange } from "../lib/health";
 import { describeEvent, isCommandResult, outcomeUnknown, replayedMessage } from "../lib/orders";
 import { ensureSession } from "../lib/session";
 import { useClientOrderId } from "../lib/useClientOrderId";
+import { useMediaQuery } from "../lib/useMediaQuery";
 import { useMarketStream } from "../lib/stream";
 import { OrderBookLadder } from "../terminal/OrderBookLadder";
 import { SkeletonText } from "../ui/Skeleton";
 import { StartingNotice } from "../ui/StartingNotice";
 
 const SYMBOL = "ORBT";
+/** Below 640 px the ladder shows five rows a side, not six, so the button stays near the top. */
+const WIDE = "(min-width: 640px)";
 
 export function HeroDemo() {
   const exchange = useExchange();
   const starting = exchange.state === "starting";
   const market = useMarketStream(SYMBOL, null, { enabled: exchange.state === "ready" });
   const summary = market.markets.find((m) => m.symbol === SYMBOL);
+  const wide = useMediaQuery(WIDE);
   const [result, setResult] = useState<CommandResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  // The swap between the book and a trace fades in; the first view appears without it.
+  const [swapped, setSwapped] = useState(false);
+  const buyRef = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef(false);
   const clientOrderIds = useClientOrderId();
+
+  // Back from a trace, focus returns to the button that opened it.
+  useEffect(() => {
+    if (returnFocus.current && !result) {
+      returnFocus.current = false;
+      buyRef.current?.focus();
+    }
+  }, [result]);
 
   const tryOrder = async () => {
     setPending(true);
@@ -46,6 +62,7 @@ export function HeroDemo() {
         allow: [422],
         validate: isCommandResult,
       });
+      setSwapped(true);
       setResult(placed);
       clientOrderIds.settled(); // only once a valid result is in hand
     } catch (e) {
@@ -65,7 +82,7 @@ export function HeroDemo() {
   };
 
   return (
-    <div className="dark-ui overflow-hidden rounded-xl border border-line bg-surface text-text shadow-[0_32px_64px_-32px_rgb(18_26_38/0.45)]">
+    <div className="dark-ui overflow-hidden rounded-xl border border-line bg-surface text-text shadow-card">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <div>
           <div className="flex items-baseline gap-2">
@@ -90,7 +107,12 @@ export function HeroDemo() {
             )}
           </div>
         </div>
-        <span className="flex items-center gap-1.5 text-xs text-muted" role="status">
+        <span
+          className="flex items-center gap-1.5 text-xs text-muted"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           <span
             aria-hidden="true"
             className={`size-1.5 rounded-full ${market.status === "live" ? "bg-bid" : "bg-pending"}`}
@@ -99,26 +121,33 @@ export function HeroDemo() {
         </span>
       </div>
 
-      {result ? (
-        <Trace
-          result={result}
-          onReset={() => {
-            setResult(null);
-          }}
-        />
-      ) : (
-        <div className="relative h-[372px]">
-          <OrderBookLadder book={market.book} compact />
-          {starting && !market.book && (
-            <div className="absolute inset-0 grid place-items-center p-4">
-              <StartingNotice
-                since={exchange.waitingSince}
-                className="rounded-lg border border-line bg-surface px-6 py-5"
-              />
-            </div>
+      {/* One fixed height for the book and the trace, so the card never changes size:
+          the ladder's header, mid row and 5 or 6 rows a side. */}
+      <div className="relative h-[320px] overflow-hidden sm:h-[372px]">
+        <div key={result ? "trace" : "book"} className={`h-full ${swapped ? "hero-swap" : ""}`}>
+          {result ? (
+            <Trace
+              result={result}
+              onReset={() => {
+                returnFocus.current = true;
+                setResult(null);
+              }}
+            />
+          ) : (
+            <>
+              <OrderBookLadder book={market.book} compact compactRows={wide ? 6 : 5} />
+              {starting && !market.book && (
+                <div className="absolute inset-0 grid place-items-center p-4">
+                  <StartingNotice
+                    since={exchange.waitingSince}
+                    className="rounded-lg border border-line bg-surface px-6 py-5"
+                  />
+                </div>
+              )}
+            </>
           )}
         </div>
-      )}
+      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3">
         {result ? (
@@ -135,6 +164,7 @@ export function HeroDemo() {
           <>
             <span className="text-xs text-muted">{error ?? "Play money, no signup."}</span>
             <button
+              ref={buyRef}
               type="button"
               onClick={() => void tryOrder()}
               disabled={pending || market.status !== "live"}
@@ -151,12 +181,25 @@ export function HeroDemo() {
 
 function Trace({ result, onReset }: { result: CommandResult; onReset: () => void }) {
   const id = result.orderId ?? "";
-  // As tall as the trace, up to the book's height; a long trace (many fills) scrolls.
+  // The button that placed the order is gone, so focus moves to what replaced it.
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    // Already on screen: it replaces the book in the card that held the button.
+    heading.current?.focus({ preventScroll: true });
+  }, []);
+  // As tall as the book it replaces; a long trace (many fills) scrolls.
   return (
-    <div className="max-h-[372px] overflow-y-auto px-4 py-4">
-      <div className="mb-4 flex items-baseline justify-between">
-        <h3 className="text-sm font-semibold">What the exchange did with {id}</h3>
-        <button type="button" onClick={onReset} className="text-xs text-muted hover:text-text">
+    <div className="h-full overflow-y-auto px-4 py-4">
+      <div className="mb-4 flex items-baseline justify-between gap-3">
+        <h3 ref={heading} tabIndex={-1} className="text-sm font-semibold">
+          What the exchange did with {id}
+        </h3>
+        <button
+          type="button"
+          onClick={onReset}
+          // The padding widens the target; the negative margin keeps the text where it was.
+          className="-m-2 shrink-0 whitespace-nowrap p-2 text-xs text-muted hover:text-text"
+        >
           Back to the book
         </button>
       </div>

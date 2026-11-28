@@ -28,6 +28,8 @@ export type ConnectionStatus = "connecting" | "live" | "reconnecting";
 
 export interface MarketState {
   readonly status: ConnectionStatus;
+  /** The market session the stream last greeted with; null before the first hello. */
+  readonly session: number | null;
   readonly symbol: string;
   readonly markets: readonly MarketSummary[];
   readonly book: OrderBook | null;
@@ -51,6 +53,7 @@ type Action =
 
 const initial = (symbol: string): MarketState => ({
   status: "connecting",
+  session: null,
   symbol,
   markets: initialMarkets(),
   book: null,
@@ -68,6 +71,19 @@ function upsertCandle(candles: readonly Candle[], candle: Candle): Candle[] {
   if (last?.time === candle.time) return [...candles.slice(0, -1), candle];
   if (last && candle.time < last.time) return [...candles];
   return [...candles, candle].slice(-480);
+}
+
+/**
+ * The tape, newest first, each trade once. Every connection starts with a
+ * snapshot of recent trades that overlaps what is already shown (a session's
+ * stream replacing the visitor's, a reconnect), so trades merge by seq rather
+ * than being prepended.
+ */
+function mergeTrades(incoming: readonly TradePrint[], current: readonly TradePrint[]) {
+  const bySeq = new Map<number, TradePrint>();
+  for (const t of current) bySeq.set(t.seq, t);
+  for (const t of incoming) bySeq.set(t.seq, t);
+  return [...bySeq.values()].sort((a, b) => b.seq - a.seq).slice(0, MAX_TRADES);
 }
 
 export function reducer(state: MarketState, action: Action): MarketState {
@@ -91,7 +107,20 @@ export function reducer(state: MarketState, action: Action): MarketState {
       const m = action.message;
       switch (m.type) {
         case "hello":
-          return { ...state, status: "live" };
+          // A new market session numbers its trades from 1 again, so merging by seq
+          // would bury its trades under the old session's: the tape starts over and
+          // shows its skeleton until the new snapshot arrives. Candles are keyed by
+          // time, so they carry on.
+          if (state.session !== null && m.session !== state.session) {
+            return {
+              ...state,
+              status: "live",
+              session: m.session,
+              trades: [],
+              tradesLoaded: false,
+            };
+          }
+          return { ...state, status: "live", session: m.session };
         case "markets":
           return { ...state, markets: m.markets };
         case "book":
@@ -101,7 +130,7 @@ export function reducer(state: MarketState, action: Action): MarketState {
           return {
             ...state,
             tradesLoaded: true,
-            trades: [...m.trades, ...state.trades].slice(0, MAX_TRADES),
+            trades: mergeTrades(m.trades, state.trades),
           };
         case "candle":
           if (m.symbol !== state.symbol) return state;

@@ -75,6 +75,99 @@ function Arrow({
   );
 }
 
+/** A system component in the phone diagram: the same names and details as the SVG's boxes. */
+function Node({
+  title,
+  lines,
+  emphasis = false,
+}: {
+  title: string;
+  lines: string[];
+  emphasis?: boolean;
+}) {
+  return (
+    <div
+      className={`rounded-lg border bg-surface px-4 py-3 ${emphasis ? "border-accent" : "border-line"}`}
+    >
+      <p className="text-sm font-semibold">{title}</p>
+      <ul className="mt-1 text-xs leading-relaxed text-muted">
+        {lines.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** An arrow down to the next component, with its step number. */
+function Edge({ step, label }: { step?: number; label: string }) {
+  return (
+    <div className="flex items-center gap-3 py-1.5 pl-5 text-xs text-muted">
+      <svg aria-hidden="true" viewBox="0 0 8 24" className="h-6 w-2 shrink-0">
+        <path d="M4 0V21" stroke="var(--muted)" strokeWidth={1.25} />
+        <path d="M0.5 18L4 23.5L7.5 18z" fill="var(--muted)" />
+      </svg>
+      <span>
+        {step !== undefined && <span className="num mr-1.5 font-medium text-text">{step}</span>}
+        {label}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Below 768 px the diagram is drawn top to bottom in HTML, so it fits the
+ * screen and wraps its words instead of scrolling sideways.
+ */
+function StackedDiagram() {
+  return (
+    <div className="md:hidden">
+      <Node
+        title="Browser"
+        lines={["Landing page", "Trading terminal", "Engine inspector", "Replay in a Web Worker"]}
+      />
+      <Edge step={1} label="order" />
+      <Node
+        title="API (Fastify)"
+        lines={["Validation (zod)", "Guest tokens (HMAC)", "Rate limits, CSP"]}
+      />
+      <Edge step={2} label="command" />
+      <Node
+        title="Engine host"
+        lines={["Single-writer queue", "Market clock", "Read models"]}
+        emphasis
+      />
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Edge step={3} label="write" />
+          <Node title="Command log" lines={["PostgreSQL", "Append-only, hashed"]} />
+        </div>
+        <div>
+          <Edge step={4} label="match" />
+          <Node
+            title="Matching engine"
+            lines={["In memory", "Price-time priority", "Seeded bot market"]}
+          />
+        </div>
+      </div>
+      <ul className="mt-5 space-y-2 border-t border-line pt-4 text-xs leading-relaxed text-muted">
+        <li>
+          <span className="font-medium text-text">Back to the browser:</span> live updates (book,
+          trades, your fills) over server-sent events.
+        </li>
+        <li>
+          <span className="font-medium text-text">On start:</span> the engine host restores its
+          latest hashed snapshot from PostgreSQL and replays the rest of the log.
+        </li>
+        <li>
+          <span className="font-medium text-text">Verified replay:</span> the browser downloads the
+          log, replays it in a Web Worker and compares the state hash.
+        </li>
+      </ul>
+    </div>
+  );
+}
+
 export function Architecture() {
   const { attach: attachScroller, style: scrollerFade } = useScrollFade();
   return (
@@ -83,20 +176,18 @@ export function Architecture() {
         <h3 className="text-lg font-semibold tracking-[-0.02em]">
           How an order moves through the system
         </h3>
-        <p className="mt-2 text-sm text-muted">
-          Numbers show the order of steps for one command.
-          <span className="md:hidden"> Scroll sideways to see all of it.</span>
-        </p>
+        <p className="mt-2 text-sm text-muted">Numbers show the order of steps for one command.</p>
       </figcaption>
       <div className="rounded-lg border border-line bg-surface p-4">
+        <StackedDiagram />
         <div
           ref={attachScroller}
           style={scrollerFade}
-          // Scrollable on small screens, so it must be reachable by keyboard.
+          // Scrollable below 1008 px, so it must be reachable by keyboard.
           tabIndex={0}
           role="region"
           aria-label="Architecture diagram"
-          className="overflow-x-auto"
+          className="hidden overflow-x-auto md:block"
         >
           <svg
             viewBox="0 0 1060 400"

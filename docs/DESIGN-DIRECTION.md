@@ -55,7 +55,10 @@ is shown in `muted`, never in green.
   jittering (`.num`).
 - **IBM Plex Mono** only for raw engine events in the inspector, which really
   are machine data.
-- Scale from 11 to 54 px; the terminal's body text is 13 px, the landing page's 15–17 px.
+- Scale from 11 to 64 px; the terminal's body text is 13 px, the landing page's 15–17 px.
+- Landing page: the headline is 40 px on a phone, 54 px from 640 px and 64 px
+  from 1280 px; section headings are 30 px, and 40 px with tighter tracking
+  (−0.03em) from 1024 px. Sections are spaced 112 px apart (128 px from 1024 px).
 - Headings are sentence case with tight tracking. No all-caps labels.
 
 ## Layout
@@ -78,7 +81,8 @@ chart, so a phone user never scrolls past the whole book to trade.
 **Landing page:** hero (headline, live stats, live order book with the
 one-click order), a product tour (the terminal, the inspector and verified
 replay as real screenshots, one tab at a time), how price-time priority works
-with a worked example, the engineering, an architecture diagram, an honest list
+with a worked example, the engineering, an architecture diagram (drawn top to
+bottom on a phone, so it never scrolls sideways), an honest list
 of what is simulated, and a closing band in the terminal's dark theme with the
 way in. The tour's screenshots come from the product itself
 (`npm run assets -w @marketlab/web`), so they are regenerated, not drawn.

@@ -12,12 +12,15 @@ import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 
 import { prefetchOnIntent } from "../lib/routes";
+import { useMediaQuery } from "../lib/useMediaQuery";
 
 interface Screen {
   readonly key: "terminal" | "inspector" | "replay";
   readonly title: string;
   readonly summary: string;
   readonly alt: string;
+  /** What the phone crop shows, which is less than the full screenshot. */
+  readonly phoneAlt: string;
   readonly action: { readonly label: string; readonly to: "/terminal" | "/replay" };
 }
 
@@ -28,6 +31,8 @@ const SCREENS: readonly Screen[] = [
     summary:
       "A candlestick chart, a live depth ladder and a keyboard-first order ticket. Click any price in the book to set a limit order.",
     alt: "The trading terminal: a candlestick chart, the order book ladder, the order ticket and a position after buying 10 shares.",
+    phoneAlt:
+      "The trading terminal on a phone: the order ticket just after buying 10 shares, with the order book starting below it.",
     action: { label: "Open the terminal", to: "/terminal" },
   },
   {
@@ -36,6 +41,8 @@ const SCREENS: readonly Screen[] = [
     summary:
       "Any order's path through the system: received, queued, written to Postgres, matched. With the time each step took and every event it caused.",
     alt: "The engine inspector beside the terminal, tracing one order through validation, the command log write and matching, with the time of each step.",
+    phoneAlt:
+      "The engine inspector on a phone, tracing one order: received by the API, queued, written to the command log and matched, with the time of each step.",
     action: { label: "Place an order, then press I", to: "/terminal" },
   },
   {
@@ -44,6 +51,8 @@ const SCREENS: readonly Screen[] = [
     summary:
       "Your browser downloads the session's seed and command log, runs the same engine in a Web Worker and checks the server's state hash after every entry.",
     alt: "The replay page: a verdict that the browser replayed the session and matched the server's state hash, above the replayed chart and order book.",
+    phoneAlt:
+      "The replay page on a phone: a verdict that the browser replayed the session and matched the server's state hash, above the replayed chart and the timeline.",
     action: { label: "Run the replay", to: "/replay" },
   },
 ];
@@ -51,12 +60,24 @@ const SCREENS: readonly Screen[] = [
 const WIDTHS = [1120, 2240] as const;
 const srcSet = (key: Screen["key"]) =>
   WIDTHS.map((w) => `/tour/${key}-${String(w)}.webp ${String(w)}w`).join(", ");
+const SIZES = "(min-width: 1152px) 1104px, calc(100vw - 48px)";
+
+/**
+ * On a phone the whole terminal would be too small to read, so each screen has
+ * a crop of the product at a phone's width instead (400 × 600 CSS px).
+ */
+const PHONE = "(max-width: 639px)";
+const PHONE_WIDTHS = [800, 1200] as const;
+const phoneSrcSet = (key: Screen["key"]) =>
+  PHONE_WIDTHS.map((w) => `/tour/${key}-phone-${String(w)}.webp ${String(w)}w`).join(", ");
+const PHONE_SIZES = "calc(100vw - 48px)";
 
 /** Fetch a tab's screenshot before it is shown, so switching never flashes empty. */
 function preload(key: Screen["key"]) {
+  const phone = typeof window.matchMedia === "function" && window.matchMedia(PHONE).matches;
   const image = new Image();
-  image.sizes = "(min-width: 1152px) 1104px, calc(100vw - 48px)";
-  image.srcset = srcSet(key);
+  image.sizes = phone ? PHONE_SIZES : SIZES;
+  image.srcset = phone ? phoneSrcSet(key) : srcSet(key);
 }
 
 export function ProductTour() {
@@ -65,6 +86,8 @@ export function ProductTour() {
   const [chosen, setChosen] = useState(false);
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
   const id = useId();
+  // The same test as the <picture> source, so the text describes the image shown.
+  const phone = useMediaQuery(PHONE);
 
   const select = (index: number, focus = false) => {
     const next = (index + SCREENS.length) % SCREENS.length;
@@ -96,10 +119,10 @@ export function ProductTour() {
 
   return (
     <section id="tour" aria-labelledby={`${id}-heading`} className="border-t border-line">
-      <div className="mx-auto max-w-6xl px-6 py-24">
+      <div className="mx-auto max-w-6xl px-6 py-28 lg:py-32">
         <h2
           id={`${id}-heading`}
-          className="max-w-[26ch] text-2xl font-semibold tracking-[-0.025em]"
+          className="max-w-[26ch] text-2xl font-semibold tracking-[-0.025em] lg:text-3xl lg:tracking-[-0.03em]"
         >
           One engine, three ways to look at it.
         </h2>
@@ -162,20 +185,30 @@ export function ProductTour() {
           className="mt-6 md:mt-8"
         >
           <p className="mb-5 text-sm leading-relaxed text-muted md:hidden">{screen.summary}</p>
-          <div className="dark-ui overflow-hidden rounded-xl border border-line bg-surface shadow-[0_32px_64px_-32px_rgb(18_26_38/0.45)]">
-            {/* Fixed aspect ratio, so nothing below moves while the image loads. */}
-            <img
-              key={screen.key}
-              src={`/tour/${screen.key}-${String(WIDTHS[0])}.webp`}
-              srcSet={srcSet(screen.key)}
-              sizes="(min-width: 1152px) 1104px, calc(100vw - 48px)"
-              width={1280}
-              height={800}
-              loading="lazy"
-              decoding="async"
-              alt={screen.alt}
-              className={`block aspect-[16/10] h-auto w-full bg-surface ${chosen ? "tour-image" : ""}`}
-            />
+          <div className="dark-ui overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+            {/* Fixed aspect ratios (16:10, or 2:3 for the phone crop), so nothing below
+                moves while the image loads. The inner hairline keeps the screenshot's
+                dark edge from running into the shadow. */}
+            <picture key={screen.key}>
+              <source
+                media={PHONE}
+                srcSet={phoneSrcSet(screen.key)}
+                sizes={PHONE_SIZES}
+                width={400}
+                height={600}
+              />
+              <img
+                src={`/tour/${screen.key}-${String(WIDTHS[0])}.webp`}
+                srcSet={srcSet(screen.key)}
+                sizes={SIZES}
+                width={1280}
+                height={800}
+                loading="lazy"
+                decoding="async"
+                alt={phone ? screen.phoneAlt : screen.alt}
+                className={`block aspect-[16/10] h-auto w-full rounded-[11px] bg-surface outline-1 -outline-offset-1 outline-white/[0.06] max-sm:aspect-[2/3] ${chosen ? "tour-image" : ""}`}
+              />
+            </picture>
           </div>
           <Link
             to={screen.action.to}

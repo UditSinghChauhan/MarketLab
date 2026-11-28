@@ -47,6 +47,69 @@ describe("stream reducer", () => {
     expect(state.trades[0]?.seq).toBe(69);
   });
 
+  it("starts the tape over when the market session rolls over, and only then", () => {
+    const hello = (session: number): StreamMessage => ({ type: "hello", session, serverTime: 0 });
+    const prints = (...seqs: number[]): StreamMessage => ({
+      type: "trades",
+      symbol: "ORBT",
+      trades: seqs.map((s) => trade(s)),
+    });
+    const send = (state: MarketState, message: StreamMessage) =>
+      reducer(state, { type: "message", message });
+
+    let state = start();
+    state = send(state, hello(7));
+    state = send(state, prints(5002, 5001, 5000));
+    // A reconnect within the same session merges, as before.
+    state = send(state, hello(7));
+    state = send(state, prints(5003, 5002));
+    expect(state.trades.map((t) => t.seq)).toEqual([5003, 5002, 5001, 5000]);
+
+    // A new session numbers its trades from 1 again: the old tape goes.
+    state = send(state, hello(8));
+    expect(state.trades).toEqual([]);
+    expect(state.tradesLoaded).toBe(false);
+    state = send(state, prints(3, 2, 1));
+    expect(state.trades.map((t) => t.seq)).toEqual([3, 2, 1]);
+  });
+
+  it("merges a reconnect's snapshot by seq: no repeats, newest first, at most 60", () => {
+    const trades = (from: number, to: number) =>
+      Array.from({ length: to - from + 1 }, (_, i) => trade(to - i)); // newest first
+    let state = start();
+    state = reducer(state, {
+      type: "message",
+      message: { type: "trades", symbol: "ORBT", trades: trades(1, 50) },
+    });
+    // The next connection's snapshot: the last 50 trades, 10 of them new.
+    state = reducer(state, {
+      type: "message",
+      message: { type: "trades", symbol: "ORBT", trades: trades(11, 60) },
+    });
+    const seqs = state.trades.map((t) => t.seq);
+    expect(new Set(seqs).size).toBe(seqs.length);
+    expect(seqs).toEqual(trades(1, 60).map((t) => t.seq));
+
+    state = reducer(state, {
+      type: "message",
+      message: { type: "trades", symbol: "ORBT", trades: trades(41, 70) },
+    });
+    expect(state.trades.map((t) => t.seq)).toEqual(trades(11, 70).map((t) => t.seq));
+  });
+
+  it("keeps the tape newest first when a batch arrives out of order", () => {
+    let state = start();
+    state = reducer(state, {
+      type: "message",
+      message: { type: "trades", symbol: "ORBT", trades: [trade(5), trade(3)] },
+    });
+    state = reducer(state, {
+      type: "message",
+      message: { type: "trades", symbol: "ORBT", trades: [trade(4), trade(6)] },
+    });
+    expect(state.trades.map((t) => t.seq)).toEqual([6, 5, 4, 3]);
+  });
+
   it("updates the current candle in place and appends new ones", () => {
     let state = start();
     state = reducer(state, {
@@ -383,6 +446,25 @@ describe("useMarketStream", () => {
     expect(result.current.markets).toEqual([summary]);
     expect(result.current.account).toBeNull();
     expect(result.current.lastOrderEvents).toEqual([]);
+  });
+
+  it("shows each trade once when the session's stream resends the tape", () => {
+    stubFetch();
+    const { result, rerender } = renderHook(({ token }) => useMarketStream("ORBT", token), {
+      initialProps: { token: null as string | null },
+    });
+    const snapshot = (newest: number) => Array.from({ length: 50 }, (_, i) => trade(newest - i));
+    act(() => {
+      latest().emit({ type: "trades", symbol: "ORBT", trades: snapshot(50) });
+    });
+    rerender({ token: "tok" });
+    act(() => {
+      latest().emit({ type: "trades", symbol: "ORBT", trades: snapshot(52) });
+    });
+    const seqs = result.current.trades.map((t) => t.seq);
+    expect(new Set(seqs).size).toBe(seqs.length);
+    expect(seqs.slice(0, 3)).toEqual([52, 51, 50]);
+    expect(seqs).toHaveLength(52);
   });
 
   it("starts from empty on another market and closes the old stream", () => {

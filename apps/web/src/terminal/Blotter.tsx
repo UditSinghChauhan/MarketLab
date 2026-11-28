@@ -1,11 +1,12 @@
 /** Positions and orders for the guest account. */
 
 import type { AccountView, OrderView } from "@marketlab/contracts";
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import { direction, price, qty, rupees, signedRupees, time } from "../lib/format";
 import { cancelMessage, sideLabel, statusLabel, typeLabel } from "../lib/orders";
 import { useTouch } from "../lib/useTouch";
+import { Kbd } from "../ui/Panel";
 import { Skeleton } from "../ui/Skeleton";
 
 type Tab = "positions" | "orders";
@@ -98,6 +99,18 @@ export function Blotter({
   );
 }
 
+/** An empty tab: a short title and what to do next, centred in the panel. */
+function Empty({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center px-4 py-6 text-center">
+      <p className="text-sm font-medium">{title}</p>
+      <div className="mt-1 max-w-[46ch] text-xs leading-relaxed text-pretty text-muted">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /** Placeholder rows with the height of the tables' header and rows. */
 function RowsSkeleton({ label }: { label: string }) {
   return (
@@ -120,10 +133,15 @@ function Positions({ account }: { account: AccountView }) {
   const touch = useTouch();
   if (rows.length === 0) {
     return (
-      <p className="p-4 text-sm text-muted">
-        You don't hold anything yet. Buy from the ticket, or {touch ? "tap" : "click"} a price in
-        the book to start a limit order.
-      </p>
+      <Empty title="No positions yet">
+        <p>
+          Buy from the ticket, or {touch ? "tap" : "click"} a price in the book to start a limit
+          order.
+        </p>
+        <p className="mt-2 flex items-center justify-center gap-1.5 touch:hidden">
+          <Kbd>Enter</Kbd> places the order in the ticket
+        </p>
+      </Empty>
     );
   }
   return (
@@ -191,7 +209,11 @@ function Orders({
   cancelling: ReadonlySet<string>;
 }) {
   if (orders.length === 0) {
-    return <p className="p-4 text-sm text-muted">Orders you place appear here, newest first.</p>;
+    return (
+      <Empty title="No orders yet">
+        <p>Orders you place appear here, newest first.</p>
+      </Empty>
+    );
   }
   return (
     <table className="w-full min-w-[720px] text-sm">

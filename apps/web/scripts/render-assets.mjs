@@ -6,14 +6,15 @@
  *   apple-touch-icon.png   180 px home-screen icon
  *   icon-192.png, icon-512.png   web manifest icons
  *   tour/*.webp            the landing page's product tour: terminal,
- *                          inspector and verified replay, at two widths
+ *                          inspector and verified replay, at two widths,
+ *                          plus a phone crop of each (tour/*-phone-*.webp)
  *
  * Usage: start the app (`npm run build && npm start`, or the dev servers), then
  *   BASE_URL=http://localhost:8080 npm run assets -w @marketlab/web
  * Set CHROME_PATH to use an installed Chrome instead of Playwright's browser.
  */
 
-/* global document, HTMLElement, Image -- used only inside page.evaluate, which runs in the browser */
+/* global document, window, HTMLElement, Image -- used only inside page.evaluate, which runs in the browser */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -27,6 +28,12 @@ const fonts = path.resolve(here, "../../../node_modules/@fontsource/ibm-plex-san
 const baseUrl = process.env.BASE_URL ?? "http://localhost:8080";
 /** Widths of each tour image; the landing page lists both in `srcset`. */
 const TOUR_WIDTHS = [1120, 2240];
+/**
+ * The phone crops: a 400 × 600 CSS px region of the product at a phone's width,
+ * so its text shows at about its real size on a phone. Rendered at 3x.
+ */
+const PHONE = { width: 400, height: 600, scale: 3 };
+const PHONE_WIDTHS = [800, 1200];
 
 const dataUrl = async (file, type) =>
   `data:${type};base64,${(await readFile(file)).toString("base64")}`;
@@ -97,6 +104,7 @@ try {
   // 4. The landing page's product tour: the terminal, the inspector tracing an
   //    order, and a finished verified replay, each in two widths of WebP.
   await renderTour(browser);
+  await renderPhoneTour(browser);
   console.log(`Rendered og.png, icons and tour images into ${publicDir}`);
 } finally {
   await browser.close();
@@ -143,12 +151,81 @@ async function renderTour(browser) {
   await page.waitForTimeout(1_000);
   shots.replay = await page.screenshot({ type: "png" });
 
-  // Chrome encodes WebP itself, so no image library is needed: draw each
-  // screenshot onto a canvas at the target width and export it.
+  await writeWebp(browser, shots, TOUR_WIDTHS, "");
+  await page.close();
+}
+
+/**
+ * The tour on a phone: the full terminal at 1280 px would be unreadable at
+ * 340 px wide, so each tab gets a crop of the product at a phone's own width,
+ * all in one frame so switching tabs never changes the image's height.
+ */
+async function renderPhoneTour(browser) {
+  const page = await browser.newPage({
+    viewport: { width: PHONE.width, height: 900 },
+    deviceScaleFactor: PHONE.scale,
+    isMobile: true,
+    hasTouch: true,
+  });
+  await page.addInitScript(() => localStorage.setItem("marketlab.guide", "done"));
+  /** The frame, from `top` (page px) down, at the page's full width. */
+  const crop = async (top) => {
+    const y = await page.evaluate((top) => top + window.scrollY, top);
+    return page.screenshot({
+      type: "png",
+      fullPage: true,
+      clip: { x: 0, y, width: PHONE.width, height: PHONE.height },
+    });
+  };
+  const shots = {};
+
+  // The ticket, after a market buy, and the top of the book under it.
+  await page.goto(`${baseUrl}/terminal/ORBT`);
+  await page.getByRole("img", { name: /Price chart/ }).waitFor();
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("button")].some(
+      (b) => b.textContent?.startsWith("Buy 10 ORBT") && !b.disabled,
+    ),
+  );
+  await page.getByRole("button", { name: /^Buy 10 ORBT/ }).click();
+  await page.getByText("Bought 10 ORBT").waitFor();
+  await page.waitForTimeout(1_500);
+  const ticket = page.getByRole("region", { name: "Place an order" });
+  await ticket.scrollIntoViewIfNeeded();
+  shots.terminal = await crop((await ticket.boundingBox()).y);
+
+  // The inspector fills a phone's screen; the crop is its top: the request path.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.getByRole("button", { name: /^Inspector/ }).click();
+  const inspector = page.getByRole("dialog", { name: "Engine inspector" });
+  await inspector.getByText("Matched by the engine").waitFor();
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  });
+  await page.waitForTimeout(500);
+  shots.inspector = await crop((await inspector.boundingBox()).y);
+
+  // The replay's verdict and the replayed chart under it, below the header.
+  await page.goto(`${baseUrl}/replay`);
+  await page
+    .getByText(/Your browser replayed [\d,]+ engine commands/)
+    .waitFor({ timeout: 120_000 });
+  await page.waitForTimeout(1_000);
+  shots.replay = await crop((await page.getByRole("banner").boundingBox()).height);
+
+  await writeWebp(browser, shots, PHONE_WIDTHS, "-phone");
+  await page.close();
+}
+
+/**
+ * Chrome encodes WebP itself, so no image library is needed: draw each
+ * screenshot onto a canvas at the target width and export it.
+ */
+async function writeWebp(browser, shots, widths, suffix) {
   await mkdir(path.join(publicDir, "tour"), { recursive: true });
   const encoder = await browser.newPage();
   for (const [name, png] of Object.entries(shots)) {
-    for (const width of TOUR_WIDTHS) {
+    for (const width of widths) {
       const base64 = await encoder.evaluate(
         async ({ src, width }) => {
           const image = new Image();
@@ -165,11 +242,10 @@ async function renderTour(browser) {
         { src: `data:image/png;base64,${png.toString("base64")}`, width },
       );
       await writeFile(
-        path.join(publicDir, "tour", `${name}-${String(width)}.webp`),
+        path.join(publicDir, "tour", `${name}${suffix}-${String(width)}.webp`),
         Buffer.from(base64, "base64"),
       );
     }
   }
   await encoder.close();
-  await page.close();
 }

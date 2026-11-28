@@ -198,7 +198,7 @@ test.describe("terminal header menu", () => {
     await more.click();
     await page.getByRole("menuitem", { name: /Start over/ }).click();
     await dialog.getByRole("button", { name: "Start over" }).click();
-    await expect(page.getByText("You don't hold anything yet")).toBeVisible();
+    await expect(page.getByText("No positions yet")).toBeVisible();
     await expect.poll(account).not.toBe(before);
     expect(await account()).toMatch(/^g_/);
   });

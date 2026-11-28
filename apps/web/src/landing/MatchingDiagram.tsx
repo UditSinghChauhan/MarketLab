@@ -29,14 +29,18 @@ const LEVELS: { price: string; orders: Resting[] }[] = [
 
 export function MatchingDiagram() {
   return (
-    <figure className="self-center rounded-lg border border-line bg-bg p-6">
-      <div className="mb-4 flex items-baseline justify-between text-xs text-muted">
+    <figure className="self-center rounded-lg border border-line bg-bg p-5 sm:p-6">
+      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-xs text-muted">
         <span>Sellers waiting, by price</span>
         <span>Queue: earliest on the left</span>
       </div>
       <div className="space-y-2">
         {LEVELS.map((level, i) => (
-          <div key={level.price} className="grid grid-cols-[6.5rem_1fr] items-center gap-3">
+          // A narrower price column on a phone leaves the queue room for every chip's minimum.
+          <div
+            key={level.price}
+            className="grid grid-cols-[5.5rem_1fr] items-center gap-3 sm:grid-cols-[6.5rem_1fr]"
+          >
             <span
               className={`num text-sm ${i === LEVELS.length - 1 ? "font-semibold text-ask" : "text-muted"}`}
             >
@@ -77,9 +81,10 @@ export function MatchingDiagram() {
 
 function Chip({ order }: { order: Resting }) {
   const fill = order.taken / order.shares;
+  // Widths follow the shares, but never below what "#57" over "10/15" needs (52 px).
   return (
     <div
-      className="relative min-w-0 overflow-hidden rounded border border-line bg-surface px-2 py-1"
+      className="relative min-w-[3.25rem] overflow-hidden rounded border border-line bg-surface px-2 py-1"
       style={{ flexGrow: order.shares, flexBasis: 0 }}
       aria-label={`Order ${String(order.id)}: ${String(order.shares)} shares${
         order.taken > 0 ? `, ${String(order.taken)} bought` : ""

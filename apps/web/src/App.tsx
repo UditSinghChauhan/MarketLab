@@ -53,12 +53,17 @@ function NotFound() {
         <Logo className="text-lg" />
         <h1 className="mt-8 text-xl font-semibold">This page doesn't exist</h1>
         <p className="mt-2 text-muted">The market is still open, though.</p>
-        <Link
-          to="/terminal"
-          className="mt-6 inline-flex h-10 items-center rounded-md bg-accent px-4 text-sm font-semibold text-accent-ink"
-        >
-          Open the terminal
-        </Link>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
+          <Link
+            to="/terminal"
+            className="inline-flex h-10 items-center rounded-md bg-accent px-4 text-sm font-semibold text-accent-ink"
+          >
+            Open the terminal
+          </Link>
+          <Link to="/" className="inline-flex h-10 items-center text-sm text-muted hover:text-text">
+            Back to the home page
+          </Link>
+        </div>
       </div>
     </main>
   );

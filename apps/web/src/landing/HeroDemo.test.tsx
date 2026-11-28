@@ -116,6 +116,19 @@ describe("HeroDemo order button", () => {
     expect(new Set([sent(0), sent(1), sent(2)]).size).toBe(3);
   });
 
+  it("moves focus to the trace, and back to the button when returning to the book", async () => {
+    const { user, buy } = setup();
+    respond(201, JSON.stringify(placed));
+    await buy();
+    const heading = await screen.findByRole("heading", {
+      name: "What the exchange did with ord_9",
+    });
+    expect(heading).toHaveFocus();
+
+    await user.click(screen.getByRole("button", { name: "Back to the book" }));
+    expect(screen.getByRole("button", { name: "Buy 5 shares at market" })).toHaveFocus();
+  });
+
   it("does not report an unknown order when no order was sent (the guest session failed)", async () => {
     vi.mocked(ensureSession).mockRejectedValueOnce(new TypeError("Failed to fetch"));
     const { buy } = setup();

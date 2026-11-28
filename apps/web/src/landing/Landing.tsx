@@ -57,11 +57,13 @@ export function Landing() {
       </header>
 
       <main>
-        {/* The row is at least as tall as the hero card showing the book (508 px), so the
-            page below stays put when the card shortens to an order's trace. */}
-        <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-24 pt-12 lg:grid-cols-[minmax(0,1fr)_440px] lg:grid-rows-[minmax(32rem,auto)] lg:pt-20">
-          <div>
-            <h1 className="max-w-[16ch] text-3xl font-semibold leading-[1.05] tracking-[-0.035em] sm:text-4xl">
+        {/* On a phone the live book and its button come straight after the pitch, and the
+            stats follow. From lg the card sits beside the pitch and stats, which stay
+            centred against it between two equal spacer rows; the section is at least as
+            tall as the card (32rem plus its padding). */}
+        <section className="mx-auto grid max-w-6xl gap-x-12 px-6 pb-24 pt-12 lg:min-h-[43rem] lg:grid-cols-[minmax(0,1fr)_440px] lg:grid-rows-[minmax(0,1fr)_auto_auto_minmax(0,1fr)] lg:pt-20">
+          <div className="lg:col-start-1 lg:row-start-2">
+            <h1 className="max-w-[16ch] text-3xl font-semibold leading-[1.05] tracking-[-0.035em] sm:text-4xl xl:text-5xl">
               A stock exchange you can watch work.
             </h1>
             <p className="mt-6 max-w-[52ch] text-lg leading-relaxed text-muted">
@@ -84,30 +86,32 @@ export function Landing() {
                 Read the source
               </a>
             </div>
-            {/* Two shared rows (labels, values), so the values sit on one baseline however the labels wrap. */}
-            <dl className="mt-12 grid max-w-lg grid-cols-3 grid-rows-[auto_auto] gap-x-6 gap-y-1 border-t border-line pt-6">
-              <Stat
-                label="Bot command, median"
-                value={h ? duration(h.engine.bots.p50Us) : "—"}
-                note="The simulated traders' commands: mostly quotes and cancels that never trade. A visitor's own order takes longer; the engine inspector shows both."
-              />
-              <Stat label="Commands this session" value={h ? qty(h.engine.commands) : "—"} />
-              <Stat
-                label="Invariant violations"
-                value={h ? String(h.invariantViolations) : "—"}
-                note="Checked live, on every load of this page"
-              />
-            </dl>
           </div>
-          <HeroDemo />
+          <div className="mt-12 lg:col-start-2 lg:row-span-4 lg:row-start-1 lg:mt-0 lg:self-center">
+            <HeroDemo />
+          </div>
+          {/* Two shared rows (labels, values), so the values sit on one baseline however the labels wrap. */}
+          <dl className="mt-12 grid max-w-lg grid-cols-3 grid-rows-[auto_auto] gap-x-6 gap-y-1 border-t border-line pt-6 lg:col-start-1 lg:row-start-3">
+            <Stat
+              label="Bot command, median"
+              value={h ? duration(h.engine.bots.p50Us) : "—"}
+              note="The simulated traders' commands: mostly quotes and cancels that never trade. A visitor's own order takes longer; the engine inspector shows both."
+            />
+            <Stat label="Commands this session" value={h ? qty(h.engine.commands) : "—"} />
+            <Stat
+              label="Invariant violations"
+              value={h ? String(h.invariantViolations) : "—"}
+              note="Checked live, on every load of this page"
+            />
+          </dl>
         </section>
 
         <ProductTour />
 
         <section id="matching" className="border-t border-line bg-surface">
-          <div className="mx-auto grid max-w-6xl gap-12 px-6 py-24 lg:grid-cols-2">
+          <div className="mx-auto grid max-w-6xl gap-12 px-6 py-28 lg:grid-cols-2 lg:py-32">
             <div>
-              <h2 className="text-2xl font-semibold tracking-[-0.025em]">
+              <h2 className="text-2xl font-semibold tracking-[-0.025em] lg:text-3xl lg:tracking-[-0.03em]">
                 Best price first. Then first come, first served.
               </h2>
               <p className="mt-5 max-w-[56ch] leading-relaxed text-muted">
@@ -132,8 +136,8 @@ export function Landing() {
           </div>
         </section>
 
-        <section id="engineering" className="mx-auto max-w-6xl px-6 py-24">
-          <h2 className="max-w-[24ch] text-2xl font-semibold tracking-[-0.025em]">
+        <section id="engineering" className="mx-auto max-w-6xl px-6 py-28 lg:py-32">
+          <h2 className="max-w-[24ch] text-2xl font-semibold tracking-[-0.025em] lg:text-3xl lg:tracking-[-0.03em]">
             Built the way exchanges are built, at the scale of one server.
           </h2>
           <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-line bg-line md:grid-cols-2">
@@ -204,8 +208,10 @@ export function Landing() {
         </section>
 
         <section className="border-t border-line bg-surface">
-          <div className="mx-auto grid max-w-6xl gap-10 px-6 py-20 lg:grid-cols-[1fr_2fr]">
-            <h2 className="text-xl font-semibold tracking-[-0.02em]">What is simulated</h2>
+          <div className="mx-auto grid max-w-6xl gap-10 px-6 py-24 lg:grid-cols-[1fr_2fr] lg:py-28">
+            <h2 className="text-xl font-semibold tracking-[-0.02em] lg:text-2xl lg:tracking-[-0.025em]">
+              What is simulated
+            </h2>
             <ul className="grid gap-x-10 gap-y-4 text-sm leading-relaxed text-muted sm:grid-cols-2">
               <li>
                 The four companies are fictional, and their prices come from simulated traders, not
@@ -226,9 +232,12 @@ export function Landing() {
 
         {/* The page ends where the product starts: the terminal's own dark theme and one action. */}
         <section aria-labelledby="try-it" className="dark-ui bg-bg text-text">
-          <div className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-20 md:flex-row md:items-end md:justify-between">
+          <div className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-24 md:flex-row md:items-end md:justify-between lg:py-28">
             <div>
-              <h2 id="try-it" className="text-2xl font-semibold tracking-[-0.025em]">
+              <h2
+                id="try-it"
+                className="text-2xl font-semibold tracking-[-0.025em] lg:text-3xl lg:tracking-[-0.03em]"
+              >
                 Place an order and watch where it goes.
               </h2>
               <p className="mt-4 max-w-[52ch] leading-relaxed text-muted">
@@ -314,7 +323,11 @@ function Rule({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** A claim and, under it, the fact that backs it, linked to where it can be checked. */
+/**
+ * A claim and, under it, the fact that backs it as the card's footer metric. The
+ * whole line links to where it can be checked; "Evidence" says so without
+ * underlining the figure.
+ */
 function Feature({
   title,
   fact,
@@ -333,9 +346,12 @@ function Feature({
       <p className="mt-6 border-t border-line pt-4 text-sm">
         <a
           href={evidence}
-          className="num text-accent underline decoration-accent/40 underline-offset-4 hover:decoration-accent"
+          className="group flex items-baseline justify-between gap-4 rounded-sm outline-offset-4"
         >
-          {fact}
+          <span className="num font-medium text-text">{fact}</span>
+          <span className="shrink-0 text-xs text-muted underline-offset-4 group-hover:text-text group-hover:underline group-focus-visible:text-text group-focus-visible:underline">
+            Evidence<span aria-hidden="true"> →</span>
+          </span>
         </a>
       </p>
     </article>

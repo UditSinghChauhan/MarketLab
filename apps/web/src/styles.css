@@ -27,6 +27,10 @@
   --pending: #94640a;
   --bid-wash: rgb(15 122 80 / 0.1);
   --ask-wash: rgb(200 50 58 / 0.1);
+  /* The terminal's header; the inspector opens below it, beside the account figures. */
+  --header-h: 3rem;
+  /* Content that appears in answer to a click: a quick start that settles (ease-out cubic). */
+  --ease-out: cubic-bezier(0.215, 0.61, 0.355, 1);
   color-scheme: light;
 }
 
@@ -67,7 +71,9 @@
   --color-bid-wash: var(--bid-wash);
   --color-ask-wash: var(--ask-wash);
 
-  /* Type scale (perfect fourth from 13px), tight for a dense terminal. */
+  /* Type scale (perfect fourth from 13px), tight for a dense terminal. The top
+     two steps are for the landing page: section headings (3xl at lg) and the
+     hero headline (5xl at xl). */
   --text-2xs: 0.6875rem;
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
@@ -77,6 +83,11 @@
   --text-2xl: 1.875rem;
   --text-3xl: 2.5rem;
   --text-4xl: 3.375rem;
+  --text-5xl: 4rem;
+
+  /* Product cards on the light page (the hero, the tour): a tight ambient
+     shadow that defines the edge, and a soft key shadow that lifts the card. */
+  --shadow-card: 0 2px 6px -2px rgb(18 26 38 / 0.12), 0 32px 64px -32px rgb(18 26 38 / 0.45);
 }
 
 @layer base {
@@ -131,11 +142,27 @@
 
 /* The landing tour: a chosen screenshot fades in, answering the click (off with reduced motion). */
 .tour-image {
-  animation: tour-in 180ms ease-out;
+  animation: tour-in 180ms var(--ease-out);
 }
 @keyframes tour-in {
   from {
     opacity: 0;
+  }
+}
+
+/* The hero: an order's trace (or the book again) fades in where the other was. */
+.hero-swap {
+  animation: hero-in 180ms var(--ease-out);
+}
+@keyframes hero-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-swap {
+    animation: none;
   }
 }
 

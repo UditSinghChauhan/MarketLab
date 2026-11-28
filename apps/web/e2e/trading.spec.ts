@@ -41,6 +41,10 @@ test.describe("terminal", () => {
     await row.getByRole("button", { name: "Trace" }).click();
     const inspector = page.getByRole("dialog", { name: "Engine inspector" });
     await expect(inspector.getByText("Written to the command log")).toBeVisible();
+    // The account value and P&L stay in view above the panel while tracing.
+    const header = await page.getByRole("banner").boundingBox();
+    const panel = await inspector.boundingBox();
+    expect(panel?.y).toBe((header?.y ?? 0) + (header?.height ?? 0));
     await expect(inspector.getByText("Resting in the book")).toBeVisible();
     // This order's numbers, beside the bot median (and the visitor median once
     // there are enough visitor orders), and which step set its latency.
@@ -54,6 +58,40 @@ test.describe("terminal", () => {
 
     await row.getByRole("button", { name: "Cancel" }).click();
     await expect(row.getByText("Cancelled")).toBeVisible();
+  });
+
+  test("the tape shows each trade once, newest first, after the guest session connects", async ({
+    page,
+  }) => {
+    // A fresh visitor's stream opens before their guest session exists, and the
+    // session's stream then resends the tape. Holding the session until the first
+    // tape has arrived makes that overlap happen every time, not on a race.
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route("**/api/session", async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.goto("/terminal/ORBT");
+    const rows = page.locator("[data-live-feed] tr[data-seq]");
+    await expect(rows.first()).toBeVisible();
+    release();
+    // The session's stream is open once the account has loaded; let a few ticks print.
+    await expect(page.getByRole("button", { name: /Buy 10 ORBT/ })).toBeEnabled();
+    await page.waitForTimeout(2_000);
+
+    // Seqs, not clock times: a tick's trades share a time, and the clock wraps at midnight.
+    const seqs = await rows.evaluateAll((trs) =>
+      trs.map((tr) => Number(tr.getAttribute("data-seq"))),
+    );
+    expect(seqs.length).toBeGreaterThan(0);
+    expect(seqs.length).toBeLessThanOrEqual(60);
+    // Strictly falling seqs: each trade once, newest first.
+    for (let i = 1; i < seqs.length; i++) {
+      expect(seqs[i]).toBeLessThan(seqs[i - 1] ?? 0);
+    }
   });
 
   test("checks the ticket as it is typed, and won't send an order the exchange would refuse", async ({
@@ -131,6 +169,8 @@ test.describe("terminal", () => {
     expect(response?.status()).toBe(404);
     await expect(page.getByRole("heading", { name: "This page doesn't exist" })).toBeVisible();
     await expect(page).toHaveTitle("Page not found · MarketLab");
+    await page.getByRole("link", { name: "Back to the home page" }).click();
+    await expect(page).toHaveURL(/\/$/);
   });
 });
 
