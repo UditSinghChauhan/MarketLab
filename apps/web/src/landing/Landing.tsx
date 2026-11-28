@@ -323,7 +323,11 @@ function Rule({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** A claim and, under it, the fact that backs it, linked to where it can be checked. */
+/**
+ * A claim and, under it, the fact that backs it as the card's footer metric. The
+ * whole line links to where it can be checked; "Evidence" says so without
+ * underlining the figure.
+ */
 function Feature({
   title,
   fact,
@@ -342,9 +346,12 @@ function Feature({
       <p className="mt-6 border-t border-line pt-4 text-sm">
         <a
           href={evidence}
-          className="num text-accent underline decoration-accent/40 underline-offset-4 hover:decoration-accent"
+          className="group flex items-baseline justify-between gap-4 rounded-sm outline-offset-4"
         >
-          {fact}
+          <span className="num font-medium text-text">{fact}</span>
+          <span className="shrink-0 text-xs text-muted underline-offset-4 group-hover:text-text group-hover:underline group-focus-visible:text-text group-focus-visible:underline">
+            Evidence<span aria-hidden="true"> →</span>
+          </span>
         </a>
       </p>
     </article>
