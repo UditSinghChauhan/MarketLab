@@ -217,8 +217,11 @@ function Terminal({ symbol }: { symbol: string }) {
           />
         </Panel>
 
-        {/* min-w-0: the positions table scrolls inside its panel, never widening the page. */}
-        <div className="order-5 flex h-[320px] min-w-0 md:col-span-2 xl:order-none xl:col-span-1 xl:col-start-1 xl:row-start-2 xl:h-auto">
+        {/* min-w-0: the positions table scrolls inside its panel, never widening the page.
+            Stacked (below xl) the panel is as tall as what it shows, up to 320 px, so an
+            empty account isn't a tall blank box; its minimum fits the loading rows and the
+            empty message, so nothing moves when the account arrives. */}
+        <div className="order-5 flex max-h-[320px] min-h-[11rem] min-w-0 md:col-span-2 xl:order-none xl:col-span-1 xl:col-start-1 xl:row-start-2 xl:max-h-none xl:min-h-0">
           <Blotter
             account={account}
             orders={orderList}
