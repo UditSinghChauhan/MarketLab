@@ -10,6 +10,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { price, time } from "../lib/format";
 
 const AXIS_W = 68;
+/** Room left of the plot, so the first candle and the gridlines don't touch the panel's edge. */
+const PLOT_LEFT = 12;
 const AXIS_H = 22;
 /**
  * Pixels kept free above the highest price. The range pad is a share of the
@@ -68,7 +70,7 @@ export function PriceChart({
   const volumeH = plotH - volumeTop;
 
   const view = useMemo(() => {
-    const visible = Math.max(1, Math.floor(plotW / STEP));
+    const visible = Math.max(1, Math.floor((plotW - PLOT_LEFT) / STEP));
     const data = candles.slice(-visible);
     const lastPrice = last === null ? undefined : Number(last);
     let lo = Math.min(...data.map((c) => Number(c.low)), lastPrice ?? Infinity);
@@ -101,7 +103,7 @@ export function PriceChart({
               {[0.2, 0.4, 0.6, 0.8].map((f) => (
                 <line
                   key={f}
-                  x1={0}
+                  x1={PLOT_LEFT}
                   x2={plotW}
                   y1={priceH * f}
                   y2={priceH * f}
@@ -109,7 +111,13 @@ export function PriceChart({
                 />
               ))}
               <line x1={plotW} x2={plotW} y1={0} y2={plotH} stroke="var(--line)" />
-              <line x1={0} x2={plotW} y1={volumeTop - 3} y2={volumeTop - 3} stroke="var(--line)" />
+              <line
+                x1={PLOT_LEFT}
+                x2={plotW}
+                y1={volumeTop - 3}
+                y2={volumeTop - 3}
+                stroke="var(--line)"
+              />
               {loading &&
                 [0.2, 0.4, 0.6, 0.8].map((f) => (
                   <rect
@@ -179,7 +187,7 @@ export function PriceChart({
       >
         {gridLines.map((p) => (
           <g key={p}>
-            <line x1={0} x2={plotW} y1={y(p)} y2={y(p)} stroke="var(--line)" />
+            <line x1={PLOT_LEFT} x2={plotW} y1={y(p)} y2={y(p)} stroke="var(--line)" />
             {(lastPrice === undefined || Math.abs(y(p) - y(lastPrice)) > 14) && (
               <text x={plotW + 8} y={y(p) + 4} className="num fill-muted text-2xs">
                 {price(p.toFixed(2))}
@@ -188,7 +196,13 @@ export function PriceChart({
           </g>
         ))}
         <line x1={plotW} x2={plotW} y1={0} y2={plotH} stroke="var(--line)" />
-        <line x1={0} x2={plotW} y1={volumeTop - 3} y2={volumeTop - 3} stroke="var(--line)" />
+        <line
+          x1={PLOT_LEFT}
+          x2={plotW}
+          y1={volumeTop - 3}
+          y2={volumeTop - 3}
+          stroke="var(--line)"
+        />
 
         {data.map((c, i) => {
           const open = Number(c.open);
@@ -233,7 +247,7 @@ export function PriceChart({
         {lastPrice !== undefined && (
           <g>
             <line
-              x1={0}
+              x1={PLOT_LEFT}
               x2={plotW}
               y1={y(lastPrice)}
               y2={y(lastPrice)}
@@ -272,7 +286,7 @@ export function PriceChart({
             {hover.y < priceH && (
               <>
                 <line
-                  x1={0}
+                  x1={PLOT_LEFT}
                   x2={plotW}
                   y1={hover.y}
                   y2={hover.y}
