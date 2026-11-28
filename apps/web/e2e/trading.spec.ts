@@ -41,6 +41,10 @@ test.describe("terminal", () => {
     await row.getByRole("button", { name: "Trace" }).click();
     const inspector = page.getByRole("dialog", { name: "Engine inspector" });
     await expect(inspector.getByText("Written to the command log")).toBeVisible();
+    // The account value and P&L stay in view above the panel while tracing.
+    const header = await page.getByRole("banner").boundingBox();
+    const panel = await inspector.boundingBox();
+    expect(panel?.y).toBe((header?.y ?? 0) + (header?.height ?? 0));
     await expect(inspector.getByText("Resting in the book")).toBeVisible();
     // This order's numbers, beside the bot median (and the visitor median once
     // there are enough visitor orders), and which step set its latency.

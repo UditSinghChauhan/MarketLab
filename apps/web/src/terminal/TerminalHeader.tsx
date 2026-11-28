@@ -34,7 +34,7 @@ export function TerminalHeader({
 }) {
   const { attach: attachTabs, style: tabsFade } = useScrollFade(symbol);
   return (
-    <header className="flex h-12 shrink-0 items-center gap-4 border-b border-line bg-surface px-3">
+    <header className="flex h-[var(--header-h)] shrink-0 items-center gap-4 border-b border-line bg-surface px-3">
       <Link
         to="/"
         className="flex items-center gap-2 text-sm font-semibold tracking-[-0.02em]"

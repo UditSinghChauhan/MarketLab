@@ -45,6 +45,10 @@ export function Inspector({
   // Focus moves into the panel, Tab stays inside it, and closing returns focus
   // to the control that opened it. The page behind stays usable with a pointer.
   useFocusScope(panelRef, open);
+  // From xl, where the terminal is one screen and the header never scrolls away,
+  // the panel opens below the header: the account value and P&L an order just
+  // changed stay in view while it is traced. Below xl the page scrolls, so the
+  // panel takes the full height.
 
   if (!open) return null;
 
@@ -54,7 +58,7 @@ export function Inspector({
       role="dialog"
       aria-label="Engine inspector"
       tabIndex={-1}
-      className="fixed inset-y-0 right-0 z-30 flex w-full max-w-[440px] flex-col border-l border-line bg-surface shadow-[-24px_0_48px_-24px_rgb(0_0_0/0.6)]"
+      className="fixed inset-y-0 right-0 z-30 xl:top-[var(--header-h)] flex w-full max-w-[440px] flex-col border-l border-line bg-surface shadow-[-24px_0_48px_-24px_rgb(0_0_0/0.6)]"
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.stopPropagation(); // close the panel, don't also clear the order ticket

@@ -27,6 +27,8 @@
   --pending: #94640a;
   --bid-wash: rgb(15 122 80 / 0.1);
   --ask-wash: rgb(200 50 58 / 0.1);
+  /* The terminal's header; the inspector opens below it, beside the account figures. */
+  --header-h: 3rem;
   color-scheme: light;
 }
 
