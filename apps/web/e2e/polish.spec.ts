@@ -87,6 +87,38 @@ test.describe("first run", () => {
   });
 });
 
+test("the landing page tour shows each screen's real screenshot", async ({ page }) => {
+  await page.goto("/");
+  const tour = page.locator("#tour");
+  await tour.scrollIntoViewIfNeeded();
+  for (const [tab, file] of [
+    ["Trading terminal", "terminal"],
+    ["Engine inspector", "inspector"],
+    ["Verified replay", "replay"],
+  ] as const) {
+    await tour.getByRole("tab", { name: new RegExp(tab) }).click();
+    const image = tour.getByRole("tabpanel").getByRole("img");
+    await expect(image).toHaveAttribute("src", `/tour/${file}-1120.webp`);
+    // Decoded, so the file exists in the build and is a real image.
+    await expect
+      .poll(() => image.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth))
+      .toBeGreaterThan(0);
+  }
+});
+
+test("the landing page ends with a way into the product", async ({ page }) => {
+  await page.goto("/");
+  const close = page.getByRole("region", { name: "Place an order and watch where it goes." });
+  await expect(close.getByRole("link", { name: "Open the terminal" })).toHaveAttribute(
+    "href",
+    "/terminal",
+  );
+  await expect(close.getByRole("link", { name: "Run the replay" })).toHaveAttribute(
+    "href",
+    "/replay",
+  );
+});
+
 test("the landing page footer links to the author and the source", async ({ page }) => {
   await page.goto("/");
   const footer = page.getByRole("contentinfo");
