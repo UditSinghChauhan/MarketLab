@@ -78,10 +78,15 @@ function Arrow({
 export function Architecture() {
   const { attach: attachScroller, style: scrollerFade } = useScrollFade();
   return (
-    <figure className="mt-16">
-      <figcaption className="mb-4 text-sm text-muted">
-        How an order moves through the system. Numbers show the order of steps for one command.
-        <span className="md:hidden"> Scroll sideways to see all of it.</span>
+    <figure className="mt-20">
+      <figcaption className="mb-6">
+        <h3 className="text-lg font-semibold tracking-[-0.02em]">
+          How an order moves through the system
+        </h3>
+        <p className="mt-2 text-sm text-muted">
+          Numbers show the order of steps for one command.
+          <span className="md:hidden"> Scroll sideways to see all of it.</span>
+        </p>
       </figcaption>
       <div className="rounded-lg border border-line bg-surface p-4">
         <div

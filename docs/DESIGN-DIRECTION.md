@@ -76,8 +76,12 @@ smaller screens the panels stack, with the order ticket directly under the
 chart, so a phone user never scrolls past the whole book to trade.
 
 **Landing page:** hero (headline, live stats, live order book with the
-one-click order), how price-time priority works with a worked example, the
-engineering, an architecture diagram, and an honest list of what is simulated.
+one-click order), a product tour (the terminal, the inspector and verified
+replay as real screenshots, one tab at a time), how price-time priority works
+with a worked example, the engineering, an architecture diagram, an honest list
+of what is simulated, and a closing band in the terminal's dark theme with the
+way in. The tour's screenshots come from the product itself
+(`npm run assets -w @marketlab/web`), so they are regenerated, not drawn.
 
 **Replay (`/replay`):** the terminal's graphite theme and components. The
 verdict sits directly under the header in one plain sentence, because it is the
@@ -88,6 +92,7 @@ comes right after the chart.
 ## Motion
 
 - A trade briefly tints its row in the tape; nothing else moves on its own.
+- Choosing a tour tab fades its screenshot in (180 ms); the first one appears without it.
 - Motion otherwise answers an action: opening the inspector, switching tabs,
   pressing play on the replay timeline.
 - `prefers-reduced-motion` turns animation off.

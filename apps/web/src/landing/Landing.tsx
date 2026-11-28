@@ -19,6 +19,7 @@ import { Logo } from "../ui/Logo";
 import { Architecture } from "./Architecture";
 import { HeroDemo } from "./HeroDemo";
 import { MatchingDiagram } from "./MatchingDiagram";
+import { ProductTour } from "./ProductTour";
 
 export function Landing() {
   // Everything on this page except the live numbers renders without the API.
@@ -100,6 +101,8 @@ export function Landing() {
           </div>
           <HeroDemo />
         </section>
+
+        <ProductTour />
 
         <section id="matching" className="border-t border-line bg-surface">
           <div className="mx-auto grid max-w-6xl gap-12 px-6 py-24 lg:grid-cols-2">
@@ -220,41 +223,74 @@ export function Landing() {
             </ul>
           </div>
         </section>
+
+        {/* The page ends where the product starts: the terminal's own dark theme and one action. */}
+        <section aria-labelledby="try-it" className="dark-ui bg-bg text-text">
+          <div className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-20 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h2 id="try-it" className="text-2xl font-semibold tracking-[-0.025em]">
+                Place an order and watch where it goes.
+              </h2>
+              <p className="mt-4 max-w-[52ch] leading-relaxed text-muted">
+                Buy, sell or rest a limit order, open the inspector to trace it, then let your
+                browser replay the session and check the server's hash.
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-3">
+              <Link
+                to="/terminal"
+                {...prefetchOnIntent("/terminal")}
+                className="inline-flex h-11 items-center rounded-md bg-accent px-5 text-sm font-semibold text-accent-ink hover:opacity-90"
+              >
+                Open the terminal
+              </Link>
+              <Link
+                to="/replay"
+                {...prefetchOnIntent("/replay")}
+                className="inline-flex h-11 items-center rounded-md border border-line px-5 text-sm font-medium hover:border-muted"
+              >
+                Run the replay
+              </Link>
+            </div>
+          </div>
+        </section>
       </main>
 
-      <footer className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-4 px-6 py-10 text-sm text-muted">
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-          <span>Designed and built by Udit Singh Chauhan.</span>
-          <ul aria-label="Contact the author" className="flex flex-wrap gap-x-6 gap-y-2">
+      <footer className="dark-ui border-t border-line bg-bg">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-4 px-6 py-10 text-sm text-muted">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <span>Designed and built by Udit Singh Chauhan.</span>
+            <ul aria-label="Contact the author" className="flex flex-wrap gap-x-6 gap-y-2">
+              <li>
+                <a href={GITHUB} className="hover:text-text">
+                  GitHub
+                </a>
+              </li>
+              <li>
+                <a href={LINKEDIN} className="hover:text-text">
+                  LinkedIn
+                </a>
+              </li>
+              <li>
+                <a href={`mailto:${EMAIL}`} className="hover:text-text">
+                  {EMAIL}
+                </a>
+              </li>
+            </ul>
+          </div>
+          <ul aria-label="About this project" className="flex gap-6">
             <li>
-              <a href={GITHUB} className="hover:text-text">
-                GitHub
+              <a href={DECISIONS} className="hover:text-text">
+                Design decisions
               </a>
             </li>
             <li>
-              <a href={LINKEDIN} className="hover:text-text">
-                LinkedIn
-              </a>
-            </li>
-            <li>
-              <a href={`mailto:${EMAIL}`} className="hover:text-text">
-                {EMAIL}
+              <a href={REPO} className="hover:text-text">
+                Source code
               </a>
             </li>
           </ul>
         </div>
-        <ul aria-label="About this project" className="flex gap-6">
-          <li>
-            <a href={DECISIONS} className="hover:text-text">
-              Design decisions
-            </a>
-          </li>
-          <li>
-            <a href={REPO} className="hover:text-text">
-              Source code
-            </a>
-          </li>
-        </ul>
       </footer>
     </div>
   );

@@ -5,13 +5,17 @@
  *                          composed with the name and pitch (scripts/og.html)
  *   apple-touch-icon.png   180 px home-screen icon
  *   icon-192.png, icon-512.png   web manifest icons
+ *   tour/*.webp            the landing page's product tour: terminal,
+ *                          inspector and verified replay, at two widths
  *
  * Usage: start the app (`npm run build && npm start`, or the dev servers), then
  *   BASE_URL=http://localhost:8080 npm run assets -w @marketlab/web
  * Set CHROME_PATH to use an installed Chrome instead of Playwright's browser.
  */
 
-import { readFile } from "node:fs/promises";
+/* global document, HTMLElement, Image -- used only inside page.evaluate, which runs in the browser */
+
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,6 +25,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(here, "../public");
 const fonts = path.resolve(here, "../../../node_modules/@fontsource/ibm-plex-sans/files");
 const baseUrl = process.env.BASE_URL ?? "http://localhost:8080";
+/** Widths of each tour image; the landing page lists both in `srcset`. */
+const TOUR_WIDTHS = [1120, 2240];
 
 const dataUrl = async (file, type) =>
   `data:${type};base64,${(await readFile(file)).toString("base64")}`;
@@ -87,7 +93,83 @@ try {
     await icon.screenshot({ path: path.join(publicDir, file), type: "png" });
     await icon.close();
   }
-  console.log(`Rendered og.png and icons into ${publicDir}`);
+
+  // 4. The landing page's product tour: the terminal, the inspector tracing an
+  //    order, and a finished verified replay, each in two widths of WebP.
+  await renderTour(browser);
+  console.log(`Rendered og.png, icons and tour images into ${publicDir}`);
 } finally {
   await browser.close();
+}
+
+async function renderTour(browser) {
+  const page = await browser.newPage({
+    viewport: { width: 1280, height: 800 },
+    deviceScaleFactor: 2,
+  });
+  await page.addInitScript(() => localStorage.setItem("marketlab.guide", "done"));
+  const shots = {};
+
+  await page.goto(`${baseUrl}/terminal/ORBT`);
+  await page.getByRole("img", { name: /Price chart/ }).waitFor();
+  const buy = page.getByRole("button", { name: /^Buy 10 ORBT/ });
+  // The ticket enables its button once the book and the account have loaded.
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("button")].some(
+      (b) => b.textContent?.startsWith("Buy 10 ORBT") && !b.disabled,
+    ),
+  );
+  await buy.click();
+  await page.getByText("Bought 10 ORBT").waitFor();
+  await page.waitForTimeout(1_500);
+  shots.terminal = await page.screenshot({ type: "png" });
+
+  await page.keyboard.press("i");
+  await page
+    .getByRole("dialog", { name: "Engine inspector" })
+    .getByText("Matched by the engine")
+    .waitFor();
+  // The dialog focuses its Close button for keyboard users; a still image reads better without the ring.
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  });
+  await page.waitForTimeout(500);
+  shots.inspector = await page.screenshot({ type: "png" });
+
+  await page.goto(`${baseUrl}/replay`);
+  await page
+    .getByText(/Your browser replayed [\d,]+ engine commands/)
+    .waitFor({ timeout: 120_000 });
+  await page.waitForTimeout(1_000);
+  shots.replay = await page.screenshot({ type: "png" });
+
+  // Chrome encodes WebP itself, so no image library is needed: draw each
+  // screenshot onto a canvas at the target width and export it.
+  await mkdir(path.join(publicDir, "tour"), { recursive: true });
+  const encoder = await browser.newPage();
+  for (const [name, png] of Object.entries(shots)) {
+    for (const width of TOUR_WIDTHS) {
+      const base64 = await encoder.evaluate(
+        async ({ src, width }) => {
+          const image = new Image();
+          image.src = src;
+          await image.decode();
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = Math.round((image.height * width) / image.width);
+          const context = canvas.getContext("2d");
+          context.imageSmoothingQuality = "high";
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+          return canvas.toDataURL("image/webp", 0.86).split(",")[1];
+        },
+        { src: `data:image/png;base64,${png.toString("base64")}`, width },
+      );
+      await writeFile(
+        path.join(publicDir, "tour", `${name}-${String(width)}.webp`),
+        Buffer.from(base64, "base64"),
+      );
+    }
+  }
+  await encoder.close();
+  await page.close();
 }
