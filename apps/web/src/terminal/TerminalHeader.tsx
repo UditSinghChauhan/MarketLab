@@ -82,8 +82,8 @@ export function TerminalHeader({
         })}
       </nav>
       <div aria-hidden="true" className="flex-1 lg:hidden" />
+      <Status status={status} exchange={exchange} />
       <div className="hidden items-center gap-5 text-xs md:flex">
-        <Status status={status} exchange={exchange} />
         <div role="group" aria-label="Your account">
           {/* Labels in the loading state too, so nothing moves when the account arrives. */}
           <dl className="grid grid-cols-[auto_auto] items-baseline gap-x-2 text-right leading-tight">
@@ -129,6 +129,11 @@ export function TerminalHeader({
   );
 }
 
+/**
+ * The connection's state, announced politely as it changes (connecting, live,
+ * reconnecting). One region at every width: shown from md, and read by screen
+ * readers on a phone, where the header has no room for it. The dot never moves.
+ */
 function Status({ status, exchange }: { status: ConnectionStatus; exchange: ExchangeState }) {
   const label =
     exchange === "starting"
@@ -139,7 +144,12 @@ function Status({ status, exchange }: { status: ConnectionStatus; exchange: Exch
           ? "Connecting"
           : "Reconnecting";
   return (
-    <span className="flex items-center gap-1.5 text-muted" role="status">
+    <span
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      className="sr-only text-xs text-muted md:not-sr-only md:mr-1 md:flex md:items-center md:gap-1.5"
+    >
       <span
         aria-hidden="true"
         className={`size-1.5 rounded-full ${label === "Live" ? "bg-bid" : "bg-pending"}`}

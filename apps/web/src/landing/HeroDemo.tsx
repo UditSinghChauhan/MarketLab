@@ -107,7 +107,12 @@ export function HeroDemo() {
             )}
           </div>
         </div>
-        <span className="flex items-center gap-1.5 text-xs text-muted" role="status">
+        <span
+          className="flex items-center gap-1.5 text-xs text-muted"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           <span
             aria-hidden="true"
             className={`size-1.5 rounded-full ${market.status === "live" ? "bg-bid" : "bg-pending"}`}
