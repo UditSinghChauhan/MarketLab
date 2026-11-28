@@ -56,6 +56,45 @@ test.describe("terminal", () => {
     await expect(row.getByText("Cancelled")).toBeVisible();
   });
 
+  test("the tape shows each trade once, newest first, after the guest session connects", async ({
+    page,
+  }) => {
+    // A fresh visitor's stream opens before their guest session exists, and the
+    // session's stream then resends the tape. Holding the session until the first
+    // tape has arrived makes that overlap happen every time, not on a race.
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route("**/api/session", async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.goto("/terminal/ORBT");
+    const rows = page.locator("[data-live-feed] tr[data-seq]");
+    await expect(rows.first()).toBeVisible();
+    release();
+    // The session's stream is open once the account has loaded; let a few ticks print.
+    await expect(page.getByRole("button", { name: /Buy 10 ORBT/ })).toBeEnabled();
+    await page.waitForTimeout(2_000);
+
+    const tape = await rows.evaluateAll((trs) =>
+      trs.map((tr) => ({
+        seq: Number(tr.getAttribute("data-seq")),
+        time: tr.lastElementChild?.textContent ?? "",
+      })),
+    );
+    expect(tape.length).toBeGreaterThan(0);
+    expect(tape.length).toBeLessThanOrEqual(60);
+    expect(new Set(tape.map((t) => t.seq)).size).toBe(tape.length);
+    for (let i = 1; i < tape.length; i++) {
+      const [newer, older] = [tape[i - 1], tape[i]];
+      expect(older?.seq).toBeLessThan(newer?.seq ?? 0);
+      // Clock times (HH:MM:SS): trades from one engine tick share a time.
+      expect((older?.time ?? "") <= (newer?.time ?? "")).toBe(true);
+    }
+  });
+
   test("checks the ticket as it is typed, and won't send an order the exchange would refuse", async ({
     page,
   }) => {

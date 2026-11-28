@@ -52,6 +52,7 @@ export function TradeTape({
         {trades.map((t, i) => (
           <tr
             key={t.seq}
+            data-seq={t.seq}
             className={`h-6 ${i < 3 ? (t.aggressor === "buy" ? "flash-up" : "flash-down") : ""} ${
               highlight?.has(t.seq) ? "bg-raised" : ""
             }`}

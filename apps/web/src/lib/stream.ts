@@ -70,6 +70,19 @@ function upsertCandle(candles: readonly Candle[], candle: Candle): Candle[] {
   return [...candles, candle].slice(-480);
 }
 
+/**
+ * The tape, newest first, each trade once. Every connection starts with a
+ * snapshot of recent trades that overlaps what is already shown (a session's
+ * stream replacing the visitor's, a reconnect), so trades merge by seq rather
+ * than being prepended.
+ */
+function mergeTrades(incoming: readonly TradePrint[], current: readonly TradePrint[]) {
+  const bySeq = new Map<number, TradePrint>();
+  for (const t of current) bySeq.set(t.seq, t);
+  for (const t of incoming) bySeq.set(t.seq, t);
+  return [...bySeq.values()].sort((a, b) => b.seq - a.seq).slice(0, MAX_TRADES);
+}
+
 export function reducer(state: MarketState, action: Action): MarketState {
   switch (action.type) {
     case "reset":
@@ -101,7 +114,7 @@ export function reducer(state: MarketState, action: Action): MarketState {
           return {
             ...state,
             tradesLoaded: true,
-            trades: [...m.trades, ...state.trades].slice(0, MAX_TRADES),
+            trades: mergeTrades(m.trades, state.trades),
           };
         case "candle":
           if (m.symbol !== state.symbol) return state;
