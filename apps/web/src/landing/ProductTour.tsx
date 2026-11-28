@@ -12,12 +12,15 @@ import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 
 import { prefetchOnIntent } from "../lib/routes";
+import { useMediaQuery } from "../lib/useMediaQuery";
 
 interface Screen {
   readonly key: "terminal" | "inspector" | "replay";
   readonly title: string;
   readonly summary: string;
   readonly alt: string;
+  /** What the phone crop shows, which is less than the full screenshot. */
+  readonly phoneAlt: string;
   readonly action: { readonly label: string; readonly to: "/terminal" | "/replay" };
 }
 
@@ -28,6 +31,8 @@ const SCREENS: readonly Screen[] = [
     summary:
       "A candlestick chart, a live depth ladder and a keyboard-first order ticket. Click any price in the book to set a limit order.",
     alt: "The trading terminal: a candlestick chart, the order book ladder, the order ticket and a position after buying 10 shares.",
+    phoneAlt:
+      "The trading terminal on a phone: the order ticket just after buying 10 shares, with the order book starting below it.",
     action: { label: "Open the terminal", to: "/terminal" },
   },
   {
@@ -36,6 +41,8 @@ const SCREENS: readonly Screen[] = [
     summary:
       "Any order's path through the system: received, queued, written to Postgres, matched. With the time each step took and every event it caused.",
     alt: "The engine inspector beside the terminal, tracing one order through validation, the command log write and matching, with the time of each step.",
+    phoneAlt:
+      "The engine inspector on a phone, tracing one order: received by the API, queued, written to the command log and matched, with the time of each step.",
     action: { label: "Place an order, then press I", to: "/terminal" },
   },
   {
@@ -44,6 +51,8 @@ const SCREENS: readonly Screen[] = [
     summary:
       "Your browser downloads the session's seed and command log, runs the same engine in a Web Worker and checks the server's state hash after every entry.",
     alt: "The replay page: a verdict that the browser replayed the session and matched the server's state hash, above the replayed chart and order book.",
+    phoneAlt:
+      "The replay page on a phone: a verdict that the browser replayed the session and matched the server's state hash, above the replayed chart and the timeline.",
     action: { label: "Run the replay", to: "/replay" },
   },
 ];
@@ -77,6 +86,8 @@ export function ProductTour() {
   const [chosen, setChosen] = useState(false);
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
   const id = useId();
+  // The same test as the <picture> source, so the text describes the image shown.
+  const phone = useMediaQuery(PHONE);
 
   const select = (index: number, focus = false) => {
     const next = (index + SCREENS.length) % SCREENS.length;
@@ -194,7 +205,7 @@ export function ProductTour() {
                 height={800}
                 loading="lazy"
                 decoding="async"
-                alt={screen.alt}
+                alt={phone ? screen.phoneAlt : screen.alt}
                 className={`block aspect-[16/10] h-auto w-full rounded-[11px] bg-surface outline-1 -outline-offset-1 outline-white/[0.06] max-sm:aspect-[2/3] ${chosen ? "tour-image" : ""}`}
               />
             </picture>

@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ProductTour } from "./ProductTour";
 
@@ -86,5 +86,22 @@ describe("ProductTour", () => {
     );
     expect(source).toHaveAttribute("width", "400");
     expect(source).toHaveAttribute("height", "600");
+  });
+
+  it("describes the phone crop, not the full screenshot, on a phone", () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: query === "(max-width: 639px)",
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      })),
+    );
+    try {
+      renderTour();
+      expect(screen.getByRole("img")).toHaveAccessibleName(/^The trading terminal on a phone/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
