@@ -80,6 +80,10 @@
   --text-3xl: 2.5rem;
   --text-4xl: 3.375rem;
   --text-5xl: 4rem;
+
+  /* Product cards on the light page (the hero, the tour): a tight ambient
+     shadow that defines the edge, and a soft key shadow that lifts the card. */
+  --shadow-card: 0 2px 6px -2px rgb(18 26 38 / 0.12), 0 32px 64px -32px rgb(18 26 38 / 0.45);
 }
 
 @layer base {

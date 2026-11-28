@@ -82,7 +82,7 @@ export function HeroDemo() {
   };
 
   return (
-    <div className="dark-ui overflow-hidden rounded-xl border border-line bg-surface text-text shadow-[0_32px_64px_-32px_rgb(18_26_38/0.45)]">
+    <div className="dark-ui overflow-hidden rounded-xl border border-line bg-surface text-text shadow-card">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <div>
           <div className="flex items-baseline gap-2">

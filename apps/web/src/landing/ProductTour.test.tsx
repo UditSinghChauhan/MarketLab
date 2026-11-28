@@ -73,4 +73,18 @@ describe("ProductTour", () => {
       "/tour/terminal-1120.webp 1120w, /tour/terminal-2240.webp 2240w",
     );
   });
+
+  it("serves phones a crop of each screen, sized so nothing moves while it loads", async () => {
+    const user = userEvent.setup();
+    renderTour();
+    await user.click(screen.getByRole("tab", { name: /Engine inspector/ }));
+    const source = screen.getByRole("img").parentElement?.querySelector("source");
+    expect(source).toHaveAttribute("media", "(max-width: 639px)");
+    expect(source).toHaveAttribute(
+      "srcset",
+      "/tour/inspector-phone-800.webp 800w, /tour/inspector-phone-1200.webp 1200w",
+    );
+    expect(source).toHaveAttribute("width", "400");
+    expect(source).toHaveAttribute("height", "600");
+  });
 });

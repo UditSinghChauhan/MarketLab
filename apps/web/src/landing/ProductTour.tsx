@@ -51,12 +51,24 @@ const SCREENS: readonly Screen[] = [
 const WIDTHS = [1120, 2240] as const;
 const srcSet = (key: Screen["key"]) =>
   WIDTHS.map((w) => `/tour/${key}-${String(w)}.webp ${String(w)}w`).join(", ");
+const SIZES = "(min-width: 1152px) 1104px, calc(100vw - 48px)";
+
+/**
+ * On a phone the whole terminal would be too small to read, so each screen has
+ * a crop of the product at a phone's width instead (400 × 600 CSS px).
+ */
+const PHONE = "(max-width: 639px)";
+const PHONE_WIDTHS = [800, 1200] as const;
+const phoneSrcSet = (key: Screen["key"]) =>
+  PHONE_WIDTHS.map((w) => `/tour/${key}-phone-${String(w)}.webp ${String(w)}w`).join(", ");
+const PHONE_SIZES = "calc(100vw - 48px)";
 
 /** Fetch a tab's screenshot before it is shown, so switching never flashes empty. */
 function preload(key: Screen["key"]) {
+  const phone = typeof window.matchMedia === "function" && window.matchMedia(PHONE).matches;
   const image = new Image();
-  image.sizes = "(min-width: 1152px) 1104px, calc(100vw - 48px)";
-  image.srcset = srcSet(key);
+  image.sizes = phone ? PHONE_SIZES : SIZES;
+  image.srcset = phone ? phoneSrcSet(key) : srcSet(key);
 }
 
 export function ProductTour() {
@@ -162,20 +174,30 @@ export function ProductTour() {
           className="mt-6 md:mt-8"
         >
           <p className="mb-5 text-sm leading-relaxed text-muted md:hidden">{screen.summary}</p>
-          <div className="dark-ui overflow-hidden rounded-xl border border-line bg-surface shadow-[0_32px_64px_-32px_rgb(18_26_38/0.45)]">
-            {/* Fixed aspect ratio, so nothing below moves while the image loads. */}
-            <img
-              key={screen.key}
-              src={`/tour/${screen.key}-${String(WIDTHS[0])}.webp`}
-              srcSet={srcSet(screen.key)}
-              sizes="(min-width: 1152px) 1104px, calc(100vw - 48px)"
-              width={1280}
-              height={800}
-              loading="lazy"
-              decoding="async"
-              alt={screen.alt}
-              className={`block aspect-[16/10] h-auto w-full bg-surface ${chosen ? "tour-image" : ""}`}
-            />
+          <div className="dark-ui overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+            {/* Fixed aspect ratios (16:10, or 2:3 for the phone crop), so nothing below
+                moves while the image loads. The inner hairline keeps the screenshot's
+                dark edge from running into the shadow. */}
+            <picture key={screen.key}>
+              <source
+                media={PHONE}
+                srcSet={phoneSrcSet(screen.key)}
+                sizes={PHONE_SIZES}
+                width={400}
+                height={600}
+              />
+              <img
+                src={`/tour/${screen.key}-${String(WIDTHS[0])}.webp`}
+                srcSet={srcSet(screen.key)}
+                sizes={SIZES}
+                width={1280}
+                height={800}
+                loading="lazy"
+                decoding="async"
+                alt={screen.alt}
+                className={`block aspect-[16/10] h-auto w-full rounded-[11px] bg-surface outline-1 -outline-offset-1 outline-white/[0.06] max-sm:aspect-[2/3] ${chosen ? "tour-image" : ""}`}
+              />
+            </picture>
           </div>
           <Link
             to={screen.action.to}
