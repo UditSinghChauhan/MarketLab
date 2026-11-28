@@ -2,10 +2,22 @@
 
 [![CI](https://github.com/UditSinghChauhan/MarketLab/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/UditSinghChauhan/MarketLab/actions/workflows/ci.yml)
 
-**A stock exchange you can watch work.** Place an order against a live order
-book of simulated traders, then follow it through the system — validated,
-written to Postgres, matched by a price-time priority engine, settled — down to
-the microseconds each step took.
+**A stock exchange you can watch work.** A price-time priority matching engine,
+a Postgres write-ahead command log with exact replay, and a trading terminal
+that shows each order's path down to the microsecond. Your own browser can
+re-run the whole session and check the server's state hash.
+
+**[Live demo](https://marketlab-yyh5.onrender.com)** ·
+[Verified replay](https://marketlab-yyh5.onrender.com/replay) ·
+[Architecture](#architecture) · [Design decisions](#design-decisions)
+
+> Play money and fictional companies; no signup. The demo runs on Render's free
+> plan, so the first visit after a quiet spell can take about a minute while
+> the server wakes up.
+
+**Built with** TypeScript · React 19 · Vite · Tailwind CSS · TanStack Query ·
+Fastify · zod · PostgreSQL (Neon) · server-sent events · Vitest · fast-check ·
+Playwright · axe. Deployed on Render and Neon, both in Singapore.
 
 ![Placing a limit order and tracing it in the engine inspector](docs/screenshots/demo.gif)
 
@@ -21,8 +33,9 @@ the microseconds each step took.
   log before it is applied. On restart the server replays the log and arrives at
   exactly the same state. A database lock guarantees a single writer, and
   hash-checked snapshots keep a restart under a second however long the session.
-- **Verifiable in your browser.** The [replay page](apps/web/src/replay/Replay.tsx)
-  downloads the session's seed and command log, re-runs the same engine in a Web
+- **Verifiable in your browser.** The
+  [replay page](https://marketlab-yyh5.onrender.com/replay)
+  ([source](apps/web/src/replay/Replay.tsx)) downloads the session's seed and command log, re-runs the same engine in a Web
   Worker, and compares state hashes with the server after every log entry. Then
   it scrubs through the session.
 - **Live everywhere.** Prices, the book, trades and your own fills stream over
@@ -67,18 +80,14 @@ An order's path:
 1. The API authenticates the guest token and validates the body with the same
    zod schema the web app uses.
 2. The engine host queues the command behind earlier ones. One writer means
-   the engine never sees two inputs at once. If the order carries a
-   `clientOrderId` the account has already used, it stops here: the answer is
-   the first order's outcome, marked `"replayed": true`, and nothing is logged.
-   Its current view comes along while the order is still in the account's last
-   200; after that the answer has `"order": null`, and is still not a new order.
-3. The command is appended to the Postgres log. If that fails, it is not applied.
-   One outcome is unknown: if the connection drops after the database committed
-   the write but before it replied, the visitor gets `503`, yet the order exists
-   after the restart. The web app says so, and resending the order unchanged
-   from the same open order form reuses its `clientOrderId`, so it is not
-   placed twice. The id lives only in that form: after a reload or a market
-   switch, a resend gets a new id and would place the order again.
+   the engine never sees two inputs at once. A retried order with a
+   `clientOrderId` the account has already used is answered with the first
+   order's outcome instead of being placed again
+   ([ADR 0004](docs/adr/0004-command-log.md)).
+3. The command is appended to the Postgres log. If that fails, it is not
+   applied. If the reply is lost after the database committed, the visitor gets
+   `503` and the order still exists; ADR 0004 explains this unknown outcome and
+   how the client order id makes a resend safe.
 4. The engine matches it in memory, in microseconds, and emits events.
 5. Read models fold the events into candles, the tape, P&L and order traces,
    and the stream pushes them to every open screen.
@@ -94,6 +103,7 @@ An order's path:
 | Client order ids, at most once per id, not exactly-once | A retry after a lost reply is answered with the first order instead of placing another, within a session and the account's last 500 ids; an order that never reached the log is not placed until it is resent | [ADR 0004](docs/adr/0004-command-log.md)                                   |
 | Snapshots bound startup time                            | Replaying a day of ticks takes about a minute; a hashed snapshot plus the log's tail takes half a second                                                                                                      | [ADR 0006](docs/adr/0006-startup-budget-and-snapshots.md)                  |
 | The database idles when nobody is watching              | No writes and no open connection while idle, so a free serverless database lasts the month; users lose nothing                                                                                                | [ADR 0007](docs/adr/0007-idle-aware-persistence.md)                        |
+| A deploy waits for the old instance to go idle          | Render starts the new instance before stopping the old one, and only one process may write the log; the new one waits for the lock instead of failing                                                         | [ADR 0009](docs/adr/0009-deploys-with-a-single-writer.md)                  |
 | Hand-drawn SVG chart, no chart library                  | Small data, full control, and the drawing rules are worth showing                                                                                                                                             | [PriceChart.tsx](apps/web/src/terminal/PriceChart.tsx)                     |
 | Server-sent events over WebSockets                      | Market data flows one way; commands are plain HTTP                                                                                                                                                            | [stream.ts](apps/api/src/stream.ts)                                        |
 | The browser can check the server                        | The inputs are public and the engine is pure, so the claim "state is a function of the log" is testable by anyone                                                                                             | [ADR 0005](docs/adr/0005-verified-replay.md)                               |
@@ -103,12 +113,43 @@ Design system and references: [docs/DESIGN-DIRECTION.md](docs/DESIGN-DIRECTION.m
 
 ## Quality
 
-| Layer                        | What is tested                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Engine (Vitest + fast-check) | Every matching rule; invariants after every random command; determinism; state hash and snapshot properties; replayer scrubbing and divergence detection; deliberately broken code fails the suite                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| API                          | Exact state after replay (in memory and Postgres), snapshot restore equal to full replay, corrupt snapshots ignored, an independent replayer over HTTP reaching the server's hash, write-ahead failure, single-writer lock (real Postgres in CI), persistence failures on the built server against real Postgres (connection killed, reply lost after commit, corrupt stored snapshot, two processes starting at once, waking with the database unreachable), client order ids (a retry answered with the first order after a lost reply, a restart and a snapshot restore; reuse with other details refused), connection-string parsing, TLS verification and channel binding (Postgres with TLS in CI), HTTP contract, auth, rate limits, live stream |
-| Web (Testing Library)        | Order ticket keyboard, validation, results; market stream (reducer, reconnect, session expiry); terminal session, toasts and shortcuts; order wording; cold-start monitor; error boundary; formatting                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| End to end (Playwright)      | Hero order trace, place/trace/cancel in the terminal, an order whose response is lost then resent (placed once, in the hero and the terminal), rejection message, routing, phone layout, cold start, keyboard focus, no layout shift, no console errors, axe (no serious or critical violations), verified replay (match, scrub, play, tampered log)                                                                                                                                                                                                                                                                                                                                                                                                    |
+**Engine** (Vitest and fast-check)
+
+- Every matching rule, and the invariants after every random command
+- Determinism, state hash and snapshot properties
+- Replayer scrubbing and divergence detection
+- Deliberately broken code fails the suite
+
+**API**
+
+- Exact state after replay, in memory and on Postgres; a snapshot restore equals
+  a full replay; corrupt snapshots are ignored
+- An independent replayer over HTTP reaches the server's hash
+- Write-ahead failure and the single-writer lock (real Postgres in CI)
+- Persistence failures on the built server against real Postgres: connection
+  killed, reply lost after commit, corrupt stored snapshot, two processes
+  starting at once, waking with the database unreachable
+- Client order ids: a retry after a lost reply, a restart and a snapshot restore
+  are answered with the first order; reuse with other details is refused
+- Connection-string parsing, TLS verification and channel binding (Postgres with
+  TLS in CI)
+- HTTP contract, auth, rate limits, live stream
+
+**Web** (Testing Library)
+
+- Order ticket keyboard, validation and results
+- Market stream: reducer, reconnect, session expiry
+- Terminal session, toasts and shortcuts; order wording; cold-start monitor;
+  error boundary; formatting
+
+**End to end** (Playwright)
+
+- Hero order trace; place, trace and cancel in the terminal
+- An order whose response is lost, then resent: placed once, in the hero and in
+  the terminal
+- Rejection message, routing, phone layout, cold start, keyboard focus
+- No layout shift, no console errors, axe (no serious or critical violations)
+- Verified replay: match, scrub, play, tampered log
 
 **Unit line coverage: 87%** of TypeScript modules (`npm run coverage`; React
 components are covered end to end by Playwright). CI publishes the full report
@@ -140,6 +181,12 @@ refilled by other work, a sleeping core clocking down), not to extra work in
 the engine; spinning instead of sleeping for those 5 ms still leaves it at
 about 13 µs. A visitor's order in the running system spends milliseconds in
 the Postgres write and microseconds in matching, and the inspector shows both.
+
+These medians come from a development machine. The live demo runs on Render's
+free plan, a fraction of a shared CPU, where the same visitor order measured
+about 50–180 µs in the engine and 7–9 ms for the log write to Neon in the same
+region (four orders, November 2026). Matching stays microseconds and the write
+stays milliseconds; only the absolute numbers move.
 
 ## Security
 
@@ -174,6 +221,23 @@ it protects is the shared market, from abuse and from forged requests.
 - **Public by design:** the command log is readable by anyone, for verified
   replay. It identifies visitors only by opaque guest ids.
 
+## Known limitations
+
+- **One server instance.** The engine is a single writer; scaling out is
+  designed but not built ([ADR 0008](docs/adr/0008-scaling-beyond-one-server.md)).
+- **Play money and fictional companies.** No fees, short selling, order
+  amendment or time-in-force options ([What is simulated](#what-is-simulated)).
+- **A retry is safe only from the same open order form.** The client order id
+  lives in that form; after a reload, a resend is a new order
+  ([ADR 0004](docs/adr/0004-command-log.md)).
+- **The command log is public**, for verified replay. It names visitors only by
+  opaque guest ids ([Security](#security)).
+- **Cold starts on the free plan.** The first visit after about 15 quiet minutes
+  waits for the server to wake ([DEPLOYMENT.md](DEPLOYMENT.md)).
+- **A deploy made while someone is using the site** finishes after they leave,
+  or Render cancels it and the old version keeps serving
+  ([ADR 0009](docs/adr/0009-deploys-with-a-single-writer.md)).
+
 ## Run it locally
 
 Requires Node 22+ (`nvm use` reads [`.nvmrc`](.nvmrc)).
@@ -205,7 +269,13 @@ database, set `DATABASE_URL` in the shell or in `apps/api/.env` (see
 | `npm run build` | Production build of every package                                                       |
 | `npm start`     | Runs the built API, serving the built web app                                           |
 
-Deployment: [DEPLOYMENT.md](DEPLOYMENT.md).
+## Deployment
+
+One Render web service in Singapore runs the API and the engine and serves the
+web app; Neon PostgreSQL in Singapore holds the command log. The database is
+released while nobody is watching
+([ADR 0007](docs/adr/0007-idle-aware-persistence.md)). Step by step:
+[DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Project structure
 
